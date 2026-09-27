@@ -144,13 +144,14 @@ function drawParticles(ctx, time) {
   const cx = window.CANVAS_CX || 0;
   const cy = window.CANVAS_CY || 0;
   const t = time;
+  const z = S.zoom || 1;
 
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
 
-  // Очень слабый ореол вокруг центра
+  // Ореол центра
   const pulse = 1 + PART.corePulse * 0.5;
-  const haloR = 18 * pulse;
+  const haloR = 18 * pulse * z;
   const haloGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, haloR);
   haloGrad.addColorStop(0, 'rgba(160, 140, 230, 0.18)');
   haloGrad.addColorStop(0.5, 'rgba(120, 100, 200, 0.06)');
@@ -160,19 +161,21 @@ function drawParticles(ctx, time) {
   ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
   ctx.fill();
 
-  // Центр — как обычная частица
+  // Центр
   ctx.fillStyle = 'rgba(200, 190, 240, 0.9)';
   ctx.beginPath();
-  ctx.arc(cx, cy, PART.coreR * pulse, 0, Math.PI * 2);
+  ctx.arc(cx, cy, PART.coreR * pulse * z, 0, Math.PI * 2);
   ctx.fill();
 
-  // Частицы
+  // Частицы — с учётом зума
   for (const p of PART.particles) {
+    const sx = cx + (p.x - cx) * z;
+    const sy = cy + (p.y - cy) * z;
     const twinkle = 0.7 + 0.3 * Math.sin(p.twinkle + t * 2);
     ctx.globalAlpha = p.bright * twinkle * 0.85;
-    ctx.fillStyle = `hsl(${p.hue}, 70%, 70%)`;
+    ctx.fillStyle = 'hsl(' + p.hue + ', 70%, 70%)';
     ctx.beginPath();
-    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.arc(sx, sy, p.r * z, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.globalAlpha = 1;
