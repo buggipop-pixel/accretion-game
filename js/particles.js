@@ -1,35 +1,59 @@
 // ═══════════════════════════════════════════════════════════════
-//  PARTICLES.JS — облако пыли и drag-сбор
-//  Работает только на фазах I–III (до выбора звезды)
-//  Стягивание к центру появится после появления звезды
+//  PARTICLES.JS — облако пыли по всему экрану
+//  Медленно стягивается к маленькому центру.
+//  Drag работает только до выбора звезды.
 // ═══════════════════════════════════════════════════════════════
 
 const PART = {
   particles: [],
-  coreR: 0,
+  coreR: 1.5,       // центр — как обычная частица
   corePulse: 0,
   dragX: 0,
   dragY: 0,
   dragActive: false,
-  tutorialShown: false,
-  tutorialTime: 0,
 };
 
-const PART_COUNT = 400;
-const TOUCH_RADIUS = 100;   // радиус притяжения к пальцу
+// ─── БАЛАНС ─────────────────────────────────────────────────────
+const PART_COUNT      = 600;    // заполняем весь экран
+const PULL_VELOCITY   = 0.05;   // px/сек — очень медленно
+const TOUCH_RADIUS    = 110;    // радиус действия пальца
+const TOUCH_VELOCITY  = 500;    // px/сек — притяжение к пальцу
+const ABSORB_RADIUS   = 14;     // на каком расстоянии поглощение
+const DUST_PER_PARTICLE = 1;    // пыли за частицу
 
 // ─── СОЗДАНИЕ ЧАСТИЦЫ ───────────────────────────────────────────
-function makeParticle(seed) {
-  const angle = Math.random() * Math.PI * 2;
-  const dist = 60 + Math.random() * 260;
+function makeParticleSpawnOnEdge() {
+  const W = window.CANVAS_W || 400;
+  const H = window.CANVAS_H || 700;
+  // Спавн по краю экрана
+  const side = Math.floor(Math.random() * 4);
+  let x, y;
+  if (side === 0) { x = Math.random() * W; y = -10; }
+  else if (side === 1) { x = W + 10; y = Math.random() * H; }
+  else if (side === 2) { x = Math.random() * W; y = H + 10; }
+  else { x = -10; y = Math.random() * H; }
   return {
-    x: Math.cos(angle) * dist,
-    y: Math.sin(angle) * dist * 0.75,
-    vx: 0,
-    vy: 0,
-    r: 0.5 + Math.random() * 1.8,
-    hue: Math.random() < 0.7 ? 215 + Math.random() * 50 : 15 + Math.random() * 35,
-    bright: 0.4 + Math.random() * 0.6,
+    x, y,
+    r: 0.5 + Math.random() * 1.3,
+    hue: Math.random() < 0.72
+      ? 210 + Math.random() * 55
+      : 15 + Math.random() * 35,
+    bright: 0.35 + Math.random() * 0.55,
+    twinkle: Math.random() * Math.PI * 2,
+  };
+}
+
+function makeParticleRandom() {
+  const W = window.CANVAS_W || 400;
+  const H = window.CANVAS_H || 700;
+  return {
+    x: Math.random() * W,
+    y: Math.random() * H,
+    r: 0.5 + Math.random() * 1.3,
+    hue: Math.random() < 0.72
+      ? 210 + Math.random() * 55
+      : 15 + Math.random() * 35,
+    bright: 0.35 + Math.random() * 0.55,
     twinkle: Math.random() * Math.PI * 2,
   };
 }
@@ -37,68 +61,71 @@ function makeParticle(seed) {
 function initParticles() {
   PART.particles = [];
   for (let i = 0; i < PART_COUNT; i++) {
-    PART.particles.push(makeParticle());
+    PART.particles.push(makeParticleRandom());
   }
-  PART.tutorialShown = false;
-  PART.tutorialTime = 0;
 }
 
 // ─── ОБНОВЛЕНИЕ ─────────────────────────────────────────────────
 function updateParticles(dt, time) {
-  // После появления звезды пыль больше не нужна
-  if (S.starType) return;
-
-  PART.coreR = 4 + Math.min(30, Math.log10(S.dustTotal + 10) * 8);
-  PART.corePulse *= 0.92;
+  if (S.starType) return; // после звезды частицы не нужны
 
   const cx = window.CANVAS_CX || 0;
   const cy = window.CANVAS_CY || 0;
-  const touchX = PART.dragX - cx;
-  const touchY = (PART.dragY - cy) / 0.75;
+  const W = window.CANVAS_W || 400;
+  const H = window.CANVAS_H || 700;
 
-  for (const p of PART.particles) {
+  PART.corePulse *= 0.9;
+
+  for (let i = PART.particles.length - 1; i >= 0; i--) {
+    const p = PART.particles[i];
     p.twinkle += dt * 2;
 
-    // Притяжение только к пальцу (если тянем)
+    // Базовая скорость — очень медленно к центру
+    const dx = cx - p.x;
+    const dy = cy - p.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    let vx = (dx / dist) * PULL_VELOCITY;
+    let vy = (dy / dist) * PULL_VELOCITY;
+
+    // Притяжение к пальцу
     if (PART.dragActive) {
-      const dx = touchX - p.x;
-      const dy = touchY - p.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < TOUCH_RADIUS && dist > 1) {
-        const force = (1 - dist / TOUCH_RADIUS) * 1200;
-        p.vx += (dx / dist) * force * dt;
-        p.vy += (dy / dist) * force * dt;
+      const tdx = PART.dragX - p.x;
+      const tdy = PART.dragY - p.y;
+      const tdist = Math.sqrt(tdx * tdx + tdy * tdy) || 1;
+      if (tdist < TOUCH_RADIUS) {
+        const strength = (1 - tdist / TOUCH_RADIUS) * TOUCH_VELOCITY;
+        vx += (tdx / tdist) * strength;
+        vy += (tdy / tdist) * strength;
       }
     }
 
-    // Затухание
-    p.vx *= 0.92;
-    p.vy *= 0.92;
+    p.x += vx * dt;
+    p.y += vy * dt;
 
-    // Свободный дрейф — минимальный, чтобы частицы не стояли на месте
-    p.vx += (Math.random() - 0.5) * 2 * dt;
-    p.vy += (Math.random() - 0.5) * 2 * dt;
-
-    // Движение
-    p.x += p.vx * dt * 60;
-    p.y += p.vy * dt * 60;
-
-    // Мягкое ограничение области (частицы не вылетают за 420)
-    const r = Math.sqrt(p.x * p.x + p.y * p.y);
-    if (r > 420) {
-      const k = 420 / r;
-      p.x *= k;
-      p.y *= k;
-      p.vx *= 0.5;
-      p.vy *= 0.5;
+    // Поглощение центром
+    const dCenter = Math.sqrt((p.x - cx) ** 2 + (p.y - cy) ** 2);
+    if (dCenter < ABSORB_RADIUS) {
+      S.dust += DUST_PER_PARTICLE;
+      S.dustTotal += DUST_PER_PARTICLE;
+      PART.corePulse = 1;
+      PART.particles[i] = makeParticleSpawnOnEdge();
+      continue;
     }
-  }
 
-  // Обучение
-  if (!PART.tutorialShown) {
-    PART.tutorialTime += dt;
-    if (PART.tutorialTime > 20 || S.dustTotal > 200) {
-      PART.tutorialShown = true;
+    // Поглощение пальцем
+    if (PART.dragActive) {
+      const dFinger = Math.sqrt((p.x - PART.dragX) ** 2 + (p.y - PART.dragY) ** 2);
+      if (dFinger < ABSORB_RADIUS) {
+        S.dust += DUST_PER_PARTICLE;
+        S.dustTotal += DUST_PER_PARTICLE;
+        PART.particles[i] = makeParticleSpawnOnEdge();
+        continue;
+      }
+    }
+
+    // Если частица вылетела далеко за экран — вернуть
+    if (p.x < -50 || p.x > W + 50 || p.y < -50 || p.y > H + 50) {
+      PART.particles[i] = makeParticleSpawnOnEdge();
     }
   }
 }
@@ -111,48 +138,48 @@ function drawParticles(ctx, time) {
   const cy = window.CANVAS_CY || 0;
   const t = time / 1000;
 
-  // Ядро (тусклое, только намёк)
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
-  const pulse = 1 + PART.corePulse * 0.6;
-  const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, PART.coreR * 5 * pulse);
-  coreGrad.addColorStop(0, 'rgba(255, 240, 200, 0.7)');
-  coreGrad.addColorStop(0.3, 'rgba(255, 200, 120, 0.35)');
-  coreGrad.addColorStop(0.7, 'rgba(200, 140, 220, 0.12)');
-  coreGrad.addColorStop(1, 'rgba(120, 80, 200, 0)');
-  ctx.fillStyle = coreGrad;
+
+  // Очень слабый ореол вокруг центра
+  const pulse = 1 + PART.corePulse * 0.5;
+  const haloR = 18 * pulse;
+  const haloGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, haloR);
+  haloGrad.addColorStop(0, 'rgba(160, 140, 230, 0.18)');
+  haloGrad.addColorStop(0.5, 'rgba(120, 100, 200, 0.06)');
+  haloGrad.addColorStop(1, 'rgba(80, 60, 150, 0)');
+  ctx.fillStyle = haloGrad;
   ctx.beginPath();
-  ctx.arc(cx, cy, PART.coreR * 5 * pulse, 0, Math.PI * 2);
+  ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = 'rgba(255, 250, 220, 0.9)';
+
+  // Точка центра — как обычная частица
+  ctx.fillStyle = 'rgba(200, 190, 240, 0.9)';
   ctx.beginPath();
-  ctx.arc(cx, cy, PART.coreR * 0.5 * pulse, 0, Math.PI * 2);
+  ctx.arc(cx, cy, PART.coreR * pulse, 0, Math.PI * 2);
   ctx.fill();
-  ctx.restore();
 
   // Частицы
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
   for (const p of PART.particles) {
-    const sx = cx + p.x;
-    const sy = cy + p.y * 0.75;
     const twinkle = 0.7 + 0.3 * Math.sin(p.twinkle + t * 2);
     ctx.globalAlpha = p.bright * twinkle * 0.85;
     ctx.fillStyle = `hsl(${p.hue}, 70%, 70%)`;
     ctx.beginPath();
-    ctx.arc(sx, sy, p.r, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.globalAlpha = 1;
   ctx.restore();
 
-  // Радиус притяжения пальца
+  // Радиус пальца
   if (PART.dragActive) {
     ctx.save();
-    const grad = ctx.createRadialGradient(PART.dragX, PART.dragY, 0,
-                                          PART.dragX, PART.dragY, TOUCH_RADIUS);
-    grad.addColorStop(0, 'rgba(185, 168, 255, 0.25)');
-    grad.addColorStop(0.6, 'rgba(185, 168, 255, 0.08)');
+    ctx.globalAlpha = 0.10;
+    const grad = ctx.createRadialGradient(
+      PART.dragX, PART.dragY, 0,
+      PART.dragX, PART.dragY, TOUCH_RADIUS
+    );
+    grad.addColorStop(0, 'rgba(185, 168, 255, 0.7)');
     grad.addColorStop(1, 'rgba(185, 168, 255, 0)');
     ctx.fillStyle = grad;
     ctx.beginPath();
@@ -160,65 +187,30 @@ function drawParticles(ctx, time) {
     ctx.fill();
     ctx.restore();
   }
-
-  // Подсказка (только на фазе I и только пока не собрано 200 пыли)
-  if (!PART.tutorialShown && S.stage === 'cloud') {
-    ctx.save();
-    const alpha = Math.min(1, PART.tutorialTime / 1.2) *
-                  (1 - Math.max(0, (PART.tutorialTime - 15) / 5));
-    if (alpha > 0.01) {
-      ctx.globalAlpha = alpha;
-      const hintY = cy + 190;
-
-      // Фон-плашка
-      ctx.fillStyle = 'rgba(20, 14, 45, 0.75)';
-      ctx.strokeStyle = 'rgba(185, 168, 255, 0.4)';
-      ctx.lineWidth = 1;
-      const boxW = 320, boxH = 68;
-      const boxX = cx - boxW / 2, boxY = hintY - 30;
-      roundRect(ctx, boxX, boxY, boxW, boxH, 12);
-      ctx.fill();
-      ctx.stroke();
-
-      // Текст
-      ctx.fillStyle = '#e8e2ff';
-      ctx.font = 'bold 15px -apple-system, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('Проведи пальцем — собери пыль', cx, hintY - 6);
-      ctx.fillStyle = '#a89ce0';
-      ctx.font = '12px -apple-system, sans-serif';
-      ctx.fillText('Частицы притянутся к точке касания', cx, hintY + 16);
-    }
-    ctx.restore();
-  }
 }
 
-// Вспомогательная функция для скруглённого прямоугольника
-function roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.arc(x + w - r, y + r, r, -Math.PI / 2, 0);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.arc(x + w - r, y + h - r, r, 0, Math.PI / 2);
-  ctx.lineTo(x + r, y + h);
-  ctx.arc(x + r, y + h - r, r, Math.PI / 2, Math.PI);
-  ctx.lineTo(x, y + r);
-  ctx.arc(x + r, y + r, r, Math.PI, -Math.PI / 2);
-  ctx.closePath();
-}
-
-// ─── ОБРАБОТКА DRAG ─────────────────────────────────────────────
+// ─── DRAG ───────────────────────────────────────────────────────
 function handleParticleDrag(x, y, active) {
-  if (S.starType) return;
+  if (S.starType) return; // после звезды drag отключён
   PART.dragX = x;
   PART.dragY = y;
   PART.dragActive = active;
 }
 
-// ─── ЭКСПОРТ ────────────────────────────────────────────────────
+// ─── СООБЩЕНИЕ ПОСЛЕ ВЫБОРА ЗВЕЗДЫ ──────────────────────────────
+function onStarChosen() {
+  // Вызывается из evolution-логики при выборе звезды
+  setTimeout(() => {
+    if (typeof toast === 'function') {
+      toast('🌟 Поздравляем!',
+            'Звезда зажглась. Её гравитация собирает пыль без вашего участия');
+    }
+  }, 600);
+}
+
 window.initParticles = initParticles;
 window.updateParticles = updateParticles;
 window.drawParticles = drawParticles;
 window.handleParticleDrag = handleParticleDrag;
+window.onStarChosen = onStarChosen;
 window.PART = PART;
