@@ -1,28 +1,26 @@
 // ═══════════════════════════════════════════════════════════════
 //  STATE.JS — состояние игры и сохранение
-//  S — глобальный объект со всеми данными игрока
 // ═══════════════════════════════════════════════════════════════
 
 const S = {
-  // Фаза игры
   stage: 'cloud',
 
   // Ресурсы
-  dust: 0,           // пыль
-  dustTotal: 0,      // всего добыто пыли (для статистики)
-  energy: 0,         // энергия (новая валюта)
-  civLevel: 0,       // уровень цивилизации
+  dust: 0,
+  dustTotal: 0,
+  energy: 0,
+  civLevel: 0,
 
   // Прогресс
-  starType: null,    // тип звезды (M/K/G/A/B)
-  systemType: null,  // тип системы (single/binary/trinary)
-  planets: [],       // массив планет
-  systems: 1,        // количество систем
+  starType: null,
+  systemType: null,
+  planets: [],
+  systems: 1,
 
   // Активные процессы
-  missions: [],      // активные экспедиции и кометы
-  flights: [],       // визуальные полёты
-  invasions: [],     // активные вторжения
+  missions: [],
+  flights: [],
+  invasions: [],
 
   // Кулдауны
   cooldowns: { expedition: 0, comet: 0 },
@@ -39,15 +37,38 @@ const S = {
   particles: [],
 };
 
-// ═══════════════════════════════════════════════════════════════
-//  СОХРАНЕНИЕ И ЗАГРУЗКА
-//  Используем localStorage браузера
-// ═══════════════════════════════════════════════════════════════
-
 const SAVE_KEY = 'accretion_v13';
 
-// Сохранить игру
+// Флаг: идёт сброс — не сохранять!
+let isResetting = false;
+
+// ─── ФУНКЦИЯ СБРОСА ЗНАЧЕНИЙ ────────────────────────────────────
+// Возвращает S в исходное состояние
+function resetStateValues() {
+  S.stage = 'cloud';
+  S.dust = 0;
+  S.dustTotal = 0;
+  S.energy = 0;
+  S.civLevel = 0;
+  S.starType = null;
+  S.systemType = null;
+  S.planets = [];
+  S.systems = 1;
+  S.missions = [];
+  S.flights = [];
+  S.invasions = [];
+  S.cooldowns = { expedition: 0, comet: 0 };
+  S.lastTick = Date.now();
+  S.eventTimer = 0;
+  S.choiceTimer = 0;
+  S.collisionTimer = 0;
+  S.gammaDebuff = 0;
+  S.vis = { collapse: 0 };
+}
+
+// ─── СОХРАНЕНИЕ ─────────────────────────────────────────────────
 function saveGame() {
+  if (isResetting) return; // защита от перезаписи при сбросе
   try {
     S.lastTick = Date.now();
     const data = {
@@ -71,7 +92,7 @@ function saveGame() {
   }
 }
 
-// Загрузить игру
+// ─── ЗАГРУЗКА ───────────────────────────────────────────────────
 function loadGame() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
@@ -79,7 +100,6 @@ function loadGame() {
     const data = JSON.parse(raw);
     Object.assign(S, data);
 
-    // Восстанавливаем значения по умолчанию, если их нет
     if (!S.cooldowns) S.cooldowns = { expedition: 0, comet: 0 };
     if (!S.missions) S.missions = [];
     if (!S.flights) S.flights = [];
@@ -88,29 +108,29 @@ function loadGame() {
     if (typeof S.civLevel !== 'number') S.civLevel = 0;
     if (typeof S.energy !== 'number') S.energy = 0;
 
-    // Проверяем целостность планет
     for (const p of S.planets) {
       if (!p.baseOrbitR) p.baseOrbitR = p.orbitR || 100;
       if (typeof p.forming !== 'boolean') p.forming = false;
     }
 
-    // Восстанавливаем визуал
     S.vis.collapse = S.starType ? 1 : (S.stage === 'condense' ? 0.3 : 0);
-
-    // Офлайн-доход считается позже, в economy.js
   } catch (e) {
     console.warn('Не удалось загрузить:', e);
   }
 }
 
-// Полный сброс
+// ─── ПОЛНЫЙ СБРОС ───────────────────────────────────────────────
 function resetGame() {
-  localStorage.removeItem(SAVE_KEY);
-  location.reload();
+  isResetting = true;                       // блокируем saveGame
+  localStorage.removeItem(SAVE_KEY);        // удаляем сохранение
+  resetStateValues();                        // обнуляем S
+  setTimeout(function() {
+    location.reload();                       // перезагружаем страницу
+  }, 50);
 }
 
-// Экспорт в window
 window.S = S;
 window.saveGame = saveGame;
 window.loadGame = loadGame;
 window.resetGame = resetGame;
+window.resetStateValues = resetStateValues;
