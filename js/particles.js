@@ -1,6 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  PARTICLES.JS — облако пыли, диск, редкие корабли/кометы
-//  ФИКС: усилен диск на II фазе, ярче визуал
+//  PARTICLES.JS — облако пыли, лёгкое закручивание, зум-заполнение
 // ═══════════════════════════════════════════════════════════════
 
 const PART = {
@@ -13,17 +12,18 @@ const PART = {
   lastPassingAt: 0,
 };
 
-const PART_COUNT       = 600;
-const TOUCH_RADIUS     = 100;
-const TOUCH_VELOCITY   = 400;
-const ABSORB_RADIUS    = 14;
-const DUST_PER_CENTER  = 0.15;
-const DUST_PER_FINGER  = 0.5;
-const DISC_R_BASE      = 50;
-const PASSING_MIN_MS   = 120000;
-const PASSING_MAX_MS   = 300000;
+const PART_COUNT      = 600;
+const TOUCH_RADIUS    = 100;
+const TOUCH_VELOCITY  = 400;
+const ABSORB_RADIUS   = 14;
+const DUST_PER_CENTER = 0.15;
+const DUST_PER_FINGER = 0.5;
+const SPIN_RADIUS     = 55;    // радиус закручивания
+const SPIN_STRENGTH   = 70;    // сила закручивания
+const PASSING_MIN_MS  = 120000;
+const PASSING_MAX_MS  = 300000;
 
-// ─── СКОРОСТЬ ДВИЖЕНИЯ К ЦЕНТРУ ─────────────────────────────────
+// ─── Скорость притяжения по фазам ───────────────────────────────
 function pullVelocity() {
   if (S.stage === 'cloud')     return 0.3;
   if (S.stage === 'condense')  return 1.2;
@@ -31,19 +31,16 @@ function pullVelocity() {
   return 0.3;
 }
 
-// ─── РАДИУС ДИСКА ───────────────────────────────────────────────
-function discRadius() {
-  if (S.stage !== 'condense' && S.stage !== 'protostar') return 0;
-  return DISC_R_BASE + Math.min(80, Math.log10(S.dustTotal + 10) * 20);
-}
-
-// ─── СОЗДАНИЕ ЧАСТИЦ ────────────────────────────────────────────
-function makeParticleRandom() {
+// ─── Создание частицы в мировых координатах ─────────────────────
+function makeWorldParticle() {
   const W = window.CANVAS_W || 400;
   const H = window.CANVAS_H || 700;
+  const z = S.zoom || 1;
+  const halfW = W / (2 * z);
+  const halfH = H / (2 * z);
   return {
-    x: Math.random() * W,
-    y: Math.random() * H,
+    x: (Math.random() * 2 - 1) * halfW,
+    y: (Math.random() * 2 - 1) * halfH,
     r: 0.5 + Math.random() * 1.3,
     hue: Math.random() < 0.72 ? 210 + Math.random() * 55 : 15 + Math.random() * 35,
     bright: 0.35 + Math.random() * 0.55,
@@ -51,15 +48,19 @@ function makeParticleRandom() {
   };
 }
 
-function makeParticleOnEdge() {
+// Спавн по краю видимой области (мировые координаты)
+function makeEdgeParticle() {
   const W = window.CANVAS_W || 400;
   const H = window.CANVAS_H || 700;
+  const z = S.zoom || 1;
+  const halfW = W / (2 * z);
+  const halfH = H / (2 * z);
   const side = Math.floor(Math.random() * 4);
   let x, y;
-  if (side === 0) { x = Math.random() * W; y = -10; }
-  else if (side === 1) { x = W + 10; y = Math.random() * H; }
-  else if (side === 2) { x = Math.random() * W; y = H + 10; }
-  else { x = -10; y = Math.random() * H; }
+  if (side === 0) { x = (Math.random() * 2 - 1) * halfW; y = -halfH - 20; }
+  else if (side === 1) { x = halfW + 20; y = (Math.random() * 2 - 1) * halfH; }
+  else if (side === 2) { x = (Math.random() * 2 - 1) * halfW; y = halfH + 20; }
+  else { x = -halfW - 20; y = (Math.random() * 2 - 1) * halfH; }
   return {
     x, y,
     r: 0.5 + Math.random() * 1.3,
@@ -72,30 +73,28 @@ function makeParticleOnEdge() {
 function initParticles() {
   PART.particles = [];
   for (let i = 0; i < PART_COUNT; i++) {
-    PART.particles.push(makeParticleRandom());
+    PART.particles.push(makeWorldParticle());
   }
   PART.passing = [];
   PART.lastPassingAt = performance.now();
 }
 
-// ─── ОБНОВЛЕНИЕ ЧАСТИЦ ──────────────────────────────────────────
+// ─── ОБНОВЛЕНИЕ ─────────────────────────────────────────────────
 function updateParticles(dt, time) {
   if (S.starType) return;
 
-  const cx = window.CANVAS_CX || 0;
-  const cy = window.CANVAS_CY || 0;
   const W = window.CANVAS_W || 400;
   const H = window.CANVAS_H || 700;
   const z = S.zoom || 1;
+  const halfW = W / (2 * z);
+  const halfH = H / (2 * z);
   const pull = pullVelocity();
-  const discR = discRadius();
-  const inDiscPhase = discR > 0;
 
-  // Динамическая плотность от зума
-  const targetCount = Math.round(PART_COUNT / (z * z));
-  const clampedTarget = Math.max(200, Math.min(1500, targetCount));
-  while (PART.particles.length < clampedTarget - 20) PART.particles.push(makeParticleRandom());
-  while (PART.particles.length > clampedTarget + 20) PART.particles.pop();
+  // Динамическая плотность: чем дальше зум, тем больше частиц
+  const target = Math.round(PART_COUNT * Math.pow(1 / z, 1.2));
+  const clampedTarget = Math.max(400, Math.min(1400, target));
+  while (PART.particles.length < clampedTarget - 15) PART.particles.push(makeWorldParticle());
+  while (PART.particles.length > clampedTarget + 15) PART.particles.pop();
 
   PART.corePulse *= 0.9;
 
@@ -103,66 +102,74 @@ function updateParticles(dt, time) {
     const p = PART.particles[i];
     p.twinkle += dt * 2;
 
-    const dx = cx - p.x;
-    const dy = cy - p.y;
-    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const dist = Math.sqrt(p.x * p.x + p.y * p.y) || 1;
+    const dirX = -p.x / dist;
+    const dirY = -p.y / dist;
 
-    let vx = 0, vy = 0;
+    // Основное притяжение
+    const prox = 1 + (1 - Math.min(1, dist / 400)) * 1.2;
+    let vx = dirX * pull * prox;
+    let vy = dirY * pull * prox;
 
-    // ─── ДИСК (фаза II) ───
-    if (inDiscPhase && dist < discR && dist > 14) {
-      const tangentX = -dy / dist;
-      const tangentY = dx / dist;
-      const angular = 220;             // вращение
-      vx = tangentX * angular;
-      vy = tangentY * angular;
-      // сползание к центру
-      vx += (dx / dist) * 30;
-      vy += (dy / dist) * 30;
-    } else {
-      // ─── ОБЫЧНОЕ ПРИТЯЖЕНИЕ ───
-      const proximityBoost = 1 + (1 - Math.min(1, dist / 300)) * 1.5;
-      vx = (dx / dist) * pull * proximityBoost;
-      vy = (dy / dist) * pull * proximityBoost;
+    // ─── ЗАКРУЧИВАНИЕ вокруг центра ───
+    if (dist < SPIN_RADIUS) {
+      const t = 1 - dist / SPIN_RADIUS;
+      const tanX = -p.y / dist;
+      const tanY = p.x / dist;
+      vx += tanX * SPIN_STRENGTH * t;
+      vy += tanY * SPIN_STRENGTH * t;
+      vx -= dirX * pull * prox * t * 0.5;
+      vy -= dirY * pull * prox * t * 0.5;
     }
 
     // ─── DRAG ───
     if (PART.dragActive) {
-      const tdx = PART.dragX - p.x;
-      const tdy = PART.dragY - p.y;
+      const cx = window.CANVAS_CX || 0;
+      const cy = window.CANVAS_CY || 0;
+      const wx = (PART.dragX - cx) / z;
+      const wy = (PART.dragY - cy) / z;
+      const tdx = wx - p.x;
+      const tdy = wy - p.y;
       const tdist = Math.sqrt(tdx * tdx + tdy * tdy) || 1;
       if (tdist < TOUCH_RADIUS) {
-        const strength = (1 - tdist / TOUCH_RADIUS) * TOUCH_VELOCITY;
-        vx += (tdx / tdist) * strength;
-        vy += (tdy / tdist) * strength;
+        const s = (1 - tdist / TOUCH_RADIUS) * TOUCH_VELOCITY;
+        vx += (tdx / tdist) * s;
+        vy += (tdy / tdist) * s;
       }
     }
 
     p.x += vx * dt;
     p.y += vy * dt;
 
-    // ─── ПОГЛОЩЕНИЕ ───
-    const dCenter = Math.sqrt((p.x - cx) ** 2 + (p.y - cy) ** 2);
+    // ─── ПОГЛОЩЕНИЕ В ЦЕНТРЕ ───
+    const dCenter = Math.sqrt(p.x * p.x + p.y * p.y);
     if (dCenter < ABSORB_RADIUS) {
       S.dust += DUST_PER_CENTER;
       S.dustTotal += DUST_PER_CENTER;
       PART.corePulse = 1;
-      PART.particles[i] = makeParticleOnEdge();
+      PART.particles[i] = makeEdgeParticle();
       continue;
     }
 
+    // ─── ПОГЛОЩЕНИЕ ПАЛЬЦЕМ ───
     if (PART.dragActive) {
-      const dFinger = Math.sqrt((p.x - PART.dragX) ** 2 + (p.y - PART.dragY) ** 2);
-      if (dFinger < ABSORB_RADIUS) {
+      const cx = window.CANVAS_CX || 0;
+      const cy = window.CANVAS_CY || 0;
+      const wx = (PART.dragX - cx) / z;
+      const wy = (PART.dragY - cy) / z;
+      const dF = Math.sqrt((p.x - wx) ** 2 + (p.y - wy) ** 2);
+      if (dF < ABSORB_RADIUS) {
         S.dust += DUST_PER_FINGER;
         S.dustTotal += DUST_PER_FINGER;
-        PART.particles[i] = makeParticleOnEdge();
+        PART.particles[i] = makeEdgeParticle();
         continue;
       }
     }
 
-    if (p.x < -80 || p.x > W + 80 || p.y < -80 || p.y > H + 80) {
-      PART.particles[i] = makeParticleOnEdge();
+    // Улетел за пределы — вернуть на край
+    if (p.x < -halfW - 80 || p.x > halfW + 80 ||
+        p.y < -halfH - 80 || p.y > halfH + 80) {
+      PART.particles[i] = makeEdgeParticle();
     }
   }
 
@@ -210,8 +217,7 @@ function spawnPassing() {
   PART.passing.push({
     x, y, vx, vy,
     type: isComet ? 'comet' : 'ship',
-    age: 0,
-    trail: [],
+    age: 0, trail: [],
     hue: isComet ? 200 : 50,
   });
 }
@@ -225,97 +231,58 @@ function drawParticles(ctx, time) {
 
   const cx = window.CANVAS_CX || 0;
   const cy = window.CANVAS_CY || 0;
-  const t = time;
   const z = S.zoom || 1;
+  const t = time;
 
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
 
-  // ─── ОРЕОЛ ЦЕНТРА ───
+  // ─── МАЛЕНЬКИЙ ОРЕОЛ ЦЕНТРА ───
   const pulse = 1 + PART.corePulse * 0.5;
-  const haloR = 18 * pulse * z;
+  const haloR = 14 * pulse * z;
   const haloGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, haloR);
-  haloGrad.addColorStop(0, 'rgba(160, 140, 230, 0.18)');
-  haloGrad.addColorStop(0.5, 'rgba(120, 100, 200, 0.06)');
+  haloGrad.addColorStop(0, 'rgba(180, 160, 240, 0.25)');
+  haloGrad.addColorStop(0.5, 'rgba(140, 120, 220, 0.08)');
   haloGrad.addColorStop(1, 'rgba(80, 60, 150, 0)');
   ctx.fillStyle = haloGrad;
   ctx.beginPath();
   ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
   ctx.fill();
 
-  // ─── ДИСК (ФАЗА II) — ЯРКИЙ ───
-  const discR = discRadius();
-  if (discR > 0) {
-    // Многослойное свечение диска
-    const discGrad1 = ctx.createRadialGradient(cx, cy, discR * 0.4 * z, cx, cy, discR * z);
-    discGrad1.addColorStop(0, 'rgba(255, 200, 255, 0.35)');
-    discGrad1.addColorStop(0.5, 'rgba(200, 140, 250, 0.20)');
-    discGrad1.addColorStop(1, 'rgba(120, 70, 220, 0)');
-    ctx.fillStyle = discGrad1;
-    ctx.beginPath();
-    ctx.arc(cx, cy, discR * z, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Тонкое кольцо-орбита
-    ctx.strokeStyle = 'rgba(200, 160, 255, 0.4)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(cx, cy, discR * 0.7 * z, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.strokeStyle = 'rgba(255, 200, 255, 0.25)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(cx, cy, discR * 0.9 * z, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Дополнительные точки-частицы на диске (имитация плотных орбит)
-    for (let i = 0; i < 24; i++) {
-      const a = t * 0.8 + i * (Math.PI * 2 / 24);
-      const r = discR * (0.55 + Math.sin(i * 1.3) * 0.25) * z;
-      const px = cx + Math.cos(a) * r;
-      const py = cy + Math.sin(a) * r * 0.55;
-      const size = 1.5 + Math.sin(i * 2.7) * 0.8;
-      const alpha = 0.6 + Math.sin(t * 2 + i) * 0.3;
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = 'hsl(' + (270 + i * 5) + ', 80%, 75%)';
-      ctx.beginPath();
-      ctx.arc(px, py, size, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-  }
-
-  // ─── ЦЕНТР ───
-  ctx.fillStyle = 'rgba(200, 190, 240, 0.95)';
+  // ─── ТОЧКА ЦЕНТРА ───
+  ctx.fillStyle = 'rgba(220, 210, 255, 0.95)';
   ctx.beginPath();
   ctx.arc(cx, cy, PART.coreR * pulse * z, 0, Math.PI * 2);
   ctx.fill();
 
   // ─── ЧАСТИЦЫ ───
+  const sizeFactor = Math.max(0.7, z);
   for (const p of PART.particles) {
-    const sx = cx + (p.x - cx) * z;
-    const sy = cy + (p.y - cy) * z;
-    const twinkle = 0.7 + 0.3 * Math.sin(p.twinkle + t * 2);
-    ctx.globalAlpha = p.bright * twinkle * 0.85;
+    const sx = cx + p.x * z;
+    const sy = cy + p.y * z;
+    const tw = 0.7 + 0.3 * Math.sin(p.twinkle + t * 2);
+    ctx.globalAlpha = p.bright * tw * 0.85;
     ctx.fillStyle = 'hsl(' + p.hue + ', 70%, 70%)';
     ctx.beginPath();
-    ctx.arc(sx, sy, p.r * z, 0, Math.PI * 2);
+    ctx.arc(sx, sy, p.r * sizeFactor, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.globalAlpha = 1;
   ctx.restore();
 
-  // ─── DRAG ───
+  // ─── РАДИУС ПАЛЬЦА ───
   if (PART.dragActive) {
     ctx.save();
     ctx.globalAlpha = 0.10;
-    const grad = ctx.createRadialGradient(PART.dragX, PART.dragY, 0, PART.dragX, PART.dragY, TOUCH_RADIUS);
+    const grad = ctx.createRadialGradient(
+      PART.dragX, PART.dragY, 0,
+      PART.dragX, PART.dragY, TOUCH_RADIUS * z
+    );
     grad.addColorStop(0, 'rgba(185, 168, 255, 0.7)');
     grad.addColorStop(1, 'rgba(185, 168, 255, 0)');
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.arc(PART.dragX, PART.dragY, TOUCH_RADIUS, 0, Math.PI * 2);
+    ctx.arc(PART.dragX, PART.dragY, TOUCH_RADIUS * z, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
