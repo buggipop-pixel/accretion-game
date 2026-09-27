@@ -34,7 +34,7 @@ const S = {
 
   // Визуал
   vis: { collapse: 0 },
-  particles: [],
+  zoom: 1.0,
 };
 
 const SAVE_KEY = 'accretion_v13';
