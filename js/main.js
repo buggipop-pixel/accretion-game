@@ -1,7 +1,4 @@
-// ═══════════════════════════════════════════════════════════════
-//  MAIN.JS — главный цикл, canvas, зум, обработка ввода
-// ═══════════════════════════════════════════════════════════════
-
+// MAIN.JS — главный цикл, canvas, зум, ввод
 const canvas = document.getElementById('sky');
 const ctx = canvas.getContext('2d');
 let W, H, cx, cy, dpr;
@@ -22,7 +19,6 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 
-// ─── ФОНОВЫЕ ЗВЁЗДЫ ─────────────────────────────────────────────
 const bgStars = [];
 for (let i = 0; i < 200; i++) {
   bgStars.push({
@@ -40,7 +36,6 @@ function drawBackground(time) {
   bg.addColorStop(1, '#02010a');
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
-
   ctx.save();
   ctx.globalCompositeOperation = 'screen';
   for (const s of bgStars) {
@@ -60,51 +55,37 @@ function applyZoom(factor) {
 }
 window.applyZoom = applyZoom;
 
-// Кнопки
 const zoomInBtn = document.getElementById('zoomIn');
 const zoomOutBtn = document.getElementById('zoomOut');
-if (zoomInBtn) {
-  zoomInBtn.addEventListener('click', function() { applyZoom(1.2); });
-}
-if (zoomOutBtn) {
-  zoomOutBtn.addEventListener('click', function() { applyZoom(0.83); });
-}
+if (zoomInBtn) zoomInBtn.addEventListener('click', () => applyZoom(1.2));
+if (zoomOutBtn) zoomOutBtn.addEventListener('click', () => applyZoom(0.83));
 
-// Колесо мыши
-canvas.addEventListener('wheel', function(e) {
+canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
-  const factor = e.deltaY > 0 ? 0.9 : 1.1;
-  applyZoom(factor);
+  applyZoom(e.deltaY > 0 ? 0.9 : 1.1);
 }, { passive: false });
 
-// ─── ОБРАБОТКА КАСАНИЙ/КУРСОРА ──────────────────────────────────
+// ─── УКАЗАТЕЛИ ──────────────────────────────────────────────────
 function getPointerPos(e) {
   const rect = canvas.getBoundingClientRect();
-  const touch = e.touches ? e.touches[0] : e;
-  return {
-    x: touch.clientX - rect.left,
-    y: touch.clientY - rect.top,
-  };
+  const t = e.touches ? e.touches[0] : e;
+  return { x: t.clientX - rect.left, y: t.clientY - rect.top };
 }
 
-// Активные указатели для пинча
 const pointers = new Map();
 let pinchStartDist = 0;
 let pinchStartZoom = 1;
 
-canvas.addEventListener('pointerdown', function(e) {
+canvas.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
   if (pointers.size === 2) {
-    // Начинается пинч
     const pts = Array.from(pointers.values());
     pinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
     pinchStartZoom = S.zoom || 1;
     handleParticleDrag(0, 0, false);
     return;
   }
-
   if (pointers.size === 1) {
     const pos = getPointerPos(e);
     handleParticleDrag(pos.x, pos.y, true);
@@ -112,22 +93,17 @@ canvas.addEventListener('pointerdown', function(e) {
   }
 });
 
-canvas.addEventListener('pointermove', function(e) {
+canvas.addEventListener('pointermove', (e) => {
   if (pointers.has(e.pointerId)) {
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   }
-
-  // Пинч
   if (pointers.size === 2 && pinchStartDist > 0) {
     e.preventDefault();
     const pts = Array.from(pointers.values());
     const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-    const factor = d / pinchStartDist;
-    S.zoom = Math.max(0.4, Math.min(3.0, pinchStartZoom * factor));
+    S.zoom = Math.max(0.4, Math.min(3.0, pinchStartZoom * (d / pinchStartDist)));
     return;
   }
-
-  // Обычный drag по частицам
   if (pointers.size === 1 && PART.dragActive) {
     e.preventDefault();
     const pos = getPointerPos(e);
@@ -142,29 +118,19 @@ function onPointerRelease(e) {
     handleParticleDrag(PART.dragX, PART.dragY, false);
   }
 }
-
 canvas.addEventListener('pointerup', onPointerRelease);
 canvas.addEventListener('pointercancel', onPointerRelease);
 canvas.addEventListener('pointerleave', onPointerRelease);
-canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // ─── ГЛАВНЫЙ ЦИКЛ ───────────────────────────────────────────────
 let last = performance.now();
 let lastSave = 0;
-let starMessageShown = false;
 
 function loop(now) {
   const dt = Math.min((now - last) / 1000, 0.5);
   last = now;
   const time = now / 1000;
-
-  if (S.starType && !starMessageShown) {
-    starMessageShown = true;
-    setTimeout(function() {
-      toast('🌟 Поздравляем!',
-            'Звезда зажглась. Её гравитация собирает пыль без вашего участия');
-    }, 600);
-  }
 
   const gain = dustPerSec() * dt;
   S.dust += gain;
@@ -174,25 +140,22 @@ function loop(now) {
   if (eGain > 0) S.energy += eGain;
 
   tickCiv(dt);
-
   updateParticles(dt, time);
   updatePlanets(dt);
+  checkEvolution();
 
   drawBackground(time);
   drawParticles(ctx, time);
+  drawStar(ctx, time);
   drawPlanets(ctx, time);
 
-  if (now - lastSave > 4000) {
-    saveGame();
-    lastSave = now;
-  }
-
-  updateStorageUI();
-
+  if (now - lastSave > 4000) { saveGame(); lastSave = now; }
+  updateUI();
   requestAnimationFrame(loop);
 }
 
-function updateStorageUI() {
+// ─── UI ─────────────────────────────────────────────────────────
+function updateUI() {
   const dustEl = document.getElementById('dustVal');
   const energyEl = document.getElementById('energyVal');
   const civEl = document.getElementById('civVal');
@@ -201,6 +164,32 @@ function updateStorageUI() {
   if (energyEl) energyEl.textContent = fmt(S.energy);
   if (civEl) civEl.textContent = fmt(S.civLevel);
   if (systemsEl) systemsEl.textContent = S.systems;
+
+  // Орб фазы
+  const orbLabel = document.getElementById('orbLabel');
+  const orbProgress = document.getElementById('orbProgress');
+  const stageIdx = ['cloud','condense','protostar','firstPlanet','system','galaxy'].indexOf(S.stage);
+  const roman = ['I','II','III','IV','V','VI'][stageIdx] || 'I';
+  if (orbLabel) orbLabel.textContent = roman;
+  if (orbProgress) {
+    const goal = currentGoal();
+    let prog = 0;
+    if (goal) prog = Math.min(1, S.dust / goal);
+    else if (S.stage === 'system') prog = S.planets.length / 8;
+    else prog = 1;
+    const dash = 264;
+    orbProgress.style.strokeDashoffset = (dash * (1 - prog)).toString();
+  }
+
+  // Кнопка эволюции
+  const btn = document.getElementById('evolveBtn');
+  if (btn) {
+    const goal = currentGoal();
+    const ready = (S.stage === 'system' && S.planets.length >= 8) ||
+                  (goal !== null && S.dust >= goal);
+    if (ready) btn.classList.add('show');
+    else btn.classList.remove('show');
+  }
 }
 
 const UNITS = ['', 'К', 'М', 'Б', 'Т', 'Кв', 'Кт', 'Сх', 'Сп', 'Ок'];
@@ -219,10 +208,11 @@ function toast(title, sub) {
   t.className = 'toast';
   t.innerHTML = '<b>' + title + '</b>' + (sub || '');
   el.appendChild(t);
-  setTimeout(function() { t.remove(); }, 3500);
+  setTimeout(() => t.remove(), 3500);
 }
 window.toast = toast;
 
+// ─── СТАРТ ──────────────────────────────────────────────────────
 function start() {
   loadGame();
   resize();
@@ -230,48 +220,47 @@ function start() {
 
   const offline = applyOfflineProgress();
   if (offline && offline.earned > 0) {
-    const hours = Math.floor(offline.seconds / 3600);
-    const mins = Math.floor((offline.seconds % 3600) / 60);
-    const timeStr = hours > 0 ? hours + ' ч ' + mins + ' мин' : mins + ' мин';
-    setTimeout(function() {
-      toast('Офлайн-доход',
-            'Отсутствовали ' + timeStr + ' · +' + fmt(offline.earned) + ' пыли');
+    const h = Math.floor(offline.seconds / 3600);
+    const m = Math.floor((offline.seconds % 3600) / 60);
+    const ts = h > 0 ? h + ' ч ' + m + ' мин' : m + ' мин';
+    setTimeout(() => {
+      toast('Офлайн-доход', 'Отсутствовали ' + ts + ' · +' + fmt(offline.earned));
     }, 500);
   }
-
-  updateStorageUI();
+  updateUI();
   requestAnimationFrame(loop);
 }
 
-const turboBtn = document.getElementById('turbo');
-if (turboBtn) {
-  turboBtn.addEventListener('click', function() {
-    const goal = currentGoal();
-    const amount = goal ? Math.max(10000, goal * 3) : 1e12;
-    S.dust += amount;
-    S.dustTotal += amount;
-    toast('🚀 Turbo', '+' + fmt(amount) + ' пыли');
-  });
-}
+document.getElementById('evolveBtn')?.addEventListener('click', openEvolution);
+
+document.getElementById('turbo')?.addEventListener('click', () => {
+  const goal = currentGoal();
+  const amount = goal ? Math.max(10000, goal * 3) : 1e12;
+  S.dust += amount;
+  S.dustTotal += amount;
+  toast('🚀 Turbo', '+' + fmt(amount));
+});
+
+document.getElementById('resetBtn')?.addEventListener('click', () => {
+  if (confirm('Сбросить прогресс?')) {
+    const ids = ['dustVal','energyVal','civVal','systemsVal'];
+    ids.forEach(id => { const e = document.getElementById(id); if (e) e.textContent = '0'; });
+    resetGame();
+  }
+});
+
+// Инфо по клику на орб фазы
+document.getElementById('phaseOrb')?.addEventListener('click', () => {
+  const st = STAGES[S.stage];
+  const goal = currentGoal();
+  let info = st.desc;
+  if (goal) {
+    info += '\n\nЦель: ' + st.goalLabel + '\nПрогресс: ' +
+            fmt(S.dust) + ' / ' + fmt(goal) +
+            ' (' + Math.floor(S.dust / goal * 100) + '%)';
+  }
+  alert(info);
+});
 
 window.addEventListener('beforeunload', saveGame);
-
-// ─── КНОПКА СБРОСА ──────────────────────────────────────────────
-const resetBtn = document.getElementById('resetBtn');
-if (resetBtn) {
-  resetBtn.addEventListener('click', function() {
-    if (confirm('Сбросить весь прогресс и начать заново?')) {
-      const dustEl = document.getElementById('dustVal');
-      const energyEl = document.getElementById('energyVal');
-      const civEl = document.getElementById('civVal');
-      const systemsEl = document.getElementById('systemsVal');
-      if (dustEl) dustEl.textContent = '0';
-      if (energyEl) energyEl.textContent = '0';
-      if (civEl) civEl.textContent = '0';
-      if (systemsEl) systemsEl.textContent = '1';
-      resetGame();
-    }
-  });
-}
-
 start();
