@@ -18,7 +18,6 @@ function resize() {
   cx = W / 2;
   cy = H * 0.4;
 
-  // Экспорт для частиц
   window.CANVAS_CX = cx;
   window.CANVAS_CY = cy;
   window.CANVAS_W = W;
@@ -40,20 +39,18 @@ for (let i = 0; i < 200; i++) {
 }
 
 function drawBackground(time) {
-  // Градиент фона
   const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.9);
   bg.addColorStop(0, '#0a0620');
   bg.addColorStop(1, '#02010a');
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
-  // Фоновые звёзды
   ctx.save();
   ctx.globalCompositeOperation = 'screen';
   for (const s of bgStars) {
     const tw = 0.5 + 0.5 * Math.sin(time * 1.4 + s.tw);
     ctx.globalAlpha = s.a * tw;
-    ctx.fillStyle = `hsl(${s.hue}, 35%, 90%)`;
+    ctx.fillStyle = 'hsl(' + s.hue + ', 35%, 90%)';
     ctx.beginPath();
     ctx.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2);
     ctx.fill();
@@ -62,8 +59,6 @@ function drawBackground(time) {
 }
 
 // ─── ОБРАБОТКА КЛИКОВ И DRAG ───────────────────────────────────
-let dragStarted = false;
-
 function getPointerPos(e) {
   const rect = canvas.getBoundingClientRect();
   const touch = e.touches ? e.touches[0] : e;
@@ -76,8 +71,8 @@ function getPointerPos(e) {
 function onPointerDown(e) {
   e.preventDefault();
   const pos = getPointerPos(e);
-  dragStarted = false;
   handleParticleDrag(pos.x, pos.y, true);
+  handleCanvasClick(pos.x, pos.y);
 }
 
 function onPointerMove(e) {
@@ -85,7 +80,6 @@ function onPointerMove(e) {
   e.preventDefault();
   const pos = getPointerPos(e);
   handleParticleDrag(pos.x, pos.y, true);
-  dragStarted = true;
 }
 
 function onPointerUp(e) {
@@ -99,15 +93,11 @@ canvas.addEventListener('pointermove', onPointerMove);
 canvas.addEventListener('pointerup', onPointerUp);
 canvas.addEventListener('pointercancel', onPointerUp);
 canvas.addEventListener('pointerleave', onPointerUp);
-// Отключаем контекстное меню (долгое нажатие на мобиле)
-canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
 
 // ─── ГЛАВНЫЙ ЦИКЛ ───────────────────────────────────────────────
 let last = performance.now();
 let lastSave = 0;
-let lastTickTime = 0;
-let offlineReported = false;
-
 let starMessageShown = false;
 
 function loop(now) {
@@ -115,42 +105,40 @@ function loop(now) {
   last = now;
   const time = now / 1000;
 
-  // Сообщение после выбора звезды (показывается один раз)
+  // Сообщение после выбора звезды (один раз)
   if (S.starType && !starMessageShown) {
     starMessageShown = true;
-    setTimeout(() => {
+    setTimeout(function() {
       toast('🌟 Поздравляем!',
-            'Звезда зажглась. Её гравитация собирает пыль за вас');
+            'Звезда зажглась. Её гравитация собирает пыль без вашего участия');
     }, 600);
   }
-  ...
 
   // Пассивный доход
   const gain = dustPerSec() * dt;
   S.dust += gain;
   S.dustTotal += gain;
 
-  // Энергия (если есть цивилизация 4+)
+  // Энергия
   const eGain = energyPerSec() * dt;
   if (eGain > 0) S.energy += eGain;
 
-  // Рост цивилизации
+  // Цивилизация
   tickCiv(dt);
 
-  // Частицы
+  // Частицы (до звезды)
   updateParticles(dt, time);
 
   // Отрисовка
   drawBackground(time);
   drawParticles(ctx, time);
 
-  // Сохранение раз в 4 секунды
+  // Сохранение
   if (now - lastSave > 4000) {
     saveGame();
     lastSave = now;
   }
 
-  // Обновление UI (пока просто числа в хранилищах)
   updateStorageUI();
 
   requestAnimationFrame(loop);
@@ -169,7 +157,7 @@ function updateStorageUI() {
   if (systemsEl) systemsEl.textContent = S.systems;
 }
 
-// ─── ФОРМАТ ЧИСЕЛ (утилита) ─────────────────────────────────────
+// ─── ФОРМАТ ЧИСЕЛ ───────────────────────────────────────────────
 const UNITS = ['', 'К', 'М', 'Б', 'Т', 'Кв', 'Кт', 'Сх', 'Сп', 'Ок'];
 function fmt(n) {
   if (n < 1000) return Math.floor(n).toString();
@@ -182,7 +170,7 @@ function fmt(n) {
 }
 window.fmt = fmt;
 
-// ─── TOAST-УВЕДОМЛЕНИЯ ──────────────────────────────────────────
+// ─── TOAST ──────────────────────────────────────────────────────
 function toast(title, sub) {
   const el = document.getElementById('toasts');
   if (!el) return;
@@ -190,7 +178,7 @@ function toast(title, sub) {
   t.className = 'toast';
   t.innerHTML = '<b>' + title + '</b>' + (sub || '');
   el.appendChild(t);
-  setTimeout(() => t.remove(), 3500);
+  setTimeout(function() { t.remove(); }, 3500);
 }
 window.toast = toast;
 
@@ -200,13 +188,12 @@ function start() {
   resize();
   initParticles();
 
-  // Офлайн-доход
   const offline = applyOfflineProgress();
   if (offline && offline.earned > 0) {
     const hours = Math.floor(offline.seconds / 3600);
     const mins = Math.floor((offline.seconds % 3600) / 60);
     const timeStr = hours > 0 ? hours + ' ч ' + mins + ' мин' : mins + ' мин';
-    setTimeout(() => {
+    setTimeout(function() {
       toast('Офлайн-доход',
             'Отсутствовали ' + timeStr + ' · +' + fmt(offline.earned) + ' пыли');
     }, 500);
@@ -216,17 +203,20 @@ function start() {
   requestAnimationFrame(loop);
 }
 
-// Turbo-кнопка (для тестов)
-document.getElementById('turbo')?.addEventListener('click', () => {
-  const goal = currentGoal();
-  const amount = goal ? Math.max(10000, goal * 3) : 1e12;
-  S.dust += amount;
-  S.dustTotal += amount;
-  toast('🚀 Turbo', '+' + fmt(amount) + ' пыли');
-});
+// ─── TURBO (для тестов) ─────────────────────────────────────────
+const turboBtn = document.getElementById('turbo');
+if (turboBtn) {
+  turboBtn.addEventListener('click', function() {
+    const goal = currentGoal();
+    const amount = goal ? Math.max(10000, goal * 3) : 1e12;
+    S.dust += amount;
+    S.dustTotal += amount;
+    toast('🚀 Turbo', '+' + fmt(amount) + ' пыли');
+  });
+}
 
-// Сохранение при закрытии
+// ─── СОХРАНЕНИЕ ПРИ ЗАКРЫТИИ ────────────────────────────────────
 window.addEventListener('beforeunload', saveGame);
 
-// Запуск
+// ─── ЗАПУСК ─────────────────────────────────────────────────────
 start();
