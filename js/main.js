@@ -78,9 +78,6 @@ function onPointerDown(e) {
   const pos = getPointerPos(e);
   dragStarted = false;
   handleParticleDrag(pos.x, pos.y, true);
-
-  // Обработка обычного клика (для совместимости)
-  handleCanvasClick(pos.x, pos.y);
 }
 
 function onPointerMove(e) {
