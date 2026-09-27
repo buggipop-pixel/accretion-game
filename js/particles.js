@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  PARTICLES.JS — облако пыли, лёгкое закручивание, зум-заполнение
+//  PARTICLES.JS — пыль на всех фазах, с угасанием по прогрессу
 // ═══════════════════════════════════════════════════════════════
 
 const PART = {
@@ -18,20 +18,35 @@ const TOUCH_VELOCITY  = 400;
 const ABSORB_RADIUS   = 14;
 const DUST_PER_CENTER = 0.15;
 const DUST_PER_FINGER = 0.5;
-const SPIN_RADIUS     = 55;    // радиус закручивания
-const SPIN_STRENGTH   = 70;    // сила закручивания
+const SPIN_RADIUS     = 55;
+const SPIN_STRENGTH   = 70;
 const PASSING_MIN_MS  = 120000;
 const PASSING_MAX_MS  = 300000;
 
-// ─── Скорость притяжения по фазам ───────────────────────────────
+// ─── Видимость пыли по фазам (1 = яркая, 0 = почти невидима) ────
+function particleVisibility() {
+  if (S.stage === 'cloud')       return 1.0;
+  if (S.stage === 'condense')    return 0.75;
+  if (S.stage === 'protostar')   return 0.45;
+  if (S.stage === 'firstPlanet') return 0.30;
+  if (S.stage === 'system') {
+    // Чем больше планет, тем незаметнее пыль
+    const n = S.planets.length;
+    return Math.max(0.10, 0.30 - n * 0.025);
+  }
+  if (S.stage === 'galaxy')      return 0.06;
+  return 1.0;
+}
+
+// ─── Скорость притяжения к центру (только до звезды) ────────────
 function pullVelocity() {
   if (S.stage === 'cloud')     return 0.3;
   if (S.stage === 'condense')  return 1.2;
   if (S.stage === 'protostar') return 2.5;
-  return 0.3;
+  return 0.5; // после звезды — очень медленно
 }
 
-// ─── Создание частицы в мировых координатах ─────────────────────
+// ─── Создание частиц в мировых координатах ──────────────────────
 function makeWorldParticle() {
   const W = window.CANVAS_W || 400;
   const H = window.CANVAS_H || 700;
@@ -48,7 +63,6 @@ function makeWorldParticle() {
   };
 }
 
-// Спавн по краю видимой области (мировые координаты)
 function makeEdgeParticle() {
   const W = window.CANVAS_W || 400;
   const H = window.CANVAS_H || 700;
@@ -81,18 +95,18 @@ function initParticles() {
 
 // ─── ОБНОВЛЕНИЕ ─────────────────────────────────────────────────
 function updateParticles(dt, time) {
-  if (S.starType) return;
-
   const W = window.CANVAS_W || 400;
   const H = window.CANVAS_H || 700;
   const z = S.zoom || 1;
   const halfW = W / (2 * z);
   const halfH = H / (2 * z);
+  const hasStar = !!S.starType;
   const pull = pullVelocity();
+  const visibility = particleVisibility();
 
-  // Динамическая плотность: чем дальше зум, тем больше частиц
-  const target = Math.round(PART_COUNT * Math.pow(1 / z, 1.2));
-  const clampedTarget = Math.max(400, Math.min(1400, target));
+  // Плотность от зума
+  const target = Math.round(PART_COUNT * Math.pow(1 / z, 1.2) * visibility);
+  const clampedTarget = Math.max(150, Math.min(1400, target));
   while (PART.particles.length < clampedTarget - 15) PART.particles.push(makeWorldParticle());
   while (PART.particles.length > clampedTarget + 15) PART.particles.pop();
 
@@ -106,13 +120,13 @@ function updateParticles(dt, time) {
     const dirX = -p.x / dist;
     const dirY = -p.y / dist;
 
-    // Основное притяжение
+    // Притяжение к центру
     const prox = 1 + (1 - Math.min(1, dist / 400)) * 1.2;
     let vx = dirX * pull * prox;
     let vy = dirY * pull * prox;
 
-    // ─── ЗАКРУЧИВАНИЕ вокруг центра ───
-    if (dist < SPIN_RADIUS) {
+    // Закручивание возле центра (только до звезды)
+    if (!hasStar && dist < SPIN_RADIUS) {
       const t = 1 - dist / SPIN_RADIUS;
       const tanX = -p.y / dist;
       const tanY = p.x / dist;
@@ -122,8 +136,8 @@ function updateParticles(dt, time) {
       vy -= dirY * pull * prox * t * 0.5;
     }
 
-    // ─── DRAG ───
-    if (PART.dragActive) {
+    // DRAG (только до звезды)
+    if (!hasStar && PART.dragActive) {
       const cx = window.CANVAS_CX || 0;
       const cy = window.CANVAS_CY || 0;
       const wx = (PART.dragX - cx) / z;
@@ -141,32 +155,33 @@ function updateParticles(dt, time) {
     p.x += vx * dt;
     p.y += vy * dt;
 
-    // ─── ПОГЛОЩЕНИЕ В ЦЕНТРЕ ───
-    const dCenter = Math.sqrt(p.x * p.x + p.y * p.y);
-    if (dCenter < ABSORB_RADIUS) {
-      S.dust += DUST_PER_CENTER;
-      S.dustTotal += DUST_PER_CENTER;
-      PART.corePulse = 1;
-      PART.particles[i] = makeEdgeParticle();
-      continue;
-    }
-
-    // ─── ПОГЛОЩЕНИЕ ПАЛЬЦЕМ ───
-    if (PART.dragActive) {
-      const cx = window.CANVAS_CX || 0;
-      const cy = window.CANVAS_CY || 0;
-      const wx = (PART.dragX - cx) / z;
-      const wy = (PART.dragY - cy) / z;
-      const dF = Math.sqrt((p.x - wx) ** 2 + (p.y - wy) ** 2);
-      if (dF < ABSORB_RADIUS) {
-        S.dust += DUST_PER_FINGER;
-        S.dustTotal += DUST_PER_FINGER;
+    // Поглощение центром — только до звезды
+    if (!hasStar) {
+      const dCenter = Math.sqrt(p.x * p.x + p.y * p.y);
+      if (dCenter < ABSORB_RADIUS) {
+        S.dust += DUST_PER_CENTER;
+        S.dustTotal += DUST_PER_CENTER;
+        PART.corePulse = 1;
         PART.particles[i] = makeEdgeParticle();
         continue;
       }
+
+      if (PART.dragActive) {
+        const cx = window.CANVAS_CX || 0;
+        const cy = window.CANVAS_CY || 0;
+        const wx = (PART.dragX - cx) / z;
+        const wy = (PART.dragY - cy) / z;
+        const dF = Math.sqrt((p.x - wx) ** 2 + (p.y - wy) ** 2);
+        if (dF < ABSORB_RADIUS) {
+          S.dust += DUST_PER_FINGER;
+          S.dustTotal += DUST_PER_FINGER;
+          PART.particles[i] = makeEdgeParticle();
+          continue;
+        }
+      }
     }
 
-    // Улетел за пределы — вернуть на край
+    // Улетел — вернуть на край
     if (p.x < -halfW - 80 || p.x > halfW + 80 ||
         p.y < -halfH - 80 || p.y > halfH + 80) {
       PART.particles[i] = makeEdgeParticle();
@@ -192,7 +207,6 @@ function updatePassing(dt, time) {
     o.age += dt;
     o.trail.push({ x: o.x, y: o.y });
     if (o.trail.length > 15) o.trail.shift();
-
     const W = window.CANVAS_W || 400;
     const H = window.CANVAS_H || 700;
     if (o.x < -150 || o.x > W + 150 || o.y < -150 || o.y > H + 150) {
@@ -208,12 +222,10 @@ function spawnPassing() {
   const side = Math.floor(Math.random() * 4);
   let x, y, vx, vy;
   const speed = 60 + Math.random() * 80;
-
   if (side === 0) { x = Math.random() * W; y = -50; vx = (Math.random() - 0.5) * 40; vy = speed; }
   else if (side === 1) { x = W + 50; y = Math.random() * H; vx = -speed; vy = (Math.random() - 0.5) * 40; }
   else if (side === 2) { x = Math.random() * W; y = H + 50; vx = (Math.random() - 0.5) * 40; vy = -speed; }
   else { x = -50; y = Math.random() * H; vx = speed; vy = (Math.random() - 0.5) * 40; }
-
   PART.passing.push({
     x, y, vx, vy,
     type: isComet ? 'comet' : 'ship',
@@ -224,44 +236,42 @@ function spawnPassing() {
 
 // ─── РИСОВАНИЕ ──────────────────────────────────────────────────
 function drawParticles(ctx, time) {
-  if (S.starType) {
-    drawPassing(ctx);
-    return;
-  }
-
   const cx = window.CANVAS_CX || 0;
   const cy = window.CANVAS_CY || 0;
   const z = S.zoom || 1;
   const t = time;
+  const visibility = particleVisibility();
+  const hasStar = !!S.starType;
 
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
 
-  // ─── МАЛЕНЬКИЙ ОРЕОЛ ЦЕНТРА ───
-  const pulse = 1 + PART.corePulse * 0.5;
-  const haloR = 14 * pulse * z;
-  const haloGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, haloR);
-  haloGrad.addColorStop(0, 'rgba(180, 160, 240, 0.25)');
-  haloGrad.addColorStop(0.5, 'rgba(140, 120, 220, 0.08)');
-  haloGrad.addColorStop(1, 'rgba(80, 60, 150, 0)');
-  ctx.fillStyle = haloGrad;
-  ctx.beginPath();
-  ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
-  ctx.fill();
+  // Ореол центра — только до звезды
+  if (!hasStar) {
+    const pulse = 1 + PART.corePulse * 0.5;
+    const haloR = 14 * pulse * z;
+    const haloGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, haloR);
+    haloGrad.addColorStop(0, 'rgba(180, 160, 240, 0.25)');
+    haloGrad.addColorStop(0.5, 'rgba(140, 120, 220, 0.08)');
+    haloGrad.addColorStop(1, 'rgba(80, 60, 150, 0)');
+    ctx.fillStyle = haloGrad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
+    ctx.fill();
 
-  // ─── ТОЧКА ЦЕНТРА ───
-  ctx.fillStyle = 'rgba(220, 210, 255, 0.95)';
-  ctx.beginPath();
-  ctx.arc(cx, cy, PART.coreR * pulse * z, 0, Math.PI * 2);
-  ctx.fill();
+    ctx.fillStyle = 'rgba(220, 210, 255, 0.95)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, PART.coreR * pulse * z, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
-  // ─── ЧАСТИЦЫ ───
+  // Частицы
   const sizeFactor = Math.max(0.7, z);
   for (const p of PART.particles) {
     const sx = cx + p.x * z;
     const sy = cy + p.y * z;
     const tw = 0.7 + 0.3 * Math.sin(p.twinkle + t * 2);
-    ctx.globalAlpha = p.bright * tw * 0.85;
+    ctx.globalAlpha = p.bright * tw * 0.85 * visibility;
     ctx.fillStyle = 'hsl(' + p.hue + ', 70%, 70%)';
     ctx.beginPath();
     ctx.arc(sx, sy, p.r * sizeFactor, 0, Math.PI * 2);
@@ -270,8 +280,8 @@ function drawParticles(ctx, time) {
   ctx.globalAlpha = 1;
   ctx.restore();
 
-  // ─── РАДИУС ПАЛЬЦА ───
-  if (PART.dragActive) {
+  // Радиус пальца — только до звезды
+  if (!hasStar && PART.dragActive) {
     ctx.save();
     ctx.globalAlpha = 0.10;
     const grad = ctx.createRadialGradient(
@@ -295,7 +305,6 @@ function drawPassing(ctx) {
   for (const o of PART.passing) {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-
     for (let i = 0; i < o.trail.length; i++) {
       const seg = o.trail[i];
       const life = i / o.trail.length;
@@ -314,13 +323,11 @@ function drawPassing(ctx) {
       ctx.arc(seg.x, seg.y, size * 2, 0, Math.PI * 2);
       ctx.fill();
     }
-
     ctx.globalAlpha = 0.9;
     ctx.fillStyle = o.type === 'comet' ? '#e8f6ff' : '#ffeec8';
     ctx.beginPath();
     ctx.arc(o.x, o.y, 2 * z, 0, Math.PI * 2);
     ctx.fill();
-
     const halo = ctx.createRadialGradient(o.x, o.y, 0, o.x, o.y, 10 * z);
     if (o.type === 'comet') {
       halo.addColorStop(0, 'rgba(150, 220, 255, 0.5)');
@@ -333,7 +340,6 @@ function drawPassing(ctx) {
     ctx.beginPath();
     ctx.arc(o.x, o.y, 10 * z, 0, Math.PI * 2);
     ctx.fill();
-
     ctx.restore();
   }
 }
