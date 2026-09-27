@@ -216,3 +216,33 @@ html, body {
   transform: scale(0.92);
   background: rgba(255, 94, 58, 0.4);
 }
+/* Зум-контролы */
+.zoom-controls {
+  position: absolute;
+  right: 12px;
+  bottom: 90px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 5;
+}
+.zoom-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(139, 127, 212, 0.2);
+  border: 1px solid rgba(139, 127, 212, 0.4);
+  color: #b9a8ff;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.zoom-btn:active {
+  transform: scale(0.92);
+  background: rgba(139, 127, 212, 0.4);
+}
