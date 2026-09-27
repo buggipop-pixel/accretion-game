@@ -359,7 +359,42 @@ function hash(n) {
   const s = Math.sin(n * 12.9898) * 43758.5453;
   return s - Math.floor(s);
 }
+// ─── ЦЕНТРАЛЬНАЯ ЗВЕЗДА ─────────────────────────────────────────
+function drawStar(ctx, time) {
+  if (!S.starType) return;
+  const st = STAR_TYPES[S.starType];
+  const cx = window.CANVAS_CX || 0;
+  const cy = window.CANVAS_CY || 0;
+  const z = S.zoom || 1;
+  const t = time;
+  const hue = st.color, sat = st.sat, light = st.light;
+  const baseR = 14 * st.size * z;
+  const pulse = 1 + 0.06 * Math.sin(t * 2.4);
 
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+
+  // Ореол
+  const haloR = baseR * 8 * pulse;
+  const halo = ctx.createRadialGradient(cx, cy, 0, cx, cy, haloR);
+  halo.addColorStop(0, 'hsla(' + hue + ', 100%, 95%, ' + (0.6 * (S.systemType ? SYSTEM_TYPES[S.systemType].stars === 1 ? 1 : 0.75) : 1) + ')');
+  halo.addColorStop(0.15, 'hsla(' + hue + ', ' + sat + '%, ' + light + '%, 0.55)');
+  halo.addColorStop(0.45, 'hsla(' + hue + ', ' + sat + '%, ' + (light - 15) + '%, 0.2)');
+  halo.addColorStop(1, 'hsla(' + hue + ', ' + sat + '%, ' + (light - 30) + '%, 0)');
+  ctx.fillStyle = halo;
+  ctx.beginPath();
+  ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Ядро
+  ctx.fillStyle = 'hsla(' + hue + ', 100%, 99%, 1)';
+  ctx.beginPath();
+  ctx.arc(cx, cy, baseR * 0.55 * pulse, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+window.drawStar = drawStar;
 window.addPlanet = addPlanet;
 window.updatePlanets = updatePlanets;
 window.drawPlanets = drawPlanets;
