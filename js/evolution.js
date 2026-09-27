@@ -149,16 +149,18 @@ function openEvolution() {
     return;
   }
 
-  if (stage === 'galaxy') {
-    const cost = systemCost(S.systems - 1);
+    if (stage === 'galaxy') {
+    // Стоимость растёт быстро — новая система не должна легко даваться
+    const cost = Math.floor(50e9 * Math.pow(4, S.systems - 1));
     const canAfford = S.dust >= cost;
+
     setModal(buildModal(
       'Новая система',
       'Стоимость системы №' + (S.systems + 1) + ': ' + fmt(cost) + ' пыли.',
       [{
         id: 'build', name: 'Основать систему',
-        desc: 'Отправить корабль-ковчег',
-        stats: canAfford ? '+50% к доходу' : 'Не хватает ' + fmt(cost - S.dust),
+        desc: canAfford ? 'Выбрать имя и заложить фундамент' : 'Не хватает ' + fmt(cost - S.dust),
+        stats: '+50% к доходу',
         color: '#8b5cf6', icon: '🌌',
         disabled: !canAfford,
       }]
@@ -166,13 +168,26 @@ function openEvolution() {
       build: () => {
         if (S.dust < cost) return;
         S.dust -= cost;
+
+        // Запрос имени
+        const newName = prompt('Имя новой системы:', 'Система ' + (S.systems + 1));
+        const finalName = (newName || 'Система ' + (S.systems + 1)).trim().slice(0, 16);
+
+        // Создаём новую систему с базовыми параметрами
+        S.otherSystems.push({
+          name: finalName,
+          starType: 'G',
+          systemType: 'single',
+          planets: [],
+        });
+
         S.systems++;
-        toast('Система основана', 'Всего: ' + S.systems);
+        S.totalSystemsCreated++;
+        toast('Система основана', finalName + ' · Всего: ' + S.systems);
       }
     });
     return;
   }
-}
 
 // ─── ИНФО О ТИПАХ СИСТЕМ + БРОСОК ───────────────────────────────
 function showSystemInfo() {
