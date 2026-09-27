@@ -143,7 +143,7 @@ function drawParticles(ctx, time) {
 
   const cx = window.CANVAS_CX || 0;
   const cy = window.CANVAS_CY || 0;
-  const t = time / 1000;
+  const t = time;
 
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
