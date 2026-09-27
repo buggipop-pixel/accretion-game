@@ -1,0 +1,196 @@
+/* ═══════════════════════════════════════════════════════════════
+   STYLE.CSS — базовые стили. Расширим на следующем шаге.
+   ═══════════════════════════════════════════════════════════════ */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: #02010a;
+  color: #e8e2ff;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+}
+
+#app {
+  position: relative;
+  height: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+#sky {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+
+.hud {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.hud > * { pointer-events: auto; }
+.spacer { flex: 1; pointer-events: none !important; }
+
+/* Кругляшок фазы */
+.phase-orb {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 60px;
+  height: 60px;
+  cursor: pointer;
+  filter: drop-shadow(0 4px 12px rgba(107, 77, 230, 0.6));
+}
+
+.phase-orb svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.orb-bg {
+  fill: rgba(20, 14, 45, 0.85);
+  stroke: rgba(139, 127, 212, 0.3);
+  stroke-width: 3;
+}
+
+.orb-progress {
+  fill: none;
+  stroke: #b9a8ff;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 264; /* 2πr ≈ 264 для r=42 */
+  stroke-dashoffset: 264;
+  transition: stroke-dashoffset 0.5s;
+}
+
+.orb-label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 20px;
+  font-weight: 800;
+  color: #fff;
+}
+
+/* Хранилища */
+.storage-panel {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  background: linear-gradient(180deg, rgba(15, 10, 32, 0.72), rgba(10, 5, 20, 0.5));
+  border: 1px solid rgba(139, 127, 212, 0.2);
+  border-radius: 14px;
+  padding: 10px;
+  backdrop-filter: blur(14px);
+}
+
+.storage-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.storage-icon { font-size: 16px; }
+.storage-val {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #e8e2ff;
+}
+.storage-label {
+  font-size: 8px;
+  letter-spacing: 1.5px;
+  color: #8b7fd4;
+}
+
+/* Тосты */
+.toasts {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 20;
+  pointer-events: none;
+  max-width: 90vw;
+}
+
+.toast {
+  background: rgba(25, 15, 55, 0.95);
+  border: 1px solid rgba(185, 168, 255, 0.4);
+  border-radius: 11px;
+  padding: 9px 15px;
+  font-size: 11.5px;
+  color: #e8e2ff;
+  animation: toastIn 3.5s ease forwards;
+  text-align: center;
+  backdrop-filter: blur(8px);
+}
+
+@keyframes toastIn {
+  0% { opacity: 0; transform: translateY(-10px); }
+  12%, 82% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-10px); }
+}
+
+/* Turbo и настройки */
+.turbo, .settings-btn {
+  position: absolute;
+  top: 12px;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+  z-index: 5;
+}
+.turbo { right: 12px; background: linear-gradient(135deg, #ff5e3a, #ff9500); }
+.settings-btn { right: 54px; background: rgba(139, 127, 212, 0.25); border: 1px solid rgba(139, 127, 212, 0.4); }
+
+/* Модалки */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 1, 10, 0.9);
+  z-index: 30;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  backdrop-filter: blur(10px);
+}
+.modal.show { display: flex; animation: modalIn 0.35s ease; }
+@keyframes modalIn { from { opacity: 0; } to { opacity: 1; } }
+
+.modal-card {
+  background: linear-gradient(180deg, rgba(25, 15, 50, 0.98), rgba(12, 8, 26, 0.98));
+  border: 1px solid rgba(139, 127, 212, 0.35);
+  border-radius: 20px;
+  padding: 20px;
+  max-width: 460px;
+  width: 100%;
+  max-height: 88vh;
+  overflow-y: auto;
+  box-shadow: 0 30px 100px rgba(107, 77, 230, 0.4);
+}
