@@ -1,10 +1,10 @@
 // ═══════════════════════════════════════════════════════════════
-//  EVOLUTION.JS — эволюционные окна, выбор звезды, планет, систем
+//  EVOLUTION.JS — эволюционные окна
 // ═══════════════════════════════════════════════════════════════
 
 let evolutionModalOpen = false;
 
-// ─── ПРОВЕРКА КАЖДЫЙ КАДР ───────────────────────────────────────
+// ─── ПРОВЕРКА ───────────────────────────────────────────────────
 function checkEvolution() {
   if (evolutionModalOpen) return;
   const modal = document.getElementById('modal');
@@ -19,7 +19,7 @@ function checkEvolution() {
   if (S.dust >= goal) openEvolution();
 }
 
-// ─── ГЛАВНЫЙ ДИСПЕТЧЕР ──────────────────────────────────────────
+// ─── ДИСПЕТЧЕР ──────────────────────────────────────────────────
 function openEvolution() {
   const stage = S.stage;
 
@@ -43,7 +43,6 @@ function openEvolution() {
   }
 
   if (stage === 'condense') {
-    // Выбор спектрального класса
     const choices = Object.keys(STAR_TYPES).map(k => {
       const st = STAR_TYPES[k];
       return {
@@ -78,8 +77,7 @@ function openEvolution() {
       return {
         id: k, name: pt.name, desc: pt.desc,
         stats: '+' + pt.rate + '/с · ' +
-               (canAfford ? 'Стоимость ' + fmt(cost)
-                          : 'Не хватает ' + fmt(cost - S.dust)),
+               (canAfford ? 'Цена ' + fmt(cost) : 'Нужно ' + fmt(cost - S.dust)),
         color: pt.color, icon: '🪐',
         disabled: !canAfford || !canCiv,
       };
@@ -92,11 +90,8 @@ function openEvolution() {
       if (S.dust < cost) return;
       S.dust -= cost;
       addPlanet(id);
-      if (S.stage === 'protostar' || S.stage === 'firstPlanet') {
-        S.stage = 'system';
-      }
-      toast(PLANET_TYPES[id].name + ' сформирована',
-            'Орбита ' + S.planets.length);
+      S.stage = 'system';
+      toast(PLANET_TYPES[id].name + ' сформирована', 'Орбита ' + S.planets.length);
     }));
     return;
   }
@@ -115,7 +110,7 @@ function openEvolution() {
       ), {
         expand: () => {
           S.stage = 'galaxy';
-          S.systems = 2;
+          S.systems = Math.max(S.systems, 2);
           toast('Первая колония', 'Галактика расширяется');
         }
       });
@@ -143,14 +138,12 @@ function openEvolution() {
       if (S.dust < cost) return;
       S.dust -= cost;
       addPlanet(id);
-      toast(PLANET_TYPES[id].name + ' сформирована',
-            'Орбита ' + S.planets.length);
+      toast(PLANET_TYPES[id].name + ' сформирована', 'Орбита ' + S.planets.length);
     }));
     return;
   }
 
-    if (stage === 'galaxy') {
-    // Стоимость растёт быстро — новая система не должна легко даваться
+  if (stage === 'galaxy') {
     const cost = Math.floor(50e9 * Math.pow(4, S.systems - 1));
     const canAfford = S.dust >= cost;
 
@@ -169,11 +162,9 @@ function openEvolution() {
         if (S.dust < cost) return;
         S.dust -= cost;
 
-        // Запрос имени
         const newName = prompt('Имя новой системы:', 'Система ' + (S.systems + 1));
         const finalName = (newName || 'Система ' + (S.systems + 1)).trim().slice(0, 16);
 
-        // Создаём новую систему с базовыми параметрами
         S.otherSystems.push({
           name: finalName,
           starType: 'G',
@@ -182,14 +173,15 @@ function openEvolution() {
         });
 
         S.systems++;
-        S.totalSystemsCreated++;
+        S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
         toast('Система основана', finalName + ' · Всего: ' + S.systems);
       }
     });
     return;
   }
+}
 
-// ─── ИНФО О ТИПАХ СИСТЕМ + БРОСОК ───────────────────────────────
+// ─── ИНФО О СИСТЕМАХ ────────────────────────────────────────────
 function showSystemInfo() {
   const html = `
     <div class="modal-title">Формирование системы</div>
@@ -200,7 +192,7 @@ function showSystemInfo() {
       <div class="row-stat"><span>✨ Двойная</span><span>38% шанс</span></div>
       <div class="sub-desc">Доход ×1.7. Редкие столкновения планет.</div>
       <div class="row-stat"><span>💫 Кратная</span><span>12% шанс</span></div>
-      <div class="sub-desc">Доход ×2.5. Частые столкновения. Для опытных.</div>
+      <div class="sub-desc">Доход ×2.5. Частые столкновения.</div>
     </div>
     <div class="choices">
       <button class="choice" data-id="create">
@@ -211,15 +203,16 @@ function showSystemInfo() {
         </div>
       </button>
     </div>`;
-  setModalRaw(html, { create: doStarRoll });
+  setModal(html, { create: doStarRoll });
 }
 
 function doStarRoll() {
-  setModalRaw(`
-    <div class="modal-title">Гравитационный коллапс</div>
-    <div class="modal-sub">Облако сжимается...</div>
-    <div class="collapse-anim"><span>✦</span><span>✦</span><span>✦</span></div>
-  `, null);
+  setModal(
+    '<div class="modal-title">Гравитационный коллапс</div>' +
+    '<div class="modal-sub">Облако сжимается...</div>' +
+    '<div class="collapse-anim"><span>✦</span><span>✦</span><span>✦</span></div>',
+    null
+  );
   setTimeout(() => {
     const roll = Math.random();
     let type;
@@ -233,26 +226,25 @@ function doStarRoll() {
 function revealSystem(type) {
   S.systemType = type;
   const st = SYSTEM_TYPES[type];
-  const html = `
-    <div class="modal-title">Система сформирована</div>
-    <div style="text-align:center;padding:20px 0">
-      <div style="font-size:44px;letter-spacing:10px">${st.icon}</div>
-      <div style="font-size:16px;font-weight:700;margin-top:12px;color:#fff">${st.name} система</div>
-      <div style="font-size:11px;color:#a89ce0;margin-top:8px;line-height:1.5">${st.desc}</div>
-      <div style="font-size:15px;color:#b9a8ff;font-weight:700;margin-top:14px">Доход ×${st.rateMult}</div>
-    </div>
-    <div class="choices">
-      <button class="choice" data-id="done">
-        <div class="choice-icon" style="background:#2eaa77">✓</div>
-        <div class="choice-body"><div class="choice-name">Продолжить</div></div>
-      </button>
-    </div>`;
-  setModalRaw(html, {
+  const html =
+    '<div class="modal-title">Система сформирована</div>' +
+    '<div style="text-align:center;padding:20px 0">' +
+      '<div style="font-size:44px;letter-spacing:10px">' + st.icon + '</div>' +
+      '<div style="font-size:16px;font-weight:700;margin-top:12px;color:#fff">' + st.name + ' система</div>' +
+      '<div style="font-size:11px;color:#a89ce0;margin-top:8px;line-height:1.5">' + st.desc + '</div>' +
+      '<div style="font-size:15px;color:#b9a8ff;font-weight:700;margin-top:14px">Доход ×' + st.rateMult + '</div>' +
+    '</div>' +
+    '<div class="choices">' +
+      '<button class="choice" data-id="done">' +
+        '<div class="choice-icon" style="background:#2eaa77">✓</div>' +
+        '<div class="choice-body"><div class="choice-name">Продолжить</div></div>' +
+      '</button>' +
+    '</div>';
+  setModal(html, {
     done: () => {
       S.stage = 'protostar';
       setTimeout(() => {
-        toast('🌟 Поздравляем!',
-              'Звезда зажглась. Её гравитация собирает пыль за вас');
+        toast('🌟 Поздравляем!', 'Звезда зажглась. Её гравитация собирает пыль за вас');
       }, 400);
     }
   });
@@ -267,8 +259,7 @@ function buildModal(title, sub, choices) {
     html += '<button class="choice" data-id="' + c.id + '"' +
             (c.disabled ? ' disabled' : '') + '>';
     html += '<div class="choice-icon" style="background:' + c.color +
-            ';box-shadow:0 0 20px ' + c.color + '80">' +
-            (c.icon || '') + '</div>';
+            ';box-shadow:0 0 20px ' + c.color + '80">' + (c.icon || '') + '</div>';
     html += '<div class="choice-body">';
     html += '<div class="choice-name">' + c.name + '</div>';
     if (c.desc) html += '<div class="choice-desc">' + c.desc + '</div>';
@@ -292,7 +283,9 @@ function setModal(html, handlers) {
   card.innerHTML = html;
   modal.classList.add('show');
   evolutionModalOpen = true;
-  card.querySelectorAll('.choice').forEach(btn => {
+
+  const buttons = card.querySelectorAll('.choice');
+  buttons.forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.id;
       if (btn.disabled) return;
@@ -301,10 +294,6 @@ function setModal(html, handlers) {
       if (handlers && handlers[id]) handlers[id]();
     });
   });
-}
-
-function setModalRaw(html, handlers) {
-  setModal(html, handlers);
 }
 
 window.checkEvolution = checkEvolution;
