@@ -1,93 +1,65 @@
-// ═══════════════════════════════════════════════════════════════
-//  CONFIG.JS — все настройки игры
-//  Меняйте значения здесь, чтобы настроить баланс
-// ═══════════════════════════════════════════════════════════════
-
-// Глобальные настройки
+// CONFIG.JS — настройки игры
 const CFG = {
-  // Экономика
-  clickBase: 2,              // пыли за клик на старте
-  offlineCapHours: 4,        // максимум часов офлайн-дохода
-  offlineEfficiency: 0.5,    // 50% от онлайн-дохода в офлайне
-
-  // Тайминги (в секундах)
-  eventInterval: 200,        // как часто проверять пассивные события
-  eventChance: 0.5,          // шанс события при проверке
-  choiceEventInterval: 320,  // как часто проверять активные события
+  clickBase: 1,
+  offlineCapHours: 4,
+  offlineEfficiency: 0.5,
+  eventInterval: 200,
+  eventChance: 0.5,
+  choiceEventInterval: 320,
   expeditionCooldown: 90,
   cometCooldown: 60,
-  expeditionFlightBase: 180, // базовая длительность экспедиции
+  expeditionFlightBase: 180,
   cometFlightBase: 120,
-  collisionInterval: 60,     // как часто проверять столкновения
-  formationDuration: 600,    // сколько формируется планета (10 мин)
-
-  // Шансы
-  colonyChanceMax: 0.05,     // максимум 5% на находку колонии
-  expeditionFailMin: 0.05,   // минимум риска у большой экспедиции
-  expeditionFailMax: 0.55,   // максимум риска у малой
-  cometFailMin: 0.05,
-  cometFailMax: 0.45,
-
-  // Цивилизация
-  civGrowthPerPlanet: 0.02,  // +0.02 уровня/сек за civ-планету
-  civClickBoost: 0.02,       // +0.02 уровня за клик
+  collisionInterval: 60,
+  formationDuration: 600,
+  colonyChanceMax: 0.05,
+  civGrowthPerPlanet: 0.02,
+  civClickBoost: 0.02,
 };
 
-// ═══════════════════════════════════════════════════════════════
-//  ФАЗЫ РАЗВИТИЯ
-//  goal — сколько пыли накопить для перехода
-//  baseRate — базовый пассивный доход
-//  clickRate — доход за клик
-// ═══════════════════════════════════════════════════════════════
 const STAGES = {
   cloud: {
     tag: 'ФАЗА I', scale: 'ОБЛАКО', name: 'Молекулярное облако',
-    desc: 'Холодная пыль дрейфует в пустоте. Собери её в плотное ядро.',
-    goal: 500, baseRate: 0.3, clickRate: 2,
+    desc: 'Проведи пальцем — собери пыль.',
+    goal: 500, baseRate: 0, clickRate: 1,
     goalLabel: 'Накопи 500 пылинок',
   },
   condense: {
     tag: 'ФАЗА II', scale: 'ОБЛАКО', name: 'Уплотнение',
-    desc: 'Гравитация стягивает облако. Формируется плотное ядро.',
-    goal: 25000, baseRate: 4, clickRate: 15,
+    desc: 'Гравитация стягивает облако. Пассивный поток слабый.',
+    goal: 25000, baseRate: 0.05, clickRate: 2,
     goalLabel: 'Накопи 25 000 пыли',
   },
   protostar: {
     tag: 'ФАЗА III', scale: 'ЗВЕЗДА', name: 'Протозвезда',
-    desc: 'Ядро разогревается. Скоро запустится термоядерный синтез.',
-    goal: 200000, baseRate: 35, clickRate: 100,
+    desc: 'Звезда зажглась. Гравитация собирает пыль без вашего участия.',
+    goal: 200000, baseRate: 100, clickRate: 5,
     goalLabel: 'Накопи 200 000 пыли',
   },
   firstPlanet: {
     tag: 'ФАЗА IV', scale: 'ЗВЕЗДА', name: 'Первая планета',
     desc: 'Диск остывает. Пора сформировать первую планету.',
-    goal: 800000, baseRate: 200, clickRate: 400,
+    goal: 800000, baseRate: 1000, clickRate: 20,
     goalLabel: 'Накопи 800 000 пыли',
   },
   system: {
     tag: 'ФАЗА V', scale: 'СИСТЕМА', name: 'Формирование системы',
-    desc: 'Каждая планета усложняет систему. Всего доступно 8 планет.',
-    goal: null, baseRate: 800, clickRate: 1000,
+    desc: 'Каждая планета увеличивает доход. Всего доступно 8 планет.',
+    goal: null, baseRate: 5000, clickRate: 50,
     goalLabel: 'Формируй планеты',
   },
   galaxy: {
     tag: 'ФАЗА VI', scale: 'ГАЛАКТИКА', name: 'Межзвёздная экспансия',
-    desc: 'Система зрелая. Строй новые звёзды и расширяй галактику.',
-    goal: null, baseRate: 12000, clickRate: 3000,
+    desc: 'Строй новые звёздные системы.',
+    goal: null, baseRate: 50000, clickRate: 100,
     goalLabel: 'Расширяй галактику',
   },
 };
 
-// ═══════════════════════════════════════════════════════════════
-//  ТИПЫ ЗВЁЗД (спектральные классы)
-//  rateMult — множитель дохода
-//  civ — может ли быть жизнь
-//  size — размер звезды в пикселях (визуал)
-// ═══════════════════════════════════════════════════════════════
 const STAR_TYPES = {
   M: { name: 'Красный карлик', color: 8, sat: 92, light: 60,
        rateMult: 6, civ: false, size: 0.65,
-       desc: 'Живёт >56 млрд лет. Огромный пассив, но цивилизации невозможны.' },
+       desc: 'Живёт >56 млрд лет. Огромный пассив, но без цивилизаций.' },
   K: { name: 'Оранжевый карлик', color: 32, sat: 88, light: 68,
        rateMult: 3, civ: true, maxCiv: 7, size: 0.85,
        desc: 'Живёт 17–40 млрд лет. Баланс дохода и жизни.' },
@@ -102,82 +74,39 @@ const STAR_TYPES = {
        desc: 'Живёт <400 млн лет. Максимальная скорость.' },
 };
 
-// ═══════════════════════════════════════════════════════════════
-//  ТИПЫ ЗВЁЗДНЫХ СИСТЕМ (бросается случайно)
-//  chance — шанс выпадения
-//  stars — количество звёзд
-//  collisionPerPlanet — шанс столкновения планет в минуту
-//  civPassiveMult — множитель пассивного роста цивилизации
-//  civClickMult — множитель кликов для цивилизации
-// ═══════════════════════════════════════════════════════════════
 const SYSTEM_TYPES = {
-  single: {
-    name: 'Одиночная', stars: 1, chance: 0.50,
+  single: { name: 'Одиночная', stars: 1, chance: 0.50,
     rateMult: 1.0, collisionPerPlanet: 0,
     civPassiveMult: 1.0, civClickMult: 1.0,
     icon: '⭐', color: '#6b4de6',
-    desc: 'Как Солнце. Стабильные орбиты, предсказуемое развитие.',
-  },
-  binary: {
-    name: 'Двойная', stars: 2, chance: 0.38,
+    desc: 'Как Солнце. Стабильные орбиты, предсказуемое развитие.' },
+  binary: { name: 'Двойная', stars: 2, chance: 0.38,
     rateMult: 1.7, collisionPerPlanet: 0.003,
     civPassiveMult: 0.65, civClickMult: 3.0,
     icon: '✨', color: '#8b5cf6',
-    desc: 'Две звезды вокруг барицентра. Выше доход, но нестабильные орбиты.',
-  },
-  trinary: {
-    name: 'Кратная', stars: 3, chance: 0.12,
+    desc: 'Две звезды. Выше доход, но нестабильные орбиты.' },
+  trinary: { name: 'Кратная', stars: 3, chance: 0.12,
     rateMult: 2.5, collisionPerPlanet: 0.010,
     civPassiveMult: 0.40, civClickMult: 6.0,
     icon: '💫', color: '#a855f7',
-    desc: 'Редкая система. Максимум энергии, но хаотичные орбиты.',
-  },
+    desc: 'Три звезды. Максимум энергии, хаотичные орбиты.' },
 };
 
-// ═══════════════════════════════════════════════════════════════
-//  ТИПЫ ПЛАНЕТ
-//  civ — может ли быть жизнь
-//  rate — базовый доход
-// ═══════════════════════════════════════════════════════════════
 const PLANET_TYPES = {
-  rocky: {
-    name: 'Каменная', color: '#8a7159', civ: true, rate: 200,
-    desc: 'Землеподобный мир. Основа для жизни.',
-  },
-  superEarth: {
-    name: 'Суперземля', color: '#5a9c6e', civ: true, rate: 400,
-    desc: 'Массивнее Земли. Ускоренная жизнь.',
-  },
-  iceGiant: {
-    name: 'Ледяной гигант', color: '#7ec8e3', civ: false, rate: 600,
-    desc: 'Источник комет.',
-  },
-  gasGiant: {
-    name: 'Газовый гигант', color: '#d4a76a', civ: false, rate: 800,
-    desc: 'Гравитационный щит системы.',
-  },
-  lava: {
-    name: 'Лава-планета', color: '#ff4a22', civ: false, rate: 1200,
-    desc: 'Раскалённый мир. Максимальный доход.',
-  },
+  rocky: { name: 'Каменная', color: '#8a7159', civ: true, rate: 200,
+           size: 1.0, desc: 'Землеподобный мир. Основа для жизни.' },
+  superEarth: { name: 'Суперземля', color: '#5a9c6e', civ: true, rate: 400,
+                size: 1.3, desc: 'Массивнее Земли. Ускоренная жизнь.' },
+  iceGiant: { name: 'Ледяной гигант', color: '#7ec8e3', civ: false, rate: 600,
+              size: 1.5, desc: 'Источник комет.' },
+  gasGiant: { name: 'Газовый гигант', color: '#d4a76a', civ: false, rate: 800,
+              size: 1.8, desc: 'Гравитационный щит системы.' },
+  lava: { name: 'Лава-планета', color: '#ff4a22', civ: false, rate: 1200,
+          size: 0.9, desc: 'Раскалённый мир. Максимальный доход.' },
 };
 
-// ═══════════════════════════════════════════════════════════════
-//  УРОВНИ ЦИВИЛИЗАЦИИ
-//  minLevel — с какого уровня доступна механика
-// ═══════════════════════════════════════════════════════════════
-const CIV_LEVELS = [
-  { min: 1,  name: 'Примитивная',      unlocks: 'Пассивный рост пыли' },
-  { min: 4,  name: 'Индустриальная',   unlocks: 'Генерация энергии' },
-  { min: 6,  name: 'Космическая',      unlocks: 'Экспедиции к другим системам' },
-  { min: 8,  name: 'Межзвёздная',      unlocks: 'Прямая колонизация' },
-  { min: 10, name: 'Межгалактическая', unlocks: 'Переход в новую галактику' },
-];
-
-// Экспорт в window для доступа из других файлов
 window.CFG = CFG;
 window.STAGES = STAGES;
 window.STAR_TYPES = STAR_TYPES;
 window.SYSTEM_TYPES = SYSTEM_TYPES;
 window.PLANET_TYPES = PLANET_TYPES;
-window.CIV_LEVELS = CIV_LEVELS;
