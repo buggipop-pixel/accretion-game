@@ -93,16 +93,11 @@ const SYSTEM_TYPES = {
 };
 
 const PLANET_TYPES = {
-  rocky: { name: 'Каменная', color: '#8a7159', civ: true, rate: 200,
-           size: 1.0, desc: 'Землеподобный мир. Основа для жизни.' },
-  superEarth: { name: 'Суперземля', color: '#5a9c6e', civ: true, rate: 400,
-                size: 1.3, desc: 'Массивнее Земли. Ускоренная жизнь.' },
-  iceGiant: { name: 'Ледяной гигант', color: '#7ec8e3', civ: false, rate: 600,
-              size: 1.5, desc: 'Источник комет.' },
-  gasGiant: { name: 'Газовый гигант', color: '#d4a76a', civ: false, rate: 800,
-              size: 1.8, desc: 'Гравитационный щит системы.' },
-  lava: { name: 'Лава-планета', color: '#ff4a22', civ: false, rate: 1200,
-          size: 0.9, desc: 'Раскалённый мир. Максимальный доход.' },
+  rocky:      { name: 'Каменная',       color: '#8a7159', civ: true,  rate: 250,  size: 1.0, desc: 'Землеподобный мир. Основа для жизни.' },
+  superEarth: { name: 'Суперземля',     color: '#5a9c6e', civ: true,  rate: 500,  size: 1.3, desc: 'Массивнее Земли. Ускоренная жизнь.' },
+  iceGiant:   { name: 'Ледяной гигант', color: '#7ec8e3', civ: false, rate: 700,  size: 1.5, desc: 'Источник комет.' },
+  gasGiant:   { name: 'Газовый гигант', color: '#d4a76a', civ: false, rate: 900,  size: 1.8, desc: 'Гравитационный щит.' },
+  lava:       { name: 'Лава-планета',   color: '#ff4a22', civ: false, rate: 1400, size: 0.9, desc: 'Раскалённый мир. Максимальный доход.' },
 };
 
 window.CFG = CFG;
