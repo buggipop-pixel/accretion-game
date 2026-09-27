@@ -225,7 +225,17 @@ const resetBtn = document.getElementById('resetBtn');
 if (resetBtn) {
   resetBtn.addEventListener('click', function() {
     if (confirm('Сбросить весь прогресс и начать заново?')) {
-      resetGame();  // удалит сохранение и перезагрузит страницу
+      // Принудительно обнуляем UI до перезагрузки
+      const dustEl = document.getElementById('dustVal');
+      const energyEl = document.getElementById('energyVal');
+      const civEl = document.getElementById('civVal');
+      const systemsEl = document.getElementById('systemsVal');
+      if (dustEl) dustEl.textContent = '0';
+      if (energyEl) energyEl.textContent = '0';
+      if (civEl) civEl.textContent = '0';
+      if (systemsEl) systemsEl.textContent = '1';
+      
+      resetGame();  // удалит сохранение + обнулит S + перезагрузит
     }
   });
 }
