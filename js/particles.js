@@ -1,12 +1,12 @@
 // ═══════════════════════════════════════════════════════════════
 //  PARTICLES.JS — облако пыли по всему экрану
-//  Медленно стягивается к маленькому центру.
-//  Drag работает только до выбора звезды.
+//  Медленно стягивается к центру (пассив).
+//  Drag ускоряет сбор, но работает ТОЛЬКО до выбора звезды.
 // ═══════════════════════════════════════════════════════════════
 
 const PART = {
   particles: [],
-  coreR: 1.5,       // центр — как обычная частица
+  coreR: 1.5,
   corePulse: 0,
   dragX: 0,
   dragY: 0,
@@ -14,26 +14,29 @@ const PART = {
 };
 
 // ─── БАЛАНС ─────────────────────────────────────────────────────
-const PART_COUNT      = 600;    // заполняем весь экран
-const PULL_VELOCITY   = 0.05;   // px/сек — очень медленно
-const TOUCH_RADIUS    = 110;    // радиус действия пальца
-const TOUCH_VELOCITY  = 500;    // px/сек — притяжение к пальцу
-const ABSORB_RADIUS   = 14;     // на каком расстоянии поглощение
-const DUST_PER_PARTICLE = 1;    // пыли за частицу
+const PART_COUNT      = 600;
+const TOUCH_RADIUS    = 100;
+const TOUCH_VELOCITY  = 400;
+const ABSORB_RADIUS   = 14;
+const DUST_PER_CENTER = 1;   // пыль за поглощение центром (пассив)
+const DUST_PER_FINGER = 1;   // пыль за поглощение пальцем (актив)
+
+// Скорость пассивного стягивания — зависит от фазы.
+// Чем дальше игрок продвинулся, тем сильнее гравитация будущей звезды.
+function pullVelocity() {
+  if (S.stage === 'cloud')      return 0.025;
+  if (S.stage === 'condense')   return 0.25;
+  if (S.stage === 'protostar')  return 0.5;
+  return 0.025;
+}
 
 // ─── СОЗДАНИЕ ЧАСТИЦЫ ───────────────────────────────────────────
-function makeParticleSpawnOnEdge() {
+function makeParticleRandom() {
   const W = window.CANVAS_W || 400;
   const H = window.CANVAS_H || 700;
-  // Спавн по краю экрана
-  const side = Math.floor(Math.random() * 4);
-  let x, y;
-  if (side === 0) { x = Math.random() * W; y = -10; }
-  else if (side === 1) { x = W + 10; y = Math.random() * H; }
-  else if (side === 2) { x = Math.random() * W; y = H + 10; }
-  else { x = -10; y = Math.random() * H; }
   return {
-    x, y,
+    x: Math.random() * W,
+    y: Math.random() * H,
     r: 0.5 + Math.random() * 1.3,
     hue: Math.random() < 0.72
       ? 210 + Math.random() * 55
@@ -43,12 +46,17 @@ function makeParticleSpawnOnEdge() {
   };
 }
 
-function makeParticleRandom() {
+function makeParticleOnEdge() {
   const W = window.CANVAS_W || 400;
   const H = window.CANVAS_H || 700;
+  const side = Math.floor(Math.random() * 4);
+  let x, y;
+  if (side === 0) { x = Math.random() * W; y = -10; }
+  else if (side === 1) { x = W + 10; y = Math.random() * H; }
+  else if (side === 2) { x = Math.random() * W; y = H + 10; }
+  else { x = -10; y = Math.random() * H; }
   return {
-    x: Math.random() * W,
-    y: Math.random() * H,
+    x, y,
     r: 0.5 + Math.random() * 1.3,
     hue: Math.random() < 0.72
       ? 210 + Math.random() * 55
@@ -67,12 +75,13 @@ function initParticles() {
 
 // ─── ОБНОВЛЕНИЕ ─────────────────────────────────────────────────
 function updateParticles(dt, time) {
-  if (S.starType) return; // после звезды частицы не нужны
+  if (S.starType) return; // после звезды drag и частицы отключены
 
   const cx = window.CANVAS_CX || 0;
   const cy = window.CANVAS_CY || 0;
   const W = window.CANVAS_W || 400;
   const H = window.CANVAS_H || 700;
+  const pull = pullVelocity();
 
   PART.corePulse *= 0.9;
 
@@ -80,14 +89,12 @@ function updateParticles(dt, time) {
     const p = PART.particles[i];
     p.twinkle += dt * 2;
 
-    // Базовая скорость — очень медленно к центру
     const dx = cx - p.x;
     const dy = cy - p.y;
     const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-    let vx = (dx / dist) * PULL_VELOCITY;
-    let vy = (dy / dist) * PULL_VELOCITY;
+    let vx = (dx / dist) * pull;
+    let vy = (dy / dist) * pull;
 
-    // Притяжение к пальцу
     if (PART.dragActive) {
       const tdx = PART.dragX - p.x;
       const tdy = PART.dragY - p.y;
@@ -105,10 +112,10 @@ function updateParticles(dt, time) {
     // Поглощение центром
     const dCenter = Math.sqrt((p.x - cx) ** 2 + (p.y - cy) ** 2);
     if (dCenter < ABSORB_RADIUS) {
-      S.dust += DUST_PER_PARTICLE;
-      S.dustTotal += DUST_PER_PARTICLE;
+      S.dust += DUST_PER_CENTER;
+      S.dustTotal += DUST_PER_CENTER;
       PART.corePulse = 1;
-      PART.particles[i] = makeParticleSpawnOnEdge();
+      PART.particles[i] = makeParticleOnEdge();
       continue;
     }
 
@@ -116,16 +123,16 @@ function updateParticles(dt, time) {
     if (PART.dragActive) {
       const dFinger = Math.sqrt((p.x - PART.dragX) ** 2 + (p.y - PART.dragY) ** 2);
       if (dFinger < ABSORB_RADIUS) {
-        S.dust += DUST_PER_PARTICLE;
-        S.dustTotal += DUST_PER_PARTICLE;
-        PART.particles[i] = makeParticleSpawnOnEdge();
+        S.dust += DUST_PER_FINGER;
+        S.dustTotal += DUST_PER_FINGER;
+        PART.particles[i] = makeParticleOnEdge();
         continue;
       }
     }
 
-    // Если частица вылетела далеко за экран — вернуть
-    if (p.x < -50 || p.x > W + 50 || p.y < -50 || p.y > H + 50) {
-      PART.particles[i] = makeParticleSpawnOnEdge();
+    // Частица улетела далеко — вернуть на край
+    if (p.x < -60 || p.x > W + 60 || p.y < -60 || p.y > H + 60) {
+      PART.particles[i] = makeParticleOnEdge();
     }
   }
 }
@@ -153,7 +160,7 @@ function drawParticles(ctx, time) {
   ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
   ctx.fill();
 
-  // Точка центра — как обычная частица
+  // Центр — как обычная частица
   ctx.fillStyle = 'rgba(200, 190, 240, 0.9)';
   ctx.beginPath();
   ctx.arc(cx, cy, PART.coreR * pulse, 0, Math.PI * 2);
@@ -191,26 +198,14 @@ function drawParticles(ctx, time) {
 
 // ─── DRAG ───────────────────────────────────────────────────────
 function handleParticleDrag(x, y, active) {
-  if (S.starType) return; // после звезды drag отключён
+  if (S.starType) return;
   PART.dragX = x;
   PART.dragY = y;
   PART.dragActive = active;
-}
-
-// ─── СООБЩЕНИЕ ПОСЛЕ ВЫБОРА ЗВЕЗДЫ ──────────────────────────────
-function onStarChosen() {
-  // Вызывается из evolution-логики при выборе звезды
-  setTimeout(() => {
-    if (typeof toast === 'function') {
-      toast('🌟 Поздравляем!',
-            'Звезда зажглась. Её гравитация собирает пыль без вашего участия');
-    }
-  }, 600);
 }
 
 window.initParticles = initParticles;
 window.updateParticles = updateParticles;
 window.drawParticles = drawParticles;
 window.handleParticleDrag = handleParticleDrag;
-window.onStarChosen = onStarChosen;
 window.PART = PART;
