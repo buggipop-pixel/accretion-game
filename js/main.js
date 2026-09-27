@@ -129,9 +129,13 @@ function loop(now) {
   // Частицы (до звезды)
   updateParticles(dt, time);
 
+  // Планеты (после звезды)
+  updatePlanets(dt);
+
   // Отрисовка
   drawBackground(time);
   drawParticles(ctx, time);
+  drawPlanets(ctx, time);
 
   // Сохранение
   if (now - lastSave > 4000) {
