@@ -220,3 +220,12 @@ window.addEventListener('beforeunload', saveGame);
 
 // ─── ЗАПУСК ─────────────────────────────────────────────────────
 start();
+// ─── КНОПКА СБРОСА (для тестов) ─────────────────────────────────
+const resetBtn = document.getElementById('resetBtn');
+if (resetBtn) {
+  resetBtn.addEventListener('click', function() {
+    if (confirm('Сбросить весь прогресс и начать заново?')) {
+      resetGame();  // удалит сохранение и перезагрузит страницу
+    }
+  });
+}
