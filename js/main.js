@@ -108,10 +108,22 @@ let lastSave = 0;
 let lastTickTime = 0;
 let offlineReported = false;
 
+let starMessageShown = false;
+
 function loop(now) {
   const dt = Math.min((now - last) / 1000, 0.5);
   last = now;
   const time = now / 1000;
+
+  // Сообщение после выбора звезды (показывается один раз)
+  if (S.starType && !starMessageShown) {
+    starMessageShown = true;
+    setTimeout(() => {
+      toast('🌟 Поздравляем!',
+            'Звезда зажглась. Её гравитация собирает пыль за вас');
+    }, 600);
+  }
+  ...
 
   // Пассивный доход
   const gain = dustPerSec() * dt;
