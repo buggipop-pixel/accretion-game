@@ -32,26 +32,26 @@ const STAGES = {
   },
   protostar: {
     tag: 'ФАЗА III', scale: 'ЗВЕЗДА', name: 'Протозвезда',
-    desc: 'Звезда зажглась. Гравитация собирает пыль без вашего участия.',
-    goal: 200000, baseRate: 100, clickRate: 5,
+    desc: 'Звезда зажглась. Гравитация собирает пыль медленно.',
+    goal: 200000, baseRate: 5, clickRate: 5,
     goalLabel: 'Накопи 200 000 пыли',
   },
   firstPlanet: {
     tag: 'ФАЗА IV', scale: 'ЗВЕЗДА', name: 'Первая планета',
     desc: 'Диск остывает. Пора сформировать первую планету.',
-    goal: 800000, baseRate: 1000, clickRate: 20,
+    goal: 800000, baseRate: 40, clickRate: 20,
     goalLabel: 'Накопи 800 000 пыли',
   },
   system: {
     tag: 'ФАЗА V', scale: 'СИСТЕМА', name: 'Формирование системы',
     desc: 'Каждая планета увеличивает доход. Всего доступно 8 планет.',
-    goal: null, baseRate: 5000, clickRate: 50,
+    goal: null, baseRate: 200, clickRate: 50,
     goalLabel: 'Формируй планеты',
   },
   galaxy: {
     tag: 'ФАЗА VI', scale: 'ГАЛАКТИКА', name: 'Межзвёздная экспансия',
-    desc: 'Строй новые звёздные системы.',
-    goal: null, baseRate: 50000, clickRate: 100,
+    desc: 'Строй новые звёздные системы. 5 систем — и ты увидишь галактику.',
+    goal: null, baseRate: 2000, clickRate: 100,
     goalLabel: 'Расширяй галактику',
   },
 };
