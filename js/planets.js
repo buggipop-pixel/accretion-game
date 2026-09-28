@@ -133,10 +133,26 @@ function checkCollisions() {
       collidePlanets(sorted[i], sorted[i + 1], 'merge');
       return;
     }
-    if (decision === 'bounce') {
-      collidePlanets(sorted[i], sorted[i + 1], 'bounce');
-      return;
+     // ★ Отскок — если скорости слишком высокие для слияния
+  if (decision === 'bounce') {
+    const avgR = (a.orbitR + b.orbitR) / 2;
+    a.baseOrbitR = Math.max(60, avgR - 20);
+    b.baseOrbitR = avgR + 20;
+
+    // ★ Потеря пыли от удара
+    const dustLoss = Math.floor(S.dust * 0.08);  // 8% пыли
+    S.dust = Math.max(0, S.dust - dustLoss);
+
+    const sp = worldToScreen(wmx, wmy);
+    S.explosions.push({
+      x: sp.x, y: sp.y, type: 'moon',
+      startAt: Date.now(), endAt: Date.now() + 600, size: 20,
+    });
+    if (typeof toast === 'function') {
+      toast('💫 Отскок', '−' + fmt(dustLoss) + ' пыли от удара');
     }
+    return;
+  }
   }
 }
 
