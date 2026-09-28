@@ -1,10 +1,11 @@
 // ═══════════════════════════════════════════════════════════════
-//  MINIGAMES.JS — mass (вихрь без таймера), ignite, accretion
+//  MINIGAMES.JS — mass (вихрь), ignite (3с удержания), accretion
 // ═══════════════════════════════════════════════════════════════
 
 const MG = {
   type: null,
   startAt: 0,
+  duration: 10000,
   onComplete: null,
   particles: [],
   power: 0,
@@ -14,14 +15,23 @@ const MG = {
   trail: [],
   capturedCount: 0,
   finishAt: 0,
+  holdStart: 0,
+  holdProgress: 0,
+  quality: 0,
+};
+
+const MG_DURATIONS = {
+  mass: 999,
+  ignite: 25000,      // максимум 25 секунд на зажигание
+  accretion: 20000,
 };
 
 // ─── Параметры вихря ────────────────────────────────────────────
 const VORTEX = {
-  fingerRadius: 140,     // радиус действия пальца (было 110)
-  fingerForce: 2400,     // сила притяжения (было 1600)
-  captureRadius: 130,    // радиус захвата (было 95)
-  orbitDecay: 0.05,      // очень медленное сползание (было 0.35)
+  fingerRadius: 140,
+  fingerForce: 2400,
+  captureRadius: 130,
+  orbitDecay: 0.05,
   minOrbitR: 25,
   slowDrift: 12,
   maxDrift: 300,
@@ -32,6 +42,7 @@ function startMinigame(type, onComplete) {
   MG.type = type;
   MG.startAt = performance.now();
   MG.onComplete = onComplete;
+  MG.duration = MG_DURATIONS[type] || 15000;
   MG.particles = [];
   MG.power = 0;
   MG.chunks = [];
@@ -40,21 +51,21 @@ function startMinigame(type, onComplete) {
   MG.trail = [];
   MG.capturedCount = 0;
   MG.finishAt = 0;
+  MG.holdStart = 0;
+  MG.holdProgress = 0;
+  MG.quality = 0;
 
   if (type === 'mass') {
     for (let i = 0; i < 60; i++) {
       const a = Math.random() * Math.PI * 2;
       const r = 160 + Math.random() * 120;
       MG.particles.push({
-        x: Math.cos(a) * r,
-        y: Math.sin(a) * r * 0.85,
+        x: Math.cos(a) * r, y: Math.sin(a) * r * 0.85,
         vx: 0, vy: 0,
         r: 1.6 + Math.random() * 1.8,
         hue: 200 + Math.random() * 60,
         captured: false,
-        orbitAngle: 0,
-        orbitRadius: 0,
-        orbitSpeed: 0,
+        orbitAngle: 0, orbitRadius: 0, orbitSpeed: 0,
       });
     }
   } else if (type === 'accretion') {
@@ -65,9 +76,7 @@ function startMinigame(type, onComplete) {
         y: (Math.random() * 2 - 1) * 150,
         vx: (Math.random() - 0.5) * 30,
         vy: (Math.random() - 0.5) * 30,
-        r: 12,
-        type: types[i % 4],
-        level: 1,
+        r: 12, type: types[i % 4], level: 1,
       });
     }
   }
@@ -86,10 +95,10 @@ function endMinigame(success) {
 
 // ─── Обновление ─────────────────────────────────────────────────
 function updateMinigame(dt, time) {
+  const elapsed = (performance.now() - MG.startAt) / 1000;
   const cx = window.CANVAS_CX || 0;
   const cy = window.CANVAS_CY || 0;
 
-  // Затухание трейла
   for (let i = MG.trail.length - 1; i >= 0; i--) {
     MG.trail[i].age += dt;
     if (MG.trail[i].age > 0.7) MG.trail.splice(i, 1);
@@ -101,8 +110,9 @@ function updateMinigame(dt, time) {
       MG.trail.push({ x: MG.dragX, y: MG.dragY, age: 0 });
     }
 
-    for (const p of MG.particles) {
-      // ★ ЗАХВАЧЕННАЯ ЧАСТИЦА — крутится вокруг центра
+    for (let pi = 0; pi < MG.particles.length; pi++) {
+      const p = MG.particles[pi];
+
       if (p.captured) {
         p.orbitAngle += p.orbitSpeed * dt;
         p.orbitRadius -= p.orbitRadius * VORTEX.orbitDecay * dt;
@@ -112,8 +122,6 @@ function updateMinigame(dt, time) {
         continue;
       }
 
-      // ─── СВОБОДНАЯ ЧАСТИЦА ───
-      // Притяжение к пальцу
       if (MG.dragActive) {
         const tdx = (MG.dragX - cx) - p.x;
         const tdy = (MG.dragY - cy) - p.y;
@@ -125,7 +133,6 @@ function updateMinigame(dt, time) {
         }
       }
 
-      // Слабый дрейф к центру
       const dCenter = Math.hypot(p.x, p.y) || 1;
       if (dCenter < VORTEX.maxDrift) {
         const drift = VORTEX.slowDrift * (1 - dCenter / VORTEX.maxDrift);
@@ -138,7 +145,6 @@ function updateMinigame(dt, time) {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
 
-      // ★ Захват: как только частица в радиусе captureRadius
       const d = Math.hypot(p.x, p.y);
       if (d < VORTEX.captureRadius) {
         p.captured = true;
@@ -148,41 +154,60 @@ function updateMinigame(dt, time) {
         p.orbitSpeed = Math.max(1.5, Math.min(5.0, 1.5 + tanSpeed / 100));
       }
 
-      // Граница
-      const maxR = 400;
-      if (d > maxR) {
-        p.x = (p.x / d) * maxR;
-        p.y = (p.y / d) * maxR;
-        p.vx *= 0.5;
-        p.vy *= 0.5;
+      if (d > 400) {
+        p.x = (p.x / d) * 400;
+        p.y = (p.y / d) * 400;
+        p.vx *= 0.5; p.vy *= 0.5;
       }
     }
 
     MG.capturedCount = 0;
-    for (const p of MG.particles) if (p.captured) MG.capturedCount++;
+    for (let i = 0; i < MG.particles.length; i++) {
+      if (MG.particles[i].captured) MG.capturedCount++;
+    }
     MG.progress = MG.capturedCount / MG.particles.length;
 
-    // Победа
     if (MG.progress >= 1) {
       if (!MG.finishAt) MG.finishAt = performance.now();
-      if (performance.now() - MG.finishAt > 1500) {
+      if (performance.now() - MG.finishAt > 1500) { endMinigame(true); return; }
+    }
+
+  // ═══ IGNITE — заполнить и удержать 3 секунды ═══
+  } else if (MG.type === 'ignite') {
+    // Медленное затухание
+    MG.power = Math.max(0, MG.power - dt * 0.15);
+
+    // Проверяем, держится ли power на максимуме
+    if (MG.power >= 0.95) {
+      if (MG.holdStart === 0) MG.holdStart = performance.now();
+      const holdTime = (performance.now() - MG.holdStart) / 1000;
+      MG.holdProgress = Math.min(1, holdTime / 3.0);
+
+      if (holdTime >= 3.0) {
+        // ★ УСПЕХ — считаем качество
+        MG.quality = Math.max(0, Math.min(1,
+          (MG.duration / 1000 - elapsed) / (MG.duration / 1000)));
         endMinigame(true);
         return;
       }
+    } else {
+      MG.holdStart = 0;
+      MG.holdProgress = 0;
     }
-    // ★ НЕТ никакой проверки по таймеру для mass!
 
-  // ═══ IGNITE ═══
-  } else if (MG.type === 'ignite') {
-    MG.power = Math.max(0, MG.power - dt * 0.12);
     MG.progress = MG.power;
-    if (MG.power >= 1) { endMinigame(true); return; }
+
+    if (elapsed > MG.duration / 1000) {
+      endMinigame(false);
+      return;
+    }
 
   // ═══ ACCRETION ═══
   } else if (MG.type === 'accretion') {
     const wx = MG.dragActive ? (MG.dragX - cx) : 0;
     const wy = MG.dragActive ? (MG.dragY - cy) : 0;
-    for (const c of MG.chunks) {
+    for (let i = 0; i < MG.chunks.length; i++) {
+      const c = MG.chunks[i];
       if (MG.dragActive) {
         const dx = c.x - wx, dy = c.y - wy;
         const d = Math.hypot(dx, dy) || 1;
@@ -203,8 +228,8 @@ function updateMinigame(dt, time) {
           const merged = {
             x: (a.x + b.x) / 2, y: (a.y + b.y) / 2,
             vx: (a.vx + b.vx) / 2, vy: (a.vy + b.vy) / 2,
-            r: Math.min(40, a.r + b.r * 0.6), type: a.type,
-            level: a.level + b.level,
+            r: Math.min(40, a.r + b.r * 0.6),
+            type: a.type, level: a.level + b.level,
           };
           MG.chunks.splice(j, 1);
           MG.chunks.splice(i, 1);
@@ -215,9 +240,13 @@ function updateMinigame(dt, time) {
       }
       if (i < 0) break;
     }
-    const maxLevel = MG.chunks.reduce((m, c) => Math.max(m, c.level), 0);
+    let maxLevel = 0;
+    for (let i = 0; i < MG.chunks.length; i++) {
+      if (MG.chunks[i].level > maxLevel) maxLevel = MG.chunks[i].level;
+    }
     MG.progress = Math.min(1, maxLevel / 5);
     if (MG.progress >= 1) { endMinigame(true); return; }
+    if (elapsed > MG.duration / 1000) endMinigame(MG.progress > 0.6);
   }
 }
 
@@ -232,7 +261,9 @@ function drawMinigame(ctx, time) {
   ctx.fillRect(0, 0, window.CANVAS_W, window.CANVAS_H);
   ctx.restore();
 
-  // Заголовок
+  const elapsed = (performance.now() - MG.startAt) / 1000;
+  const left = Math.max(0, MG.duration / 1000 - elapsed);
+
   ctx.save();
   ctx.textAlign = 'center';
   ctx.fillStyle = '#e8e2ff';
@@ -244,7 +275,11 @@ function drawMinigame(ctx, time) {
     sub = MG.progress >= 1 ? '★ ГОТОВО' : 'Раскрути пыль вокруг центра';
   } else if (MG.type === 'ignite') {
     title = 'Зажги синтез';
-    sub = 'Тапай по центру';
+    if (MG.holdProgress > 0) {
+      sub = 'ДЕРЖИ! ' + MG.holdProgress.toFixed(1) + '/1.0';
+    } else {
+      sub = 'Тапай по центру чтобы заполнить';
+    }
   } else if (MG.type === 'accretion') {
     title = 'Направь аккрецию';
     sub = 'Свайпами сталкивай обломки';
@@ -254,7 +289,7 @@ function drawMinigame(ctx, time) {
   ctx.fillStyle = MG.progress >= 1 ? '#ffb347' : '#a89ce0';
   ctx.fillText(sub, cx, cy - 208);
 
-  // Прогресс-бар — БЕЗ таймера, только счётчик
+  // Прогресс-бар
   const barW = 240, barH = 6;
   const bx = cx - barW / 2, by = cy + 210;
   ctx.fillStyle = 'rgba(139, 127, 212, 0.2)';
@@ -267,14 +302,16 @@ function drawMinigame(ctx, time) {
   let statusText = '';
   if (MG.type === 'mass') {
     statusText = MG.capturedCount + ' / ' + MG.particles.length + ' частиц';
+  } else if (MG.type === 'ignite') {
+    statusText = Math.floor(MG.progress * 100) + '% · ' + left.toFixed(1) + 'с';
+    if (MG.holdProgress > 0) statusText = '🔥 УДЕРЖАНИЕ ' + (MG.holdProgress * 3).toFixed(1) + ' / 3.0 с';
   } else {
-    statusText = Math.floor(MG.progress * 100) + '%';
+    statusText = Math.floor(MG.progress * 100) + '% · ' + left.toFixed(1) + 'с';
   }
   ctx.fillText(statusText, cx, by + 22);
 
   // ═══ MASS ═══
   if (MG.type === 'mass') {
-    // ★ Кольцо захвата — пунктир
     ctx.save();
     ctx.strokeStyle = 'rgba(160, 130, 240, ' + (0.2 + MG.progress * 0.4) + ')';
     ctx.lineWidth = 1.5;
@@ -285,13 +322,11 @@ function drawMinigame(ctx, time) {
     ctx.setLineDash([]);
     ctx.restore();
 
-    // ★ Вихревые спиральные линии — когда есть захваченные
     if (MG.capturedCount > 0) {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      const spirals = 3;
-      for (let s = 0; s < spirals; s++) {
-        const baseAngle = t * 0.8 + (s / spirals) * Math.PI * 2;
+      for (let s = 0; s < 3; s++) {
+        const baseAngle = t * 0.8 + (s / 3) * Math.PI * 2;
         ctx.strokeStyle = 'rgba(180, 140, 255, ' + (0.15 + MG.progress * 0.35) + ')';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
@@ -307,10 +342,10 @@ function drawMinigame(ctx, time) {
       ctx.restore();
     }
 
-    // Пылинки
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    for (const p of MG.particles) {
+    for (let i = 0; i < MG.particles.length; i++) {
+      const p = MG.particles[i];
       const sx = cx + p.x;
       const sy = cy + p.y;
       const boost = p.captured ? 1.5 : 1.0;
@@ -322,19 +357,9 @@ function drawMinigame(ctx, time) {
       ctx.beginPath();
       ctx.arc(sx, sy, p.r * 4 * boost, 0, Math.PI * 2);
       ctx.fill();
-
-      // ★ Орбитальный след для захваченной частицы
-      if (p.captured) {
-        ctx.strokeStyle = 'hsla(' + p.hue + ', 80%, 70%, 0.3)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.arc(cx, cy, p.orbitRadius, 0, Math.PI * 2);
-        ctx.stroke();
-      }
     }
     ctx.restore();
 
-    // Трейл пальца
     if (MG.trail.length > 1) {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
@@ -353,7 +378,6 @@ function drawMinigame(ctx, time) {
       ctx.restore();
     }
 
-    // Ядро
     const coreBase = 18 + MG.progress * 26;
     const corePulse = 1 + 0.08 * Math.sin(t * 3);
     const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreBase * corePulse * 3);
@@ -369,7 +393,6 @@ function drawMinigame(ctx, time) {
     ctx.arc(cx, cy, 6 + MG.progress * 8, 0, Math.PI * 2);
     ctx.fill();
 
-    // Подсказка — круговая стрелка
     if (!MG.dragActive && MG.progress < 0.05) {
       ctx.save();
       ctx.globalAlpha = 0.5 + 0.3 * Math.sin(t * 3);
@@ -407,14 +430,39 @@ function drawMinigame(ctx, time) {
     ctx.beginPath();
     ctx.arc(cx, cy, coreR * 0.4, 0, Math.PI * 2);
     ctx.fill();
-    ctx.font = 'bold 14px -apple-system, sans-serif';
-    ctx.fillStyle = '#fff';
-    ctx.textAlign = 'center';
-    ctx.fillText('ТАП', cx, cy + 90);
+
+    // ★ Кольцо удержания — показывается когда power >= 0.95
+    if (MG.holdProgress > 0) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 200, 100, 0.9)';
+      ctx.lineWidth = 5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(cx, cy, 90,
+        -Math.PI / 2,
+        -Math.PI / 2 + Math.PI * 2 * MG.holdProgress);
+      ctx.stroke();
+      ctx.restore();
+
+      // Пульсирующий текст
+      ctx.save();
+      ctx.font = 'bold 20px -apple-system, sans-serif';
+      ctx.fillStyle = '#ffb347';
+      ctx.textAlign = 'center';
+      ctx.globalAlpha = 0.7 + 0.3 * Math.sin(t * 8);
+      ctx.fillText('🔥 ДЕРЖИ!', cx, cy + 130);
+      ctx.restore();
+    } else {
+      ctx.font = 'bold 14px -apple-system, sans-serif';
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.fillText('ТАП', cx, cy + 90);
+    }
 
   // ═══ ACCRETION ═══
   } else if (MG.type === 'accretion') {
-    for (const c of MG.chunks) {
+    for (let i = 0; i < MG.chunks.length; i++) {
+      const c = MG.chunks[i];
       const sx = cx + c.x;
       const sy = cy + c.y;
       let col = '#8a7159';
@@ -442,7 +490,6 @@ function drawMinigame(ctx, time) {
   }
   ctx.restore();
 
-  // Кнопка пропуска
   ctx.save();
   ctx.textAlign = 'right';
   ctx.font = '11px -apple-system, sans-serif';
@@ -458,6 +505,7 @@ function mgPointerDown(x, y) {
     endMinigame(false);
     return;
   }
+
   if (MG.type === 'mass') {
     MG.dragActive = true;
     MG.dragX = x;
@@ -465,8 +513,8 @@ function mgPointerDown(x, y) {
   } else if (MG.type === 'ignite') {
     const cx = window.CANVAS_CX || 0;
     const cy = window.CANVAS_CY || 0;
-    if (Math.hypot(x - cx, y - cy) < 150) {
-      MG.power = Math.min(1, MG.power + 0.08);
+    if (Math.hypot(x - cx, y - cy) < 200) {
+      MG.power = Math.min(1, MG.power + 0.10);   // 10 тапов до максимума
     }
   } else if (MG.type === 'accretion') {
     MG.dragActive = true;
