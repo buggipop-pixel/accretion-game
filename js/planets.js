@@ -182,27 +182,25 @@ function drawStar(ctx, time) {
   if (!S.starType) return;
   const st = STAR_TYPES[S.starType];
   const sysType = S.systemType || 'single';
-  const sysDef = SYSTEM_TYPES[sysType];
-  const starsCount = sysDef.stars;
+  const starsCount = SYSTEM_TYPES[sysType].stars;
   const z = S.zoom || 1;
   const t = time;
 
   if (starsCount === 1) {
     drawOneStar(ctx, 0, 0, st.size, t, 0, z);
   } else if (starsCount === 2) {
-    const sep = st.size * 32;  // мировые координаты
-    const orbitAngle = t * 0.22;
-    const wx1 = Math.cos(orbitAngle) * sep;
-    const wy1 = Math.sin(orbitAngle) * sep * VIEW_COS * 0.6;
-    const wx2 = -wx1, wy2 = -wy1;
+    const sep = 45;
+    const a = t * 0.22;
+    const wx1 = Math.cos(a) * sep;
+    const wy1 = Math.sin(a) * sep * 0.4;
     drawOneStar(ctx, wx1, wy1, st.size * 0.82, t, 1.7, z);
-    drawOneStar(ctx, wx2, wy2, st.size * 0.82, t, 3.4, z);
+    drawOneStar(ctx, -wx1, -wy1, st.size * 0.82, t, 3.4, z);
   } else {
-    const sep = st.size * 26;
+    const sep = 55;
     for (let i = 0; i < 3; i++) {
       const baseA = (i / 3) * Math.PI * 2 + t * 0.15;
       const wx = Math.cos(baseA) * sep;
-      const wy = Math.sin(baseA) * sep * VIEW_COS * 0.6;
+      const wy = Math.sin(baseA) * sep * 0.4;
       drawOneStar(ctx, wx, wy, st.size * 0.68, t, i * 1.9, z);
     }
   }
@@ -229,7 +227,6 @@ function drawOneStar(ctx, wx, wy, sizeMul, t, seed, z) {
   ctx.arc(sp.x, sp.y, haloR, 0, Math.PI * 2);
   ctx.fill();
 
-  // Ядро
   ctx.fillStyle = 'hsla(' + hue + ', 100%, 99%, 1)';
   ctx.beginPath();
   ctx.arc(sp.x, sp.y, baseR * 0.55 * pulse, 0, Math.PI * 2);
@@ -245,31 +242,31 @@ function drawPlanets(ctx, time) {
   const z = S.zoom || 1;
   const starHue = S.starType ? STAR_TYPES[S.starType].color : 260;
 
-  // Орбиты — параметрическая кривая через worldToScreen
+  // Орбиты — параметрическая кривая
   ctx.save();
   for (const p of S.planets) {
     if (p.forming) continue;
     ctx.strokeStyle = 'hsla(' + starHue + ', 50%, 60%, 0.10)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let a = 0; a <= Math.PI * 2 + 0.01; a += 0.15) {
+    for (let a = 0; a <= Math.PI * 2 + 0.01; a += 0.2) {
       const wx = Math.cos(a) * p.orbitR;
       const wy = Math.sin(a) * p.orbitR * VIEW_COS;
       const sp = worldToScreen(wx, wy);
       if (a === 0) ctx.moveTo(sp.x, sp.y);
       else ctx.lineTo(sp.x, sp.y);
     }
+    ctx.closePath();
     ctx.stroke();
   }
   ctx.restore();
 
-  // Сортировка по глубине (в мире)
   const sorted = S.planets.map(p => {
     const angle = p.angle + t * p.speed;
     const sinA = Math.sin(angle);
     const wx = Math.cos(angle) * p.orbitR;
     const wy = sinA * p.orbitR * VIEW_COS;
-    return { p: p, wx: wx, wy: wy, depth: sinA };
+    return { p, wx, wy, depth: sinA };
   }).sort((a, b) => a.depth - b.depth);
 
   for (const item of sorted) {
@@ -286,7 +283,6 @@ function drawPlanets(ctx, time) {
     const baseSize = 5 * p.diameter * scale;
     drawTexturedPlanet(ctx, sp.x, sp.y, baseSize, p, alpha);
 
-    // Луны
     for (const m of p.moons) {
       const mAngle = m.angle + t * m.speed;
       const mx = sp.x + Math.cos(mAngle) * baseSize * m.dist;
