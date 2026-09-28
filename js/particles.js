@@ -28,52 +28,36 @@ const CLOUD = {
   spawnRMax: 230,
 };
 
-    // ─── ФАЗА II: плотная спираль Архимеда ───
-    else if (isDisk) {
-      const tangential = CONDENSE.spinBase * p.spinVar;
-      // ★ Та же формула Архимедовой спирали, что на фазе I
-      const radial = tangential * CONDENSE.spiralB / Math.max(25, dist);
+ // ─── Кеплеровский диск: v_t ∝ 1/√r ───
+// На фазе I — медленное вращение, тонкая спираль
+// На фазе II — быстрое, плотная спираль (collapse)
 
-      vx += tanX * tangential;
-      vy += tanY * tangential;
-      vx += dirX * radial;
-      vy += dirY * radial;
+const CLOUD = {
+  vRef: 22,           // опорная тангенциальная скорость на 100 px
+  spiralB: 5,         // b для Архимедовой спирали
+  armAngleB: 0.04,    // угол рукава
+  armForce: 0.4,
+  maxArmKick: 0.35,
+  armSpread: 0.9,
+  radialDrift: 0.8,   // мягкое стягивание к центру (px/s)
+};
 
-      // Плотное выравнивание к 2 рукавам (сильнее чем на фазе I)
-      const targetA = p.arm * Math.PI + dist * CONDENSE.armAngleB + p.armOffset;
-      const curA = Math.atan2(p.y, p.x);
-      let aDiff = normAngle(targetA - curA);
-      if (aDiff > CONDENSE.maxArmKick) aDiff = CONDENSE.maxArmKick;
-      if (aDiff < -CONDENSE.maxArmKick) aDiff = -CONDENSE.maxArmKick;
-      vx += tanX * aDiff * CONDENSE.armForce;
-      vy += tanY * aDiff * CONDENSE.armForce;
-    }
+const CONDENSE = {
+  vRef: 55,           // быстрее при коллапсе
+  spiralB: 14,
+  armAngleB: 0.08,
+  armForce: 0.7,
+  maxArmKick: 0.35,
+  armSpread: 0.5,
+  radialDrift: 2.5,
+  coreGrow: 2.0,
+};
 
-const PASSING_MIN_MS = 120000;
-const PASSING_MAX_MS = 300000;
-
-// ─── Мировые ↔ экранные координаты ──────────────────────────────
-function worldToScreen(wx, wy) {
-  const z = S.zoom || 1;
-  const rot = S.rotation || 0;
-  const cos = Math.cos(rot), sin = Math.sin(rot);
-  const rx = wx * cos - wy * sin;
-  const ry = wx * sin + wy * cos;
-  return {
-    x: (window.CANVAS_CX || 0) + (S.panX || 0) + rx * z,
-    y: (window.CANVAS_CY || 0) + (S.panY || 0) + ry * z,
-  };
-}
-function screenToWorld(sx, sy) {
-  const z = S.zoom || 1;
-  const rot = S.rotation || 0;
-  const x = (sx - (window.CANVAS_CX || 0) - (S.panX || 0)) / z;
-  const y = (sy - (window.CANVAS_CY || 0) - (S.panY || 0)) / z;
-  const cos = Math.cos(-rot), sin = Math.sin(-rot);
-  return { x: x * cos - y * sin, y: x * sin + y * cos };
-}
-window.worldToScreen = worldToScreen;
-window.screenToWorld = screenToWorld;
+// ★ Кеплеровская тангенциальная скорость: v(r) = vRef · √(100/r)
+function keplerTangential(r, vRef) {
+  if (r < 20) r = 20;
+  return vRef * Math.sqrt(100 / r);
+};
 
 // ─── Видимость пыли ─────────────────────────────────────────────
 function particleVisibility() {
@@ -174,17 +158,17 @@ function updateParticles(dt, time) {
     let vx = 0, vy = 0;
 
     // ─── ФАЗА I: спираль Архимеда ───
-    if (isCloud) {
-      const tangential = CLOUD.spinBase * p.spinVar;
-      // ★ Условие Архимедовой спирали: v_r = v_t · b / r
+          if (isCloud) {
+      // ★ Кеплеровская скорость: внутренние частицы быстрее
+      const tangential = keplerTangential(dist, CLOUD.vRef) * p.spinVar;
+      // Архимедова спираль через v_r = v_t · b / r
       const radial = tangential * CLOUD.spiralB / Math.max(25, dist);
 
       vx += tanX * tangential;
       vy += tanY * tangential;
-      vx += dirX * radial;
-      vy += dirY * radial;
+      vx += dirX * (radial + CLOUD.radialDrift);
 
-      // Мягкое выравнивание к 2 рукавам
+      // Слабое выравнивание к 2 рукавам
       const targetA = p.arm * Math.PI + dist * CLOUD.armAngleB + p.armOffset;
       const curA = Math.atan2(p.y, p.x);
       let aDiff = normAngle(targetA - curA);
@@ -194,21 +178,21 @@ function updateParticles(dt, time) {
       vy += tanY * aDiff * CLOUD.armForce;
     }
 
-    // ─── ФАЗА II: кольца ───
-    else if (isDisk) {
-      const ringR = p.ring === 0 ? CONDENSE.rings[0] : CONDENSE.rings[1];
-      const rDiff = ringR - dist;
-      if (Math.abs(rDiff) < CONDENSE.ringWidth) {
-        vx += dirX * rDiff * CONDENSE.ringHold;
-        vy += dirY * rDiff * CONDENSE.ringHold;
-        vx += tanX * CONDENSE.ringSpin * p.spinVar;
-        vy += tanY * CONDENSE.ringSpin * p.spinVar;
-        vx += dirX * CONDENSE.ringPull;
-        vy += dirY * CONDENSE.ringPull;
-      } else {
-        vx += dirX * CONDENSE.betweenPull;
-        vy += dirY * CONDENSE.betweenPull;
-      }
+       else if (isDisk) {
+      const tangential = keplerTangential(dist, CONDENSE.vRef) * p.spinVar;
+      const radial = tangential * CONDENSE.spiralB / Math.max(25, dist);
+
+      vx += tanX * tangential;
+      vy += tanY * tangential;
+      vx += dirX * (radial + CONDENSE.radialDrift);
+
+      const targetA = p.arm * Math.PI + dist * CONDENSE.armAngleB + p.armOffset;
+      const curA = Math.atan2(p.y, p.x);
+      let aDiff = normAngle(targetA - curA);
+      if (aDiff > CONDENSE.maxArmKick) aDiff = CONDENSE.maxArmKick;
+      if (aDiff < -CONDENSE.maxArmKick) aDiff = -CONDENSE.maxArmKick;
+      vx += tanX * aDiff * CONDENSE.armForce;
+      vy += tanY * aDiff * CONDENSE.armForce;
     }
 
     // ─── ФАЗА III+ ───
@@ -328,12 +312,19 @@ function spawnPassing() {
   else if (side === 1) { x = halfW+40; y = (Math.random()*2-1)*halfH; vx = -speed; vy = (Math.random()-0.5)*40; }
   else if (side === 2) { x = (Math.random()*2-1)*halfW; y = halfH+40; vx = (Math.random()-0.5)*40; vy = -speed; }
   else { x = -halfW-40; y = (Math.random()*2-1)*halfH; vx = speed; vy = (Math.random()-0.5)*40; }
+    // ★ Кеплеровский разлёт: если комета попадает в гравитационное поле — ускоряется
+  const r = Math.hypot(x, y);
+  if (r < 250 && typeof keplerSpeedAt === 'function') {
+    const k = keplerSpeedAt(r / 100);
+    vx *= 0.7 + k * 0.3;
+    vy *= 0.7 + k * 0.3;
+  }
+
   PART.passing.push({
     x, y, vx, vy,
     type: isComet ? 'comet' : 'ship',
     size, tailLen, alpha: 1, age: 0, trail: [],
   });
-}
 
 // ─── Рисование ──────────────────────────────────────────────────
 function drawParticles(ctx, time) {
@@ -371,9 +362,14 @@ function drawParticles(ctx, time) {
   for (const p of PART.particles) {
     const sp = worldToScreen(p.x, p.y);
     const dist = Math.sqrt(p.x * p.x + p.y * p.y);
-    const heat = Math.max(0, 1 - dist / 120);
-    const hueShift = -heat * 45;
-    const brightBoost = 1 + heat * 1.3;
+      // ★ Температурный градиент (Hayashi): T ∝ 1/√r
+    const temp = (typeof tempAt === 'function')
+      ? tempAt(dist / (window.PHYS?.refRadius || 100))
+      : 280;
+    const heat = Math.max(0, Math.min(1, (temp - 50) / 400));
+    // Горячее → оранжевый (-60), холоднее → синий (+20)
+    const hueShift = -heat * 60 + (1 - heat) * 20;
+    const brightBoost = 1 + heat * 1.5;
     const tw = 0.7 + 0.3 * Math.sin(p.twinkle + t * 2);
     ctx.globalAlpha = Math.min(1, p.bright * tw * 0.85 * visibility * brightBoost);
     ctx.fillStyle = 'hsl(' + (p.hue + hueShift) + ', ' +
