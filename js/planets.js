@@ -30,6 +30,9 @@ function updatePlanets(dt) {
   if (!S.systemType) return;
   const now = Date.now();
 
+  // ★ Тик газа (рассеивание)
+  if (typeof tickGas === 'function') tickGas();
+
   for (const p of S.planets) {
     if (p.forming) {
       if (now >= p.formUntil) {
@@ -40,6 +43,14 @@ function updatePlanets(dt) {
       }
       continue;
     }
+
+    // ★ Миграция I типа — планета медленно сползает к звезде
+    if (typeof migrationRate === 'function') {
+      const dr = migrationRate(p);
+      p.baseOrbitR = Math.max(50, p.baseOrbitR + dr * dt);
+    }
+
+    // Дрейф орбиты
     p.orbitR = p.baseOrbitR * (1 + 0.12 * Math.sin(now * 0.00002 + p.driftPhase));
     p.rotation += dt * 0.5;
   }
@@ -47,6 +58,9 @@ function updatePlanets(dt) {
   for (let i = S.explosions.length - 1; i >= 0; i--) {
     if (now > S.explosions[i].endAt) S.explosions.splice(i, 1);
   }
+
+  checkCollisions();
+}
 
   checkCollisions();
 }
@@ -65,26 +79,38 @@ function checkCollisions() {
   const chance = st.collisionPerPlanet * active.length;
   if (Math.random() > chance) return;
 
+  // Ищем пару по критерию слияния (Safronov)
   const sorted = active.slice().sort((a, b) => a.orbitR - b.orbitR);
-  let pair = null;
   for (let i = 0; i < sorted.length - 1; i++) {
-    const gap = sorted[i + 1].orbitR - sorted[i].orbitR;
-    const sumDiam = (sorted[i].diameter + sorted[i + 1].diameter) * 5;
-    if (gap < sumDiam + 15) {
-      pair = [sorted[i], sorted[i + 1]];
-      break;
+    const a = sorted[i], b = sorted[i + 1];
+    if (typeof shouldMerge === 'function') {
+      const decision = shouldMerge(a, b);
+      if (decision === 'merge') {
+        collidePlanets(a, b, 'merge');
+        return;
+      } else if (decision === 'bounce') {
+        collidePlanets(a, b, 'bounce');
+        return;
+      }
+    } else {
+      // Fallback
+      const gap = b.orbitR - a.orbitR;
+      const sumDiam = (a.diameter + b.diameter) * 5;
+      if (gap < sumDiam + 15) {
+        collidePlanets(a, b, 'merge');
+        return;
+      }
     }
   }
-  if (!pair) return;
+}
 
   collidePlanets(pair[0], pair[1]);
 }
 
-function collidePlanets(a, b) {
+function collidePlanets(a, b, decision) {
   const aPt = PLANET_TYPES[a.type];
   const bPt = PLANET_TYPES[b.type];
 
-  // Позиция взрыва — в мировых координатах, потом в экранные
   const angleA = a.angle;
   const angleB = b.angle;
   const wxA = Math.cos(angleA) * a.orbitR;
@@ -94,10 +120,28 @@ function collidePlanets(a, b) {
   const wmx = (wxA + wxB) / 2;
   const wmy = (wyA + wyB) / 2;
 
-  const roll = Math.random();
   const bigMass = a.mass + b.mass;
+  const roll = Math.random();
 
-  if (roll < 0.45) {
+  // ★ Решение по физике, а не рандом
+  if (decision === 'bounce') {
+    // Отскок: планеты разлетаются, меняют орбиты
+    const avgR = (a.orbitR + b.orbitR) / 2;
+    a.baseOrbitR = Math.max(60, avgR - 20);
+    b.baseOrbitR = avgR + 20;
+    const sp = worldToScreen(wmx, wmy);
+    S.explosions.push({
+      x: sp.x, y: sp.y, type: 'moon',
+      startAt: Date.now(), endAt: Date.now() + 600, size: 20,
+    });
+    if (typeof toast === 'function') {
+      toast('💫 Отскок', 'Скорость слишком высока для слияния');
+    }
+    return;
+  }
+
+  // Слияние или разрушение
+  if (roll < 0.35) {
     // Разрушение
     const refund = Math.floor((aPt.rate + bPt.rate) * 600);
     S.dust += refund;
@@ -112,9 +156,7 @@ function collidePlanets(a, b) {
         speed: 2 + Math.random() * 1.5,
         dist: 2.2 + Math.random() * 0.5,
       });
-      if (typeof toast === 'function') {
-        toast('🌙 Луна', 'Осколок стал спутником');
-      }
+      if (typeof toast === 'function') toast('🌙 Луна', 'Осколок стал спутником');
     }
 
     const sp = worldToScreen(wmx, wmy);
@@ -126,57 +168,56 @@ function collidePlanets(a, b) {
     if (typeof toast === 'function') {
       toast('💥 Столкновение', '+' + fmt(refund) + ' пыли');
     }
-  } else if (roll < 0.85) {
-    // Слияние с формированием
-    const newType = aPt.rate > bPt.rate ? a.type : b.type;
+  } else {
+    // Слияние с сохранением импульса
+    const newMass = a.mass + b.mass;
+    // Тип определяется по зоне снеговой линии
+    let newType = aPt.rate > bPt.rate ? a.type : b.type;
+
+    // ★ Снеговая линия: если орбита внутри — только каменистые
+    const rPix = (a.orbitR + b.orbitR) / 2;
+    const zone = (typeof zoneAt === 'function')
+      ? zoneAt(rPix / 100 * (window.PHYS?.refRadius || 100))
+      : null;
+
+    if (zone === 'rocky' && (newType === 'gasGiant' || newType === 'iceGiant')) {
+      newType = 'rocky';
+    } else if (zone === 'ice' && newType === 'rocky') {
+      newType = 'iceGiant';
+    }
+
     S.planets = S.planets.filter(p => p !== a && p !== b);
     const idx = S.planets.length;
+
+    // ★ Радиус по массе: R = (3M/4πρ)^(1/3)
+    const newDiameter = Math.pow(newMass, 1/3) * 1.1;
+
     S.planets.push({
       type: newType,
       angle: Math.random() * Math.PI * 2,
       speed: 0.15 / Math.sqrt(idx + 1),
-      baseOrbitR: 90 + idx * 34,
-      orbitR: 90 + idx * 34,
+      baseOrbitR: rPix,
+      orbitR: rPix,
       driftPhase: Math.random() * Math.PI * 2,
       rotation: 0,
       seed: Math.random() * 1e6,
       forming: true,
       formUntil: Date.now() + CFG.formationDuration * 1000,
-      mass: planetMass(newType) * 1.3,
-      diameter: planetDiameter(newType) * 1.2,
+      mass: newMass,
+      diameter: newDiameter,
       moons: [],
     });
+
     const sp = worldToScreen(wmx, wmy);
     S.explosions.push({
       x: sp.x, y: sp.y, type: 'merge',
       startAt: Date.now(), endAt: Date.now() + 1000, size: 40,
     });
     if (typeof toast === 'function') {
-      toast('🪐 Слияние', 'Формируется ' + PLANET_TYPES[newType].name);
-    }
-  } else {
-    // Луна
-    const main = a.mass > b.mass ? a : b;
-    const sacrifice = main === a ? b : a;
-    if (!main.moons) main.moons = [];
-    main.moons.push({
-      size: 0.5 + Math.random() * 0.6,
-      angle: Math.random() * Math.PI * 2,
-      speed: 1.5 + Math.random() * 1.5,
-      dist: 2.2 + Math.random() * 0.6,
-    });
-    S.planets = S.planets.filter(p => p !== sacrifice);
-    const sp = worldToScreen(wmx, wmy);
-    S.explosions.push({
-      x: sp.x, y: sp.y, type: 'moon',
-      startAt: Date.now(), endAt: Date.now() + 900, size: 25,
-    });
-    if (typeof toast === 'function') {
-      toast('🌙 Спутник', PLANET_TYPES[sacrifice.type].name + ' стал луной');
+      toast('🪐 Слияние', 'Новая планета: ' + PLANET_TYPES[newType].name);
     }
   }
 }
-
 // ─── Центральные звёзды (1, 2 или 3 в зависимости от systemType) ─
 function drawStar(ctx, time) {
   if (!S.starType) return;
@@ -242,24 +283,35 @@ function drawPlanets(ctx, time) {
   const z = S.zoom || 1;
   const starHue = S.starType ? STAR_TYPES[S.starType].color : 260;
 
-  // Орбиты — параметрическая кривая
-  ctx.save();
-  for (const p of S.planets) {
-    if (p.forming) continue;
-    ctx.strokeStyle = 'hsla(' + starHue + ', 50%, 60%, 0.10)';
+  // ★ Снеговая линия (Hayashi 1981)
+  if (typeof PHYS !== 'undefined' && !S.starType === false) {
+    const snowPx = PHYS.snowLine;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(126, 200, 227, 0.15)';
     ctx.lineWidth = 1;
+    ctx.setLineDash([8, 12]);
     ctx.beginPath();
     for (let a = 0; a <= Math.PI * 2 + 0.01; a += 0.2) {
-      const wx = Math.cos(a) * p.orbitR;
-      const wy = Math.sin(a) * p.orbitR * VIEW_COS;
+      const wx = Math.cos(a) * snowPx;
+      const wy = Math.sin(a) * snowPx * VIEW_COS;
       const sp = worldToScreen(wx, wy);
       if (a === 0) ctx.moveTo(sp.x, sp.y);
       else ctx.lineTo(sp.x, sp.y);
     }
     ctx.closePath();
     ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Подпись
+    const lblPos = worldToScreen(snowPx, 0);
+    ctx.fillStyle = 'rgba(126, 200, 227, 0.5)';
+    ctx.font = '9px -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('❄ снеговая линия', lblPos.x + 6, lblPos.y - 4);
+    ctx.restore();
   }
-  ctx.restore();
+
+  // ... остальной код drawPlanets
 
   const sorted = S.planets.map(p => {
     const angle = p.angle + t * p.speed;
