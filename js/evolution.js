@@ -312,8 +312,11 @@ function revealSystem(type) {
       '</button>' +
     '</div>';
   setModalRaw(html, {
-    done: () => {
+        done: () => {
       S.stage = 'firstPlanet';
+      // ★ Сбрасываем таймер газа — теперь он начнёт отсчёт с момента
+      //   выбора звезды (или первой планеты)
+      if (typeof resetGas === 'function') resetGas();
       closeEvolutionModal();
       toast('Диск остывает', 'Накопи 800 000 пыли для первой планеты');
     }
