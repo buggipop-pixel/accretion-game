@@ -68,6 +68,43 @@ function launchComet() {
   const flightTime = 60000 + Math.random() * 60000;
   const reward = Math.floor(500000 * (1 + S.planets.length * 0.3) * check.ice);
 
+  // ★ Находим ледяной гигант как источник
+  const icePlanet = S.planets.find(function(p) {
+    return p.type === 'iceGiant' && !p.forming;
+  });
+  let startX = 0, startY = 0;
+  if (icePlanet) {
+    const angle = icePlanet.angle;
+    startX = Math.cos(angle) * icePlanet.orbitR;
+    startY = Math.sin(angle) * icePlanet.orbitR * 0.5;
+  }
+
+  // ★ Спавним визуальную комету в PART.passing
+  if (typeof PART !== 'undefined' && PART.passing) {
+    const W = window.CANVAS_W || 400;
+    const H = window.CANVAS_H || 700;
+    const z = S.zoom || 1;
+    const halfW = W / (2 * z);
+    const halfH = H / (2 * z);
+    // Летит от края экрана через всю сцену
+    const side = Math.floor(Math.random() * 4);
+    let vx, vy, x, y;
+    const speed = 60 + Math.random() * 40;
+    if (side === 0) { x = (Math.random()*2-1)*halfW; y = -halfH - 40; vx = (Math.random()-0.5)*30; vy = speed; }
+    else if (side === 1) { x = halfW + 40; y = (Math.random()*2-1)*halfH; vx = -speed; vy = (Math.random()-0.5)*30; }
+    else if (side === 2) { x = (Math.random()*2-1)*halfW; y = halfH + 40; vx = (Math.random()-0.5)*30; vy = -speed; }
+    else { x = -halfW - 40; y = (Math.random()*2-1)*halfH; vx = speed; vy = (Math.random()-0.5)*30; }
+
+    PART.passing.push({
+      x: x, y: y, vx: vx, vy: vy,
+      type: 'comet',
+      size: 0.5 + Math.random() * 0.5,
+      tailLen: 18,
+      alpha: 1, age: 0, trail: [],
+      missionId: 'comet_' + Date.now(),
+    });
+  }
+
   MISS.comets.push({
     id: Math.random().toString(36).slice(2),
     startAt: Date.now(),
@@ -100,17 +137,30 @@ function canLaunchExpedition() {
   return { ok: true, cost };
 }
 
-function launchExpedition() {
-  const check = canLaunchExpedition();
-  if (!check.ok) {
-    if (typeof toast === 'function') toast('Экспедиция недоступна', check.reason);
-    return false;
-  }
-  S.energy -= check.cost;
-  MISS.lastExpeditionAt = Date.now();
+  // ★ Спавним визуальный корабль
+  if (typeof PART !== 'undefined' && PART.passing) {
+    const W = window.CANVAS_W || 400;
+    const H = window.CANVAS_H || 700;
+    const z = S.zoom || 1;
+    const halfW = W / (2 * z);
+    const halfH = H / (2 * z);
+    const side = Math.floor(Math.random() * 4);
+    let vx, vy, x, y;
+    const speed = 50 + Math.random() * 40;
+    if (side === 0) { x = (Math.random()*2-1)*halfW; y = -halfH - 40; vx = (Math.random()-0.5)*20; vy = speed; }
+    else if (side === 1) { x = halfW + 40; y = (Math.random()*2-1)*halfH; vx = -speed; vy = (Math.random()-0.5)*20; }
+    else if (side === 2) { x = (Math.random()*2-1)*halfW; y = halfH + 40; vx = (Math.random()-0.5)*20; vy = -speed; }
+    else { x = -halfW - 40; y = (Math.random()*2-1)*halfH; vx = speed; vy = (Math.random()-0.5)*20; }
 
-  const flightTime = 120000 + Math.random() * 180000;
-  const reward = Math.floor(1000000 * (1 + S.planets.length * 0.4) * S.systems);
+    PART.passing.push({
+      x: x, y: y, vx: vx, vy: vy,
+      type: 'ship',
+      size: 0.4 + Math.random() * 0.4,
+      tailLen: 10,
+      alpha: 1, age: 0, trail: [],
+      missionId: 'exp_' + Date.now(),
+    });
+  }
 
   MISS.expeditions.push({
     id: Math.random().toString(36).slice(2),
