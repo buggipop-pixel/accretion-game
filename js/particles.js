@@ -1,39 +1,53 @@
 // ═══════════════════════════════════════════════════════════════
-//  PARTICLES.JS — аккреция: спираль → диск → падение в звезду
+//  PARTICLES.JS — фаза I: спираль. Фаза II: яркая звезда + кольца
 // ═══════════════════════════════════════════════════════════════
 
 const PART = {
   particles: [],
   passing: [],
-  coreR: 1.5,
+  coreR: 1.8,
   corePulse: 0,
   starPulse: 0,
-  absorbed: 0,       // счётчик поглощённых частиц → рост ядра
+  absorbed: 0,
   dragX: 0, dragY: 0,
   dragActive: false,
   lastPassingAt: 0,
 };
 
-const PART_COUNT       = 600;
-const TOUCH_RADIUS     = 100;
-const TOUCH_VELOCITY   = 400;
-const DUST_PER_CENTER  = 0.15;
-const DUST_PER_STAR    = 1.5;
-const DUST_PER_FINGER  = 0.5;
+const PART_COUNT      = 700;
+const TOUCH_RADIUS    = 100;
+const TOUCH_VELOCITY  = 400;
+const DUST_PER_CENTER = 0.15;
+const DUST_PER_STAR   = 1.5;
+const DUST_PER_FINGER = 0.5;
 
-// ─── Зоны ───────────────────────────────────────────────────────
-const SPIN_ZONE_OUTER = 180;   // где заканчивается спин
-const SPIN_ZONE_INNER = 25;    // где спин уже 0 (падение)
-const SPIN_MAX_CLOUD  = 18;    // фаза I — слабое закручивание
-const SPIN_MAX_CONDENSE = 65;  // фаза II — полноценный диск
+// ─── КОНФИГ ФАЗ ─────────────────────────────────────────────────
+const CLOUD = {
+  pull: 0.35,          // медленное стягивание
+  spiralForce: 18,     // сила удержания на рукаве
+  spiralTight: 0.85,   // «закрученность» log-спирали
+  arms: 2,             // 2 рукава
+  armSpread: 0.5,      // разброс частиц вокруг рукава
+  pullCenterBoost: 1.0 // без ускорения у центра
+};
+
+const CONDENSE = {
+  pull: 0.9,           // стягивание в центр
+  ringHold: 1.6,       // сила удержания на кольце
+  ringSpin: 85,        // скорость вращения вдоль кольца
+  ringPull: 1.2,       // стягивание внутри кольца
+  rings: [55, 108],    // 2 кольца
+  ringWidth: 24,       // ширина зоны кольца
+  coreGrow: 2.0,       // скорость роста ядра
+};
 
 const PASSING_MIN_MS = 120000;
 const PASSING_MAX_MS = 300000;
 
-// ─── Видимость пыли по фазам ────────────────────────────────────
+// ─── ВИДИМОСТЬ ПЫЛИ ─────────────────────────────────────────────
 function particleVisibility() {
   if (S.stage === 'cloud')       return 1.0;
-  if (S.stage === 'condense')    return 0.85;
+  if (S.stage === 'condense')    return 0.9;
   if (S.stage === 'protostar')   return 0.55;
   if (S.stage === 'firstPlanet') return 0.40;
   if (S.stage === 'system') {
@@ -44,40 +58,7 @@ function particleVisibility() {
   return 1.0;
 }
 
-// ─── БАЗОВАЯ СИЛА ПРИТЯЖЕНИЯ ────────────────────────────────────
-function basePull() {
-  if (S.stage === 'cloud')     return 0.35;
-  if (S.stage === 'condense')  return 1.2;
-  if (S.stage === 'protostar') return 2.5;
-  if (S.stage === 'firstPlanet' || S.stage === 'system') return 3.5;
-  if (S.stage === 'galaxy')    return 2.0;
-  return 0.35;
-}
-
-// Притяжение растёт ближе к центру (гравитация)
-function pullAt(dist, base) {
-  return base * (1 + 250 / (dist + 80));
-}
-
-// ─── ПРОФИЛЬ СПИНА ──────────────────────────────────────────────
-// Фаза I: линейно растёт к центру, слабый.
-// Фаза II: sin-профиль — пик в середине диска, 0 на границах.
-function spinAt(dist) {
-  const isDisk = S.stage === 'condense' || S.stage === 'protostar';
-  if (dist > SPIN_ZONE_OUTER || dist < SPIN_ZONE_INNER) return 0;
-
-  if (isDisk) {
-    const span = SPIN_ZONE_OUTER - SPIN_ZONE_INNER;
-    const t = (SPIN_ZONE_OUTER - dist) / span;  // 0..1
-    return SPIN_MAX_CONDENSE * Math.sin(t * Math.PI);
-  } else {
-    // Фаза I — слабое закручивание, сильнее у центра
-    const t = 1 - dist / SPIN_ZONE_OUTER;
-    return SPIN_MAX_CLOUD * t;
-  }
-}
-
-// ─── Создание частиц ────────────────────────────────────────────
+// ─── СОЗДАНИЕ ЧАСТИЦ ────────────────────────────────────────────
 function makeWorldParticle() {
   const W = window.CANVAS_W || 400;
   const H = window.CANVAS_H || 700;
@@ -87,11 +68,14 @@ function makeWorldParticle() {
   return {
     x: (Math.random() * 2 - 1) * halfW,
     y: (Math.random() * 2 - 1) * halfH,
-    r: 0.5 + Math.random() * 1.3,
-    hue: Math.random() < 0.72 ? 210 + Math.random() * 55 : 15 + Math.random() * 35,
-    bright: 0.35 + Math.random() * 0.55,
+    r: 0.5 + Math.random() * 1.2,
+    hue: Math.random() < 0.72 ? 215 + Math.random() * 50 : 15 + Math.random() * 35,
+    bright: 0.4 + Math.random() * 0.5,
     twinkle: Math.random() * Math.PI * 2,
-    spinVar: 0.7 + Math.random() * 0.6,
+    spinVar: 0.75 + Math.random() * 0.5,
+    arm: Math.random() < 0.5 ? 0 : 1,          // в какой рукав
+    armOffset: (Math.random() - 0.5) * CLOUD.armSpread,
+    ring: Math.random() < 0.5 ? 0 : 1,          // какое кольцо
     age: 0,
   };
 }
@@ -110,11 +94,14 @@ function makeEdgeParticle() {
   else { x = -halfW - 20; y = (Math.random() * 2 - 1) * halfH; }
   return {
     x, y,
-    r: 0.5 + Math.random() * 1.3,
-    hue: Math.random() < 0.72 ? 210 + Math.random() * 55 : 15 + Math.random() * 35,
-    bright: 0.35 + Math.random() * 0.55,
+    r: 0.5 + Math.random() * 1.2,
+    hue: Math.random() < 0.72 ? 215 + Math.random() * 50 : 15 + Math.random() * 35,
+    bright: 0.4 + Math.random() * 0.5,
     twinkle: Math.random() * Math.PI * 2,
-    spinVar: 0.7 + Math.random() * 0.6,
+    spinVar: 0.75 + Math.random() * 0.5,
+    arm: Math.random() < 0.5 ? 0 : 1,
+    armOffset: (Math.random() - 0.5) * CLOUD.armSpread,
+    ring: Math.random() < 0.5 ? 0 : 1,
     age: 0,
   };
 }
@@ -127,7 +114,13 @@ function initParticles() {
   PART.lastPassingAt = performance.now();
 }
 
-// ─── ОБНОВЛЕНИЕ ─────────────────────────────────────────────────
+// ─── ФИЗИКА ─────────────────────────────────────────────────────
+function normAngle(a) {
+  while (a > Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  return a;
+}
+
 function updateParticles(dt, time) {
   const W = window.CANVAS_W || 400;
   const H = window.CANVAS_H || 700;
@@ -135,10 +128,12 @@ function updateParticles(dt, time) {
   const halfW = W / (2 * z);
   const halfH = H / (2 * z);
   const hasStar = !!S.starType;
-  const base = basePull();
+  const stage = S.stage;
+  const isCloud = stage === 'cloud';
+  const isDisk  = stage === 'condense' || stage === 'protostar';
 
   const target = Math.round(PART_COUNT * Math.pow(1 / z, 1.2));
-  const clampedTarget = Math.max(200, Math.min(1400, target));
+  const clampedTarget = Math.max(200, Math.min(1500, target));
   while (PART.particles.length < clampedTarget - 15) PART.particles.push(makeWorldParticle());
   while (PART.particles.length > clampedTarget + 15) PART.particles.pop();
 
@@ -157,34 +152,61 @@ function updateParticles(dt, time) {
     const tanX = -p.y / dist;
     const tanY = p.x / dist;
 
-    // Притяжение с учётом дистанции
-    const pull = pullAt(dist, base);
+    let vx = 0, vy = 0;
 
-    // Внутренняя зона — экстремальное падение
-    const innerBoost = dist < 60 ? 1 + (1 - dist / 60) * 4 : 1;
+    // ─── ФАЗА I: СПИРАЛЬНЫЕ РУКАВА ───
+    if (isCloud) {
+      // Целевой угол логарифмической спирали
+      const targetA = p.arm * Math.PI
+                    + Math.log(dist + 1) * CLOUD.spiralTight
+                    + p.armOffset;
+      const curA = Math.atan2(p.y, p.x);
+      const aDiff = normAngle(targetA - curA);
 
-    let vx = dirX * pull * innerBoost;
-    let vy = dirY * pull * innerBoost;
+      // Тангенциальная сила к рукаву
+      vx += tanX * aDiff * CLOUD.spiralForce * p.spinVar;
+      vy += tanY * aDiff * CLOUD.spiralForce * p.spinVar;
 
-    // Спин
-    const spin = spinAt(dist) * p.spinVar;
-    if (spin > 0.01) {
-      vx += tanX * spin;
-      vy += tanY * spin;
-      // В диске ослабляем радиальное — получается орбита
-      if (S.stage === 'condense' || S.stage === 'protostar') {
-        const diskFactor = Math.min(1, spin / (SPIN_MAX_CONDENSE * 0.5));
-        vx *= (1 - diskFactor * 0.55);
-        vy *= (1 - diskFactor * 0.55);
+      // Медленное стягивание в центр (постоянное, без ускорения)
+      vx += dirX * CLOUD.pull;
+      vy += dirY * CLOUD.pull;
+    }
+
+    // ─── ФАЗА II: КОЛЬЦА + СТЯГИВАНИЕ ───
+    else if (isDisk) {
+      const ringR = p.ring === 0 ? CONDENSE.rings[0] : CONDENSE.rings[1];
+      const rDiff = ringR - dist;
+
+      if (Math.abs(rDiff) < CONDENSE.ringWidth) {
+        // В зоне кольца: удержание + вращение
+        vx += dirX * rDiff * CONDENSE.ringHold;
+        vy += dirY * rDiff * CONDENSE.ringHold;
+        vx += tanX * CONDENSE.ringSpin * p.spinVar;
+        vy += tanY * CONDENSE.ringSpin * p.spinVar;
+        // Медленное стягивание в центр
+        vx += dirX * CONDENSE.ringPull;
+        vy += dirY * CONDENSE.ringPull;
+      } else {
+        // Вне кольца: падение к ближайшему кольцу
+        const pull = CONDENSE.pull * (rDiff > 0 ? 1.4 : 0.8);
+        vx += dirX * pull;
+        vy += dirY * pull;
       }
     }
 
-    // DRAG (только до звезды)
+    // ─── ФАЗА III+ ───
+    else if (hasStar) {
+      // Простое медленное стягивание к звезде
+      vx += dirX * 1.5;
+      vy += dirY * 1.5;
+    }
+
+    // ─── DRAG ───
     if (!hasStar && PART.dragActive) {
-      const cx = window.CANVAS_CX || 0;
-      const cy = window.CANVAS_CY || 0;
-      const wx = (PART.dragX - cx) / z;
-      const wy = (PART.dragY - cy) / z;
+      const cx0 = window.CANVAS_CX || 0;
+      const cy0 = window.CANVAS_CY || 0;
+      const wx = (PART.dragX - cx0) / z;
+      const wy = (PART.dragY - cy0) / z;
       const tdx = wx - p.x;
       const tdy = wy - p.y;
       const tdist = Math.sqrt(tdx * tdx + tdy * tdy) || 1;
@@ -197,11 +219,11 @@ function updateParticles(dt, time) {
 
     // Anti-stuck
     p.age += dt;
-    if (dist < 40 && p.age > 6) {
-      vx += dirX * 40;
-      vy += dirY * 40;
+    if (dist < 30 && p.age > 4) {
+      vx += dirX * 25;
+      vy += dirY * 25;
     }
-    if (dist > 200) p.age = 0;
+    if (dist > 100) p.age = 0;
 
     p.x += vx * dt;
     p.y += vy * dt;
@@ -219,12 +241,11 @@ function updateParticles(dt, time) {
       continue;
     }
 
-    // Поглощение пальцем
     if (!hasStar && PART.dragActive) {
-      const cx = window.CANVAS_CX || 0;
-      const cy = window.CANVAS_CY || 0;
-      const wx = (PART.dragX - cx) / z;
-      const wy = (PART.dragY - cy) / z;
+      const cx0 = window.CANVAS_CX || 0;
+      const cy0 = window.CANVAS_CY || 0;
+      const wx = (PART.dragX - cx0) / z;
+      const wy = (PART.dragY - cy0) / z;
       const dF = Math.sqrt((p.x - wx) ** 2 + (p.y - wy) ** 2);
       if (dF < absorbR) {
         S.dust += DUST_PER_FINGER;
@@ -234,20 +255,23 @@ function updateParticles(dt, time) {
       }
     }
 
-    // Улетел
     if (p.x < -halfW - 80 || p.x > halfW + 80 ||
         p.y < -halfH - 80 || p.y > halfH + 80) {
       PART.particles[i] = makeEdgeParticle();
     }
   }
 
-  // Рост ядра от поглощённых частиц
-  PART.coreR = 1.5 + Math.min(10, Math.log10(PART.absorbed + 1) * 3);
+  // Рост ядра
+  if (isDisk) {
+    PART.coreR = 1.8 + Math.min(6, Math.log10(PART.absorbed + 1) * CONDENSE.coreGrow);
+  } else {
+    PART.coreR = 1.8;
+  }
 
   updatePassing(dt, time);
 }
 
-// ─── ПРОЛЁТЫ КОМЕТ И КОРАБЛЕЙ ───────────────────────────────────
+// ─── ПРОЛЁТЫ ────────────────────────────────────────────────────
 function updatePassing(dt, time) {
   const now = performance.now();
   const interval = PASSING_MIN_MS + Math.random() * (PASSING_MAX_MS - PASSING_MIN_MS);
@@ -264,7 +288,7 @@ function updatePassing(dt, time) {
   for (let i = PART.passing.length - 1; i >= 0; i--) {
     const o = PART.passing[i];
 
-    // Уничтожение кометы близко к звезде
+    // Комета гибнет у звезды
     if (o.type === 'comet' && S.starType && !o.dying) {
       const d = Math.sqrt((o.x - cx) ** 2 + (o.y - cy) ** 2);
       if (d < 90) {
@@ -283,13 +307,9 @@ function updatePassing(dt, time) {
       }
     }
 
-    // Затухание умирающей кометы
     if (o.dying) {
       const age = (now - o.dieAt) / 800;
-      if (age > 1) {
-        PART.passing.splice(i, 1);
-        continue;
-      }
+      if (age > 1) { PART.passing.splice(i, 1); continue; }
       o.alpha = 1 - age;
     }
 
@@ -309,8 +329,8 @@ function spawnPassing() {
   const W = window.CANVAS_W || 400;
   const H = window.CANVAS_H || 700;
   const isComet = Math.random() < 0.6;
-  const size = 0.7 + Math.random() * 1.8;         // 0.7 – 2.5
-  const tailLen = Math.round(8 + size * 9);        // 14 – 30
+  const size = 0.7 + Math.random() * 1.8;
+  const tailLen = Math.round(8 + size * 9);
   const side = Math.floor(Math.random() * 4);
   let x, y, vx, vy;
   const speed = 50 + Math.random() * 90;
@@ -321,11 +341,8 @@ function spawnPassing() {
   PART.passing.push({
     x, y, vx, vy,
     type: isComet ? 'comet' : 'ship',
-    size: size,
-    tailLen: tailLen,
-    alpha: 1,
-    age: 0, trail: [],
-    hue: isComet ? 200 : 50,
+    size: size, tailLen: tailLen,
+    alpha: 1, age: 0, trail: [],
   });
 }
 
@@ -347,47 +364,65 @@ function drawParticles(ctx, time) {
   const t = time;
   const visibility = particleVisibility();
   const hasStar = !!S.starType;
+  const isDisk = S.stage === 'condense' || S.stage === 'protostar';
 
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
 
-  // Ореол центра / растущей звезды
-  const pulse = 1 + PART.corePulse * 0.6;
-  const coreRNow = PART.coreR * pulse * z;
+  // ─── ОРЕОЛ ЦЕНТРА ───
   if (!hasStar) {
-    const haloR = coreRNow * 6;
-    const haloGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, haloR);
-    haloGrad.addColorStop(0, 'rgba(200, 180, 255, 0.30)');
-    haloGrad.addColorStop(0.4, 'rgba(140, 120, 220, 0.12)');
-    haloGrad.addColorStop(1, 'rgba(80, 60, 150, 0)');
-    ctx.fillStyle = haloGrad;
-    ctx.beginPath();
-    ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
-    ctx.fill();
+    const pulse = 1 + PART.corePulse * 0.5;
 
-    ctx.fillStyle = 'rgba(230, 220, 255, 0.95)';
+    if (isDisk) {
+      // Фаза II — яркая внутренняя корона
+      const haloR = 22 * z;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, haloR);
+      g.addColorStop(0, 'rgba(230, 210, 255, 0.55)');
+      g.addColorStop(0.3, 'rgba(180, 150, 240, 0.28)');
+      g.addColorStop(0.7, 'rgba(130, 100, 210, 0.08)');
+      g.addColorStop(1, 'rgba(80, 60, 150, 0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Фаза I — маленький ореол
+      const haloR = 10 * z;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, haloR);
+      g.addColorStop(0, 'rgba(200, 180, 255, 0.25)');
+      g.addColorStop(0.6, 'rgba(140, 120, 220, 0.08)');
+      g.addColorStop(1, 'rgba(80, 60, 150, 0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Точка центра — как частица, чуть ярче
+    const R = PART.coreR * pulse * z;
+    ctx.fillStyle = 'rgba(240, 235, 255, 0.95)';
     ctx.beginPath();
-    ctx.arc(cx, cy, coreRNow, 0, Math.PI * 2);
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  // Частицы
+  // ─── ЧАСТИЦЫ ───
   const sizeFactor = Math.max(0.7, z);
   for (const p of PART.particles) {
     const sx = cx + p.x * z;
     const sy = cy + p.y * z;
 
     const dist = Math.sqrt(p.x * p.x + p.y * p.y);
-    const heat = Math.max(0, 1 - dist / 130);
+    const heat = Math.max(0, 1 - dist / 120);
     const hueShift = -heat * 45;
-    const brightBoost = 1 + heat * 1.4;
+    const brightBoost = 1 + heat * 1.3;
 
     const tw = 0.7 + 0.3 * Math.sin(p.twinkle + t * 2);
     ctx.globalAlpha = Math.min(1, p.bright * tw * 0.85 * visibility * brightBoost);
     ctx.fillStyle = 'hsl(' + (p.hue + hueShift) + ', ' +
-                    (70 + heat * 20) + '%, ' + (68 + heat * 20) + '%)';
+                    (65 + heat * 25) + '%, ' + (68 + heat * 18) + '%)';
     ctx.beginPath();
-    ctx.arc(sx, sy, p.r * sizeFactor * (1 + heat * 0.4), 0, Math.PI * 2);
+    ctx.arc(sx, sy, p.r * sizeFactor * (1 + heat * 0.3), 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.globalAlpha = 1;
@@ -435,7 +470,6 @@ function drawPassing(ctx) {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
 
-    // Трейл (длина зависит от размера)
     for (let i = 0; i < o.trail.length; i++) {
       const seg = o.trail[i];
       const life = i / o.trail.length;
@@ -455,14 +489,12 @@ function drawPassing(ctx) {
       ctx.fill();
     }
 
-    // Ядро
     ctx.globalAlpha = 0.95 * alpha;
     ctx.fillStyle = o.type === 'comet' ? '#e8f6ff' : '#ffeec8';
     ctx.beginPath();
     ctx.arc(o.x, o.y, 2 * o.size * z, 0, Math.PI * 2);
     ctx.fill();
 
-    // Ореол
     const halo = ctx.createRadialGradient(o.x, o.y, 0, o.x, o.y, 12 * o.size * z);
     if (o.type === 'comet') {
       halo.addColorStop(0, 'rgba(150, 220, 255, 0.5)');
@@ -487,7 +519,6 @@ function handleParticleDrag(x, y, active) {
   PART.dragActive = active;
 }
 
-// Возврат вкладки — разбрасываем, чтобы не было застывшего кольца
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && PART.particles.length > 0) {
     for (let i = 0; i < PART.particles.length; i++) {
