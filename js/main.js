@@ -1,4 +1,6 @@
-// MAIN.JS — цикл, canvas, зум, панорамирование, галактический вид
+// ═══════════════════════════════════════════════════════════════
+//  MAIN.JS — цикл, canvas, зум, панорама, поворот, миниигры
+// ═══════════════════════════════════════════════════════════════
 
 const canvas = document.getElementById('sky');
 const ctx = canvas.getContext('2d');
@@ -20,6 +22,7 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 
+// ─── Фон ───
 const bgStars = [];
 for (let i = 0; i < 200; i++) {
   bgStars.push({
@@ -50,15 +53,9 @@ function drawBackground(time) {
   ctx.restore();
 }
 
-// ─── ГАЛАКТИЧЕСКИЙ ВИД ──────────────────────────────────────────
+// ─── Галактический вид ───
 function drawGalaxyView(time) {
   const t = time;
-  // 5+ систем — показываем галактику
-  const sysList = [{ name: S.systemName, active: S.activeSystemIdx === 0 }];
-  for (let i = 1; i < S.otherSystems.length; i++) {
-    if (S.otherSystems[i]) sysList.push({ name: S.otherSystems[i].name, active: S.activeSystemIdx === i });
-  }
-  // Раскладываем системы по спирали
   const total = S.totalSystemsCreated || 1;
   const positions = [];
   for (let i = 0; i < total; i++) {
@@ -72,7 +69,6 @@ function drawGalaxyView(time) {
       idx: i,
     });
   }
-  // Линии
   ctx.save();
   ctx.strokeStyle = 'rgba(139, 127, 212, 0.08)';
   ctx.lineWidth = 1;
@@ -89,13 +85,10 @@ function drawGalaxyView(time) {
     }
   }
   ctx.restore();
-
-  // Системы
   for (const pos of positions) {
     const isActive = pos.idx === S.activeSystemIdx;
     const size = isActive ? 10 : 6;
     const hue = 50 + (pos.idx * 37) % 100;
-
     const g = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, size * 3);
     g.addColorStop(0, 'hsla(' + hue + ', 90%, 80%, 1)');
     g.addColorStop(0.5, 'hsla(' + hue + ', 80%, 60%, 0.5)');
@@ -104,21 +97,20 @@ function drawGalaxyView(time) {
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, size * 3, 0, Math.PI * 2);
     ctx.fill();
-
     ctx.fillStyle = isActive ? '#fff' : '#d0c8ff';
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, size * 0.4, 0, Math.PI * 2);
     ctx.fill();
-
-    // Имя
     ctx.fillStyle = isActive ? '#e8e2ff' : '#8b7fd4';
     ctx.font = '11px -apple-system, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(pos.idx === 0 ? S.systemName : (S.otherSystems[pos.idx] ? S.otherSystems[pos.idx].name : 'Система ' + (pos.idx + 1)), pos.x, pos.y + size * 2.5);
+    const nm = pos.idx === 0 ? S.systemName :
+      (S.otherSystems[pos.idx] ? S.otherSystems[pos.idx].name : 'С-ма ' + (pos.idx + 1));
+    ctx.fillText(nm, pos.x, pos.y + size * 2.5);
   }
 }
 
-// ─── ЗУМ И ПАН ──────────────────────────────────────────────────
+// ─── Зум ───
 function applyZoom(factor) {
   S.zoom = Math.max(0.4, Math.min(3.0, (S.zoom || 1) * factor));
 }
@@ -132,7 +124,7 @@ canvas.addEventListener('wheel', (e) => {
   applyZoom(e.deltaY > 0 ? 0.9 : 1.1);
 }, { passive: false });
 
-// ─── ВВОД ───────────────────────────────────────────────────────
+// ─── Ввод ───
 function getPointerPos(e) {
   const rect = canvas.getBoundingClientRect();
   const t = e.touches ? e.touches[0] : e;
@@ -142,32 +134,40 @@ function getPointerPos(e) {
 const pointers = new Map();
 let pinchStartDist = 0;
 let pinchStartZoom = 1;
+let pinchStartAngle = 0;
+let pinchStartRotation = 0;
 let panStartX = 0, panStartY = 0;
 let panStartPanX = 0, panStartPanY = 0;
 let isPanning = false;
 
 canvas.addEventListener('pointerdown', (e) => {
   e.preventDefault();
+
+  // ★ Миниигра перехватывает ввод
+  if (S.activeMinigame) {
+    const pos = getPointerPos(e);
+    if (typeof mgPointerDown === 'function') mgPointerDown(pos.x, pos.y);
+    return;
+  }
+
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
   if (pointers.size === 2) {
     const pts = Array.from(pointers.values());
     pinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
     pinchStartZoom = S.zoom || 1;
+    pinchStartAngle = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
+    pinchStartRotation = S.rotation || 0;
     handleParticleDrag(0, 0, false);
     isPanning = false;
     return;
   }
   if (pointers.size === 1) {
     const pos = getPointerPos(e);
-
-    // Если звезда есть и systems >= 5 — клик по системе для входа
     if (S.starType && S.totalSystemsCreated >= 5) {
       handleGalaxyClick(pos.x, pos.y);
       return;
     }
-
-    // После звезды — панорамирование
     if (S.starType) {
       isPanning = true;
       panStartX = pos.x;
@@ -176,14 +176,18 @@ canvas.addEventListener('pointerdown', (e) => {
       panStartPanY = S.panY || 0;
       return;
     }
-
-    // До звезды — drag частиц
     handleParticleDrag(pos.x, pos.y, true);
     handleCanvasClick(pos.x, pos.y);
   }
 });
 
 canvas.addEventListener('pointermove', (e) => {
+  if (S.activeMinigame) {
+    const pos = getPointerPos(e);
+    if (typeof mgPointerMove === 'function') mgPointerMove(pos.x, pos.y);
+    return;
+  }
+
   if (pointers.has(e.pointerId)) {
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   }
@@ -192,6 +196,8 @@ canvas.addEventListener('pointermove', (e) => {
     const pts = Array.from(pointers.values());
     const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
     S.zoom = Math.max(0.4, Math.min(3.0, pinchStartZoom * (d / pinchStartDist)));
+    const angle = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
+    S.rotation = (pinchStartRotation || 0) + (angle - pinchStartAngle);
     return;
   }
   if (pointers.size === 1) {
@@ -209,6 +215,10 @@ canvas.addEventListener('pointermove', (e) => {
 });
 
 function onPointerRelease(e) {
+  if (S.activeMinigame) {
+    if (typeof mgPointerUp === 'function') mgPointerUp();
+    return;
+  }
   pointers.delete(e.pointerId);
   if (pointers.size < 2) pinchStartDist = 0;
   if (pointers.size === 0) {
@@ -221,7 +231,6 @@ canvas.addEventListener('pointercancel', onPointerRelease);
 canvas.addEventListener('pointerleave', onPointerRelease);
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-// ─── КЛИК ПО ГАЛАКТИКЕ ──────────────────────────────────────────
 function handleGalaxyClick(x, y) {
   const total = S.totalSystemsCreated || 1;
   for (let i = 0; i < total; i++) {
@@ -231,18 +240,15 @@ function handleGalaxyClick(x, y) {
     const dist = 60 + arm * 70 + idx * 25;
     const px = cx + Math.cos(angle) * dist;
     const py = cy + Math.sin(angle) * dist * 0.5;
-    const d = Math.hypot(px - x, py - y);
-    if (d < 20) {
+    if (Math.hypot(px - x, py - y) < 20) {
       switchToSystem(i);
-      S.panX = 0;
-      S.panY = 0;
-      S.zoom = 1;
+      S.panX = 0; S.panY = 0; S.zoom = 1; S.rotation = 0;
       return;
     }
   }
 }
 
-// ─── ЦИКЛ ───────────────────────────────────────────────────────
+// ─── Главный цикл ───
 let last = performance.now();
 let lastSave = 0;
 
@@ -250,6 +256,15 @@ function loop(now) {
   const dt = Math.min((now - last) / 1000, 0.5);
   last = now;
   const time = now / 1000;
+
+  // ★ Миниигра — пауза всего остального
+  if (S.activeMinigame && typeof updateMinigame === 'function') {
+    updateMinigame(dt, time);
+    drawBackground(time);
+    drawMinigame(ctx, time);
+    requestAnimationFrame(loop);
+    return;
+  }
 
   const gain = dustPerSec() * dt;
   S.dust += gain;
@@ -260,11 +275,11 @@ function loop(now) {
   tickCiv(dt);
   updateParticles(dt, time);
   updatePlanets(dt);
+  if (typeof updateMissions === 'function') updateMissions(dt, time);
   checkEvolution();
 
   drawBackground(time);
 
-  // Галактический вид при 5+ систем
   if (S.totalSystemsCreated >= 5) {
     drawGalaxyView(time);
   } else {
@@ -276,10 +291,12 @@ function loop(now) {
   if (now - lastSave > 4000) { saveGame(); lastSave = now; }
   updateUI();
   updateQuestPanel();
+  if (typeof renderMissionButtons === 'function') renderMissionButtons();
+
   requestAnimationFrame(loop);
 }
 
-// ─── UI ─────────────────────────────────────────────────────────
+// ─── UI ───
 function updateUI() {
   ['dustVal','energyVal','civVal','systemsVal'].forEach(id => {
     const el = document.getElementById(id);
@@ -289,6 +306,11 @@ function updateUI() {
     if (id === 'civVal') el.textContent = fmt(S.civLevel);
     if (id === 'systemsVal') el.textContent = S.systems;
   });
+
+  const rateEl = document.getElementById('dustRate');
+  if (rateEl && typeof dustPerSec === 'function') {
+    rateEl.textContent = '+' + fmt(dustPerSec() * 3600) + ' / ч';
+  }
 
   const orbLabel = document.getElementById('orbLabel');
   const orbProgress = document.getElementById('orbProgress');
@@ -309,11 +331,12 @@ function updateUI() {
     const goal = currentGoal();
     const ready = (S.stage === 'system' && S.planets.length >= 8) ||
                   (goal !== null && S.dust >= goal);
-    if (ready) btn.classList.add('show');
+    if (ready && !S.activeMinigame) btn.classList.add('show');
     else btn.classList.remove('show');
   }
 }
 
+// ─── Формат ───
 const UNITS = ['', 'К', 'М', 'Б', 'Т', 'Кв', 'Кт', 'Сх', 'Сп', 'Ок'];
 function fmt(n) {
   if (n < 1000) return Math.floor(n).toString();
@@ -323,6 +346,16 @@ function fmt(n) {
 }
 window.fmt = fmt;
 
+function fmtTime(sec) {
+  if (sec < 0) sec = 0;
+  if (sec < 60) return Math.floor(sec) + 'с';
+  if (sec < 3600) return Math.floor(sec / 60) + ':' +
+    String(Math.floor(sec % 60)).padStart(2, '0');
+  return Math.floor(sec / 3600) + 'ч ' + Math.floor((sec % 3600) / 60) + 'м';
+}
+window.fmtTime = fmtTime;
+
+// ─── Тосты ───
 function toast(title, sub) {
   const el = document.getElementById('toasts');
   if (!el) return;
@@ -334,7 +367,7 @@ function toast(title, sub) {
 }
 window.toast = toast;
 
-// ─── КВЕСТЫ ─────────────────────────────────────────────────────
+// ─── Квесты ───
 function getQuests() {
   const list = [];
   const st = S.stage;
@@ -342,11 +375,16 @@ function getQuests() {
   else if (st === 'condense') {
     list.push({ title: 'Накопи 25 000 пыли', cur: S.dustTotal, max: 25000 });
     if (!S.starType) list.push({ title: 'Определи спектр звезды', cur: 0, max: 1 });
-  } else if (st === 'protostar') list.push({ title: 'Накопи 200 000 пыли', cur: S.dust, max: 200000 });
-  else if (st === 'firstPlanet') list.push({ title: 'Создай первую планету', cur: 0, max: 1 });
-  else if (st === 'system') {
+    if (S.starType && !S.systemType) list.push({ title: 'Определи тип системы', cur: 0, max: 1 });
+  } else if (st === 'protostar') {
+    list.push({ title: 'Накопи 200 000 пыли', cur: S.dust, max: 200000 });
+  } else if (st === 'firstPlanet') {
+    list.push({ title: 'Накопи 800 000 пыли', cur: S.dust, max: 800000 });
+  } else if (st === 'system') {
     list.push({ title: 'Сформируй 8 планет', cur: S.planets.length, max: 8 });
-    if (S.planets.length < 8) list.push({ title: 'Следующая планета', cur: S.dust, max: planetCost(S.planets.length) });
+    if (S.planets.length < 8) {
+      list.push({ title: 'Следующая планета', cur: S.dust, max: planetCost(S.planets.length) });
+    }
   } else if (st === 'galaxy') {
     list.push({ title: 'Основай 3 системы', cur: S.systems, max: 3 });
     list.push({ title: 'Основай 5 систем → галактика', cur: S.systems, max: 5 });
@@ -376,7 +414,7 @@ document.getElementById('questArrow')?.addEventListener('click', () => {
   updateQuestPanel();
 });
 
-// ─── КНОПКА СИСТЕМ ──────────────────────────────────────────────
+// ─── Переключатель систем ───
 function updateSystemSwitcher() {
   const el = document.getElementById('systemSwitcher');
   if (!el) return;
@@ -404,7 +442,7 @@ function updateSystemSwitcher() {
   el.appendChild(renameBtn);
 }
 
-// ─── СТАРТ ──────────────────────────────────────────────────────
+// ─── Старт ───
 function start() {
   loadGame();
   resize();
@@ -423,7 +461,10 @@ function start() {
   requestAnimationFrame(loop);
 }
 
-document.getElementById('evolveBtn')?.addEventListener('click', openEvolution);
+// ─── Кнопки ───
+document.getElementById('evolveBtn')?.addEventListener('click', () => {
+  if (typeof openEvolution === 'function') openEvolution();
+});
 
 document.getElementById('turbo')?.addEventListener('click', () => {
   const goal = currentGoal();
