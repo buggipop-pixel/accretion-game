@@ -306,7 +306,18 @@ function updateUI() {
     if (id === 'civVal') el.textContent = fmt(S.civLevel);
     if (id === 'systemsVal') el.textContent = S.systems;
   });
-
+  // ★ Индикатор газа в системе
+  const gasEl = document.getElementById('gasIndicator');
+  if (gasEl && typeof gasPercent === 'function') {
+    const pct = gasPercent();
+    if (pct > 1 && S.starType) {
+      gasEl.style.display = 'block';
+      gasEl.textContent = '💨 Газ: ' + pct + '%';
+      gasEl.style.color = pct > 50 ? '#7ec8e3' : (pct > 20 ? '#ff9500' : '#ff5e5e');
+    } else {
+      gasEl.style.display = 'none';
+    }
+  }
   const rateEl = document.getElementById('dustRate');
   if (rateEl && typeof dustPerSec === 'function') {
     rateEl.textContent = '+' + fmt(dustPerSec() * 3600) + ' / ч';
