@@ -186,6 +186,7 @@ function loadGame() {
     if (typeof S.panX !== 'number') S.panX = 0;
     if (typeof S.panY !== 'number') S.panY = 0;
     if (typeof S.zoom !== 'number') S.zoom = 1;
+    if (typeof S.rotation !== 'number') S.rotation = 0;
     if (typeof S.systems !== 'number') S.systems = 1;
     if (typeof S.totalSystemsCreated !== 'number') S.totalSystemsCreated = 1;
     if (typeof S.civLevel !== 'number') S.civLevel = 0;
@@ -218,6 +219,8 @@ function resetGame() {
   isResetting = true;
   localStorage.removeItem(SAVE_KEY);
   resetStateValues();
+  S.rotation = 0;
+  S.activeMinigame = null;
   setTimeout(() => location.reload(), 50);
 }
 
