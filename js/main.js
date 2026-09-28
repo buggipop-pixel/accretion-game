@@ -337,11 +337,20 @@ function updateUI() {
     orbProgress.style.strokeDashoffset = (264 * (1 - prog)).toString();
   }
 
-  const btn = document.getElementById('evolveBtn');
+   const btn = document.getElementById('evolveBtn');
   if (btn) {
     const goal = currentGoal();
-    const ready = (S.stage === 'system' && S.planets.length >= 8) ||
-                  (goal !== null && S.dust >= goal);
+    let ready = false;
+
+    if (S.stage === 'system' && S.planets.length >= 8) ready = true;
+    if (goal !== null && S.dust >= goal) ready = true;
+
+    // ★ Фаза galaxy — показываем кнопку, если можем оплатить систему
+    if (S.stage === 'galaxy') {
+      const sysCost = Math.floor(50e9 * Math.pow(4, S.systems - 1));
+      if (S.dust >= sysCost) ready = true;
+    }
+
     if (ready && !S.activeMinigame) btn.classList.add('show');
     else btn.classList.remove('show');
   }
