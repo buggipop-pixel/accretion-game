@@ -1,7 +1,19 @@
 // ═══════════════════════════════════════════════════════════════
 //  EVOLUTION.JS — эволюционные окна с разделением фаз
 // ═══════════════════════════════════════════════════════════════
-
+function closeModalAndMinigame(type, onSuccess) {
+  evolutionModalOpen = false;
+  const modal = document.getElementById('modal');
+  if (modal) modal.classList.remove('show');
+  if (typeof startMinigame === 'function') {
+    startMinigame(type, (success) => {
+      if (success) onSuccess();
+      else toast('Попробуй ещё раз', 'Возвращайся, когда будешь готов');
+    });
+  } else {
+    onSuccess();
+  }
+}
 let evolutionModalOpen = false;
 
 function checkEvolution() {
@@ -33,7 +45,7 @@ function openEvolution() {
         stats: 'Переход к уплотнению',
         color: '#6b4de6', icon: '🌀',
       }]
-    ), {
+        ), {
       go: () => {
         closeModalAndMinigame('mass', () => {
           S.stage = 'condense';
@@ -77,7 +89,7 @@ function openEvolution() {
     return;
   }
 
-  // ═══ ФАЗА III → IV: зажигание через мини-игру ═══
+    // ═══ ФАЗА III → IV: зажигание синтеза ═══
   if (stage === 'protostar') {
     setModal(buildModal(
       'Зажигание синтеза',
@@ -99,7 +111,7 @@ function openEvolution() {
     return;
   }
 
-  // ═══ ФАЗА IV → V: выбор первой планеты ═══
+  // ═══ ФАЗА IV → V: первая планета ═══
   if (stage === 'firstPlanet') {
     const cost = planetCost(0);
     const choices = Object.keys(PLANET_TYPES).map(k => {
@@ -117,7 +129,7 @@ function openEvolution() {
     });
     setModal(buildModal(
       'Первая планета',
-      'Аккреционный диск остыл. Выбери первую планету. Цена: ' + fmt(cost) + '.',
+      'Выбери первую планету. Цена: ' + fmt(cost) + '.',
       choices
     ), buildHandlers(choices, (id) => {
       if (S.dust < cost) return;
