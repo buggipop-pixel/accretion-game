@@ -1,5 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
-//  PARTICLES.JS — фикс центра, зум+пан+поворот, уменьшены кометы
+//  PARTICLES.JS — фикс центра, кэш пальца, зум+пан+поворот
+//  Мировые координаты везде. Кометы уменьшены.
 // ═══════════════════════════════════════════════════════════════
 
 const PART = {
@@ -53,6 +54,7 @@ function worldToScreen(wx, wy) {
     y: (window.CANVAS_CY || 0) + (S.panY || 0) + ry * z,
   };
 }
+
 function screenToWorld(sx, sy) {
   const z = S.zoom || 1;
   const rot = S.rotation || 0;
@@ -62,10 +64,11 @@ function screenToWorld(sx, sy) {
   const sin = Math.sin(-rot);
   return { x: x * cos - y * sin, y: x * sin + y * cos };
 }
+
 window.worldToScreen = worldToScreen;
 window.screenToWorld = screenToWorld;
 
-// ─── Видимость ──────────────────────────────────────────────────
+// ─── Видимость пыли по фазам ────────────────────────────────────
 function particleVisibility() {
   if (S.stage === 'cloud')       return 1.0;
   if (S.stage === 'condense')    return 0.95;
@@ -79,6 +82,7 @@ function particleVisibility() {
   return 1.0;
 }
 
+// ─── Создание частиц ────────────────────────────────────────────
 function makeWorldParticle() {
   const W = window.CANVAS_W || 400;
   const H = window.CANVAS_H || 700;
@@ -113,7 +117,7 @@ function makeEdgeParticle() {
   else if (side === 2) { x = (Math.random() * 2 - 1) * halfW; y = halfH + 20; }
   else { x = -halfW - 20; y = (Math.random() * 2 - 1) * halfH; }
   return {
-    x, y,
+    x: x, y: y,
     r: 0.5 + Math.random() * 1.2,
     hue: Math.random() < 0.72 ? 215 + Math.random() * 50 : 15 + Math.random() * 35,
     bright: 0.4 + Math.random() * 0.5,
@@ -140,6 +144,7 @@ function normAngle(a) {
   return a;
 }
 
+// ─── Обновление ─────────────────────────────────────────────────
 function updateParticles(dt, time) {
   const W = window.CANVAS_W || 400;
   const H = window.CANVAS_H || 700;
@@ -151,6 +156,7 @@ function updateParticles(dt, time) {
   const isCloud = stage === 'cloud';
   const isDisk  = stage === 'condense' || stage === 'protostar';
 
+  // Плотность по зуму
   const target = Math.round(PART_COUNT * Math.pow(1 / z, 1.2));
   const clampedTarget = Math.max(300, Math.min(1800, target));
   while (PART.particles.length < clampedTarget) PART.particles.push(makeWorldParticle());
@@ -160,6 +166,11 @@ function updateParticles(dt, time) {
   PART.starPulse *= 0.92;
 
   const absorbR = PART.coreR + 3;
+
+  // ★ КЭШ: позиция пальца в мировых координатах — один раз на кадр
+  const fingerWorld = (PART.dragActive && !hasStar)
+    ? screenToWorld(PART.dragX, PART.dragY)
+    : null;
 
   for (let i = PART.particles.length - 1; i >= 0; i--) {
     const p = PART.particles[i];
@@ -173,6 +184,7 @@ function updateParticles(dt, time) {
 
     let vx = 0, vy = 0;
 
+    // ─── ФАЗА I: спираль + медленное стягивание ───
     if (isCloud) {
       const targetA = p.arm * Math.PI
                     + Math.log(dist + 1) * CLOUD.spiralTight
@@ -183,7 +195,10 @@ function updateParticles(dt, time) {
       vy += tanY * aDiff * CLOUD.spiralForce * p.spinVar;
       vx += dirX * CLOUD.pull;
       vy += dirY * CLOUD.pull;
-    } else if (isDisk) {
+    }
+
+    // ─── ФАЗА II: узкие кольца ───
+    else if (isDisk) {
       const ringR = p.ring === 0 ? CONDENSE.rings[0] : CONDENSE.rings[1];
       const rDiff = ringR - dist;
       if (Math.abs(rDiff) < CONDENSE.ringWidth) {
@@ -197,16 +212,18 @@ function updateParticles(dt, time) {
         vx += dirX * CONDENSE.betweenPull;
         vy += dirY * CONDENSE.betweenPull;
       }
-    } else if (hasStar) {
+    }
+
+    // ─── ФАЗА III+ ───
+    else if (hasStar) {
       vx += dirX * 1.5;
       vy += dirY * 1.5;
     }
 
-    // DRAG — через screenToWorld (учитывает pan+rotation)
-    if (!hasStar && PART.dragActive) {
-      const w = screenToWorld(PART.dragX, PART.dragY);
-      const tdx = w.x - p.x;
-      const tdy = w.y - p.y;
+    // ─── DRAG через кэш ───
+    if (fingerWorld) {
+      const tdx = fingerWorld.x - p.x;
+      const tdy = fingerWorld.y - p.y;
       const tdist = Math.sqrt(tdx * tdx + tdy * tdy) || 1;
       if (tdist < TOUCH_RADIUS) {
         const s = (1 - tdist / TOUCH_RADIUS) * TOUCH_VELOCITY;
@@ -215,6 +232,7 @@ function updateParticles(dt, time) {
       }
     }
 
+    // Anti-stuck
     p.age += dt;
     if (dist < 25 && p.age > 4) { vx += dirX * 25; vy += dirY * 25; }
     if (dist > 100) p.age = 0;
@@ -222,19 +240,21 @@ function updateParticles(dt, time) {
     p.x += vx * dt;
     p.y += vy * dt;
 
+    // ─── ПОГЛОЩЕНИЕ ЦЕНТРОМ ───
     const dCenter = Math.sqrt(p.x * p.x + p.y * p.y);
     if (dCenter < absorbR) {
       S.dust += DUST_PER_PARTICLE;
       S.dustTotal += DUST_PER_PARTICLE;
       PART.absorbed++;
-      if (hasStar) PART.starPulse = 1; else PART.corePulse = 1;
+      if (hasStar) PART.starPulse = 1;
+      else PART.corePulse = 1;
       PART.particles[i] = makeEdgeParticle();
       continue;
     }
 
-    if (!hasStar && PART.dragActive) {
-      const w = screenToWorld(PART.dragX, PART.dragY);
-      const dF = Math.sqrt((p.x - w.x) ** 2 + (p.y - w.y) ** 2);
+    // ─── ПОГЛОЩЕНИЕ ПАЛЬЦЕМ через кэш ───
+    if (fingerWorld) {
+      const dF = Math.sqrt((p.x - fingerWorld.x) ** 2 + (p.y - fingerWorld.y) ** 2);
       if (dF < absorbR) {
         S.dust += DUST_PER_FINGER;
         S.dustTotal += DUST_PER_FINGER;
@@ -243,6 +263,7 @@ function updateParticles(dt, time) {
       }
     }
 
+    // Улетел
     if (p.x < -halfW - 80 || p.x > halfW + 80 ||
         p.y < -halfH - 80 || p.y > halfH + 80) {
       PART.particles[i] = makeEdgeParticle();
@@ -258,6 +279,7 @@ function updateParticles(dt, time) {
   updatePassing(dt, time);
 }
 
+// ─── Пролёты (мировые координаты) ───────────────────────────────
 function updatePassing(dt, time) {
   const now = performance.now();
   const interval = PASSING_MIN_MS + Math.random() * (PASSING_MAX_MS - PASSING_MIN_MS);
@@ -275,6 +297,7 @@ function updatePassing(dt, time) {
   for (let i = PART.passing.length - 1; i >= 0; i--) {
     const o = PART.passing[i];
 
+    // Комета гибнет у звезды
     if (o.type === 'comet' && S.starType && !o.dying) {
       const d = Math.sqrt(o.x * o.x + o.y * o.y);
       if (d < 90) {
@@ -320,7 +343,7 @@ function spawnPassing() {
   const halfW = W / (2 * z);
   const halfH = H / (2 * z);
   const isComet = Math.random() < 0.6;
-  // УМЕНЬШЕНО: было 0.7 + 1.8, стало 0.3 + 0.7 → 0.3–1.0
+  // Кометы меньше — 0.3–1.0 размера
   const size = 0.3 + Math.random() * 0.7;
   const tailLen = Math.round(8 + size * 14);
   const side = Math.floor(Math.random() * 4);
@@ -331,11 +354,21 @@ function spawnPassing() {
   else if (side === 2) { x = (Math.random() * 2 - 1) * halfW; y = halfH + 40; vx = (Math.random() - 0.5) * 40; vy = -speed; }
   else { x = -halfW - 40; y = (Math.random() * 2 - 1) * halfH; vx = speed; vy = (Math.random() - 0.5) * 40; }
   PART.passing.push({
-    x, y, vx, vy,
+    x: x, y: y, vx: vx, vy: vy,
     type: isComet ? 'comet' : 'ship',
     size: size, tailLen: tailLen,
     alpha: 1, age: 0, trail: [],
   });
+}
+
+// ─── Формат ─────────────────────────────────────────────────────
+function fmtShort(n) {
+  if (typeof window.fmt === 'function') return window.fmt(n);
+  if (n < 1000) return Math.floor(n).toString();
+  const units = ['', 'К', 'М', 'Б', 'Т'];
+  let i = 0;
+  while (n >= 1000 && i < units.length - 1) { n /= 1000; i++; }
+  return n.toFixed(1) + units[i];
 }
 
 // ─── Рисование ──────────────────────────────────────────────────
@@ -349,6 +382,7 @@ function drawParticles(ctx, time) {
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
 
+  // Ореол центра / растущая звезда
   if (!hasStar) {
     const pulse = 1 + PART.corePulse * 0.5;
     const coreRNow = PART.coreR * pulse * z;
@@ -376,6 +410,7 @@ function drawParticles(ctx, time) {
     ctx.fill();
   }
 
+  // Частицы
   const sizeFactor = Math.max(0.7, z);
   for (const p of PART.particles) {
     const sp = worldToScreen(p.x, p.y);
@@ -396,6 +431,7 @@ function drawParticles(ctx, time) {
   ctx.globalAlpha = 1;
   ctx.restore();
 
+  // Радиус пальца
   if (!hasStar && PART.dragActive) {
     ctx.save();
     ctx.globalAlpha = 0.10;
@@ -412,7 +448,7 @@ function drawParticles(ctx, time) {
     ctx.restore();
   }
 
-  // Подпись дохода УБРАНА из canvas — она теперь в хранилище
+  // Доход теперь в хранилище — здесь ничего не рисуем
   drawPassing(ctx);
 }
 
@@ -423,7 +459,7 @@ function drawPassing(ctx) {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
 
-    // Мировая позиция → экран
+    // Хвост
     for (let i = 0; i < o.trail.length; i++) {
       const seg = o.trail[i];
       const sp = worldToScreen(seg.x, seg.y);
@@ -445,12 +481,15 @@ function drawPassing(ctx) {
     }
 
     const sp = worldToScreen(o.x, o.y);
+
+    // Ядро (уменьшено)
     ctx.globalAlpha = 0.95 * alpha;
     ctx.fillStyle = o.type === 'comet' ? '#e8f6ff' : '#ffeec8';
     ctx.beginPath();
     ctx.arc(sp.x, sp.y, 1.6 * o.size * z, 0, Math.PI * 2);
     ctx.fill();
 
+    // Ореол (уменьшен)
     const halo = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, 8 * o.size * z);
     if (o.type === 'comet') {
       halo.addColorStop(0, 'rgba(150, 220, 255, 0.5)');
@@ -467,6 +506,7 @@ function drawPassing(ctx) {
   }
 }
 
+// ─── DRAG ───────────────────────────────────────────────────────
 function handleParticleDrag(x, y, active) {
   if (S.starType) return;
   PART.dragX = x;
