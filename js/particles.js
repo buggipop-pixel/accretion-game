@@ -28,16 +28,26 @@ const CLOUD = {
   spawnRMax: 230,
 };
 
-// ─── ФАЗА II: узкие кольца ──────────────────────────────────────
-const CONDENSE = {
-  rings: [22, 50],
-  ringWidth: 8,
-  ringHold: 2.4,
-  ringSpin: 55,
-  ringPull: 1.4,
-  betweenPull: 1.8,
-  coreGrow: 2.0,
-};
+    // ─── ФАЗА II: плотная спираль Архимеда ───
+    else if (isDisk) {
+      const tangential = CONDENSE.spinBase * p.spinVar;
+      // ★ Та же формула Архимедовой спирали, что на фазе I
+      const radial = tangential * CONDENSE.spiralB / Math.max(25, dist);
+
+      vx += tanX * tangential;
+      vy += tanY * tangential;
+      vx += dirX * radial;
+      vy += dirY * radial;
+
+      // Плотное выравнивание к 2 рукавам (сильнее чем на фазе I)
+      const targetA = p.arm * Math.PI + dist * CONDENSE.armAngleB + p.armOffset;
+      const curA = Math.atan2(p.y, p.x);
+      let aDiff = normAngle(targetA - curA);
+      if (aDiff > CONDENSE.maxArmKick) aDiff = CONDENSE.maxArmKick;
+      if (aDiff < -CONDENSE.maxArmKick) aDiff = -CONDENSE.maxArmKick;
+      vx += tanX * aDiff * CONDENSE.armForce;
+      vy += tanY * aDiff * CONDENSE.armForce;
+    }
 
 const PASSING_MIN_MS = 120000;
 const PASSING_MAX_MS = 300000;
@@ -220,8 +230,8 @@ function updateParticles(dt, time) {
 
     // Anti-stuck
     p.age += dt;
-    if (dist < 40 && p.age > 5) { vx += dirX * 40; vy += dirY * 40; }
-    if (dist > 150) p.age = 0;
+    if (dist < 40 && p.age > 4) { vx += dirX * 50; vy += dirY * 50; }
+    if (dist > 180) p.age = 0;
 
     p.x += vx * dt;
     p.y += vy * dt;
