@@ -157,6 +157,7 @@ function saveGame() {
       panX: S.panX,
       panY: S.panY,
       zoom: S.zoom,
+      rotation: S.rotation || 0,
       systems: S.systems,
       totalSystemsCreated: S.totalSystemsCreated,
       cooldowns: S.cooldowns,
@@ -190,6 +191,7 @@ function loadGame() {
     if (typeof S.civLevel !== 'number') S.civLevel = 0;
     if (typeof S.energy !== 'number') S.energy = 0;
     if (!S.systemName) S.systemName = 'Родная';
+    if (typeof S.rotation !== 'number') S.rotation = 0;
 
     // Восстанавливаем массы и диаметры планет
     for (const p of S.planets) {
