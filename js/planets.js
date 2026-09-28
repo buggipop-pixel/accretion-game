@@ -89,6 +89,9 @@ function updatePlanets(dt) {
   if (!S.systemType) return;
   const now = Date.now();
 
+   // ★ Инициализация газа при первом вызове
+  if (typeof initGas === 'function' && GAS.initTime === null) initGas();
+
   for (let i = 0; i < S.planets.length; i++) {
     const p = S.planets[i];
     if (p.forming) {
@@ -100,6 +103,15 @@ function updatePlanets(dt) {
       }
       continue;
     }
+
+    // ★ Миграция I типа — сползание к звезде пока есть газ
+    if (typeof migrationRate === 'function') {
+      const dr = migrationRate(p);
+      if (dr !== 0) {
+        p.baseOrbitR = Math.max(55, p.baseOrbitR + dr * dt);
+      }
+    }
+
     p.orbitR = p.baseOrbitR * (1 + 0.12 * Math.sin(now * 0.00002 + p.driftPhase));
     p.rotation += dt * 0.5;
   }
