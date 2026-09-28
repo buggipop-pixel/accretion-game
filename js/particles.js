@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  PARTICLES.JS — пыль всех фаз. Поглощение звездой + подпись дохода
+//  PARTICLES.JS — правильная аккреция: закрутка снаружи, падение внутрь
 // ═══════════════════════════════════════════════════════════════
 
 const PART = {
@@ -18,12 +18,16 @@ const TOUCH_RADIUS    = 100;
 const TOUCH_VELOCITY  = 400;
 const ABSORB_RADIUS   = 14;
 const DUST_PER_CENTER = 0.15;
-const DUST_PER_STAR   = 1.5;    // после звезды даёт больше
+const DUST_PER_STAR   = 1.5;
 const DUST_PER_FINGER = 0.5;
-const SPIN_RADIUS     = 55;
-const SPIN_STRENGTH   = 70;
-const PASSING_MIN_MS  = 120000;
-const PASSING_MAX_MS  = 300000;
+
+// ─── ЗОНЫ АККРЕЦИИ ──────────────────────────────────────────────
+const SPIN_OUTER   = 140;   // внешняя граница закрутки
+const SPIN_INNER   = 80;    // внутренняя граница — здесь спин = 0
+const SPIN_STRENGTH = 90;   // базовая сила вращения
+
+const PASSING_MIN_MS = 120000;
+const PASSING_MAX_MS = 300000;
 
 // ─── Видимость пыли по фазам ────────────────────────────────────
 function particleVisibility() {
@@ -39,14 +43,14 @@ function particleVisibility() {
   return 1.0;
 }
 
-// ─── Скорость притяжения к центру ───────────────────────────────
-function pullVelocity() {
-  if (S.stage === 'cloud')     return 0.3;
-  if (S.stage === 'condense')  return 1.2;
-  if (S.stage === 'protostar') return 2.5;
-  if (S.stage === 'firstPlanet' || S.stage === 'system') return 3.0;
-  if (S.stage === 'galaxy')    return 1.5;
-  return 0.3;
+// ─── Базовая скорость притяжения к центру ───────────────────────
+function basePull() {
+  if (S.stage === 'cloud')     return 0.5;
+  if (S.stage === 'condense')  return 1.5;
+  if (S.stage === 'protostar') return 3.0;
+  if (S.stage === 'firstPlanet' || S.stage === 'system') return 4.0;
+  if (S.stage === 'galaxy')    return 2.0;
+  return 0.5;
 }
 
 // ─── Создание частиц ────────────────────────────────────────────
@@ -63,6 +67,8 @@ function makeWorldParticle() {
     hue: Math.random() < 0.72 ? 210 + Math.random() * 55 : 15 + Math.random() * 35,
     bright: 0.35 + Math.random() * 0.55,
     twinkle: Math.random() * Math.PI * 2,
+    spinVar: 0.4 + Math.random() * 0.9,   // ← индивидуальный разброс
+    age: 0,                                // ← сколько в зоне
   };
 }
 
@@ -84,6 +90,8 @@ function makeEdgeParticle() {
     hue: Math.random() < 0.72 ? 210 + Math.random() * 55 : 15 + Math.random() * 35,
     bright: 0.35 + Math.random() * 0.55,
     twinkle: Math.random() * Math.PI * 2,
+    spinVar: 0.4 + Math.random() * 0.9,
+    age: 0,
   };
 }
 
@@ -94,7 +102,7 @@ function initParticles() {
   PART.lastPassingAt = performance.now();
 }
 
-// ─── ОБНОВЛЕНИЕ ─────────────────────────────────────────────────
+// ─── ГЛАВНАЯ ЛОГИКА АККРЕЦИИ ────────────────────────────────────
 function updateParticles(dt, time) {
   const W = window.CANVAS_W || 400;
   const H = window.CANVAS_H || 700;
@@ -102,10 +110,9 @@ function updateParticles(dt, time) {
   const halfW = W / (2 * z);
   const halfH = H / (2 * z);
   const hasStar = !!S.starType;
-  const pull = pullVelocity();
-  const visibility = particleVisibility();
+  const base = basePull();
 
-  // Плотность частиц — зависит только от зума (минимум 200)
+  // Плотность по зуму
   const target = Math.round(PART_COUNT * Math.pow(1 / z, 1.2));
   const clampedTarget = Math.max(200, Math.min(1400, target));
   while (PART.particles.length < clampedTarget - 15) PART.particles.push(makeWorldParticle());
@@ -119,20 +126,48 @@ function updateParticles(dt, time) {
     p.twinkle += dt * 2;
 
     const dist = Math.sqrt(p.x * p.x + p.y * p.y) || 1;
-    const dirX = -p.x / dist;
+    const dirX = -p.x / dist;   // к центру
     const dirY = -p.y / dist;
+    const tanX = -p.y / dist;   // тангенциальная
+    const tanY = p.x / dist;
 
-    const prox = 1 + (1 - Math.min(1, dist / 400)) * 1.2;
-    let vx = dirX * pull * prox;
-    let vy = dirY * pull * prox;
+    let vx = 0, vy = 0;
 
-    // Закручивание возле центра — только до звезды
-    if (!hasStar && dist < SPIN_RADIUS) {
-      const t = 1 - dist / SPIN_RADIUS;
-      vx += (-p.y / dist) * SPIN_STRENGTH * t;
-      vy += (p.x / dist) * SPIN_STRENGTH * t;
-      vx -= dirX * pull * prox * t * 0.5;
-      vy -= dirY * pull * prox * t * 0.5;
+    if (dist > SPIN_OUTER) {
+      // ─── ДАЛЬНЯЯ ЗОНА: только притяжение ───
+      const prox = 1 + (1 - Math.min(1, dist / 500)) * 1.5;
+      vx = dirX * base * prox;
+      vy = dirY * base * prox;
+
+    } else if (dist > SPIN_INNER) {
+      // ─── СРЕДНЯЯ ЗОНА: закрутка + притяжение ───
+      const span = SPIN_OUTER - SPIN_INNER;  // 60 px
+      const t = (SPIN_OUTER - dist) / span;  // 0 на краю, 1 у внутренней границы
+      // Спин силён на внешней стороне, падает к 0 у внутренней
+      const spinPower = SPIN_STRENGTH * (1 - t) * p.spinVar;
+      vx += tanX * spinPower;
+      vy += tanY * spinPower;
+      // Притяжение растёт к внутренней границе
+      const inward = base * (1.5 + t * 3);
+      vx += dirX * inward;
+      vy += dirY * inward;
+
+    } else {
+      // ─── ВНУТРЕННЯЯ ЗОНА: чистое падение с ускорением ───
+      const t = 1 - dist / SPIN_INNER;  // 0 на границе, 1 в центре
+      const inward = base * (4 + t * 12);
+      vx = dirX * inward;
+      vy = dirY * inward;
+      // Чуть-чуть оставляем вращения, чтобы не выглядело как падение по прямой
+      vx += tanX * SPIN_STRENGTH * 0.1 * p.spinVar;
+      vy += tanY * SPIN_STRENGTH * 0.1 * p.spinVar;
+
+      // Anti-stuck: если долго в центре — форсаж к ядру
+      p.age = (p.age || 0) + dt;
+      if (p.age > 8) {
+        vx += dirX * 30;
+        vy += dirY * 30;
+      }
     }
 
     // DRAG
@@ -154,7 +189,7 @@ function updateParticles(dt, time) {
     p.x += vx * dt;
     p.y += vy * dt;
 
-    // ─── ПОГЛОЩЕНИЕ ЦЕНТРОМ / ЗВЕЗДОЙ (всегда) ───
+    // ─── ПОГЛОЩЕНИЕ ЦЕНТРОМ / ЗВЕЗДОЙ ───
     const dCenter = Math.sqrt(p.x * p.x + p.y * p.y);
     if (dCenter < ABSORB_RADIUS) {
       const gain = hasStar ? DUST_PER_STAR : DUST_PER_CENTER;
@@ -233,7 +268,7 @@ function spawnPassing() {
   });
 }
 
-// ─── ФОРМАТ ЧИСЕЛ ───────────────────────────────────────────────
+// ─── ФОРМАТ ─────────────────────────────────────────────────────
 function fmtShort(n) {
   if (typeof window.fmt === 'function') return window.fmt(n);
   if (n < 1000) return Math.floor(n).toString();
@@ -279,11 +314,18 @@ function drawParticles(ctx, time) {
   for (const p of PART.particles) {
     const sx = cx + p.x * z;
     const sy = cy + p.y * z;
+
+    // Разогрев ближе к центру — частицы ярче и теплее
+    const dist = Math.sqrt(p.x * p.x + p.y * p.y);
+    const heat = Math.max(0, 1 - dist / 120); // 0..1
+    const hueShift = -heat * 40; // синий → оранжевый
+    const brightBoost = 1 + heat * 1.2;
+
     const tw = 0.7 + 0.3 * Math.sin(p.twinkle + t * 2);
-    ctx.globalAlpha = p.bright * tw * 0.85 * visibility;
-    ctx.fillStyle = 'hsl(' + p.hue + ', 70%, 70%)';
+    ctx.globalAlpha = Math.min(1, p.bright * tw * 0.85 * visibility * brightBoost);
+    ctx.fillStyle = 'hsl(' + (p.hue + hueShift) + ', ' + (70 + heat * 20) + '%, ' + (70 + heat * 15) + '%)';
     ctx.beginPath();
-    ctx.arc(sx, sy, p.r * sizeFactor, 0, Math.PI * 2);
+    ctx.arc(sx, sy, p.r * sizeFactor * (1 + heat * 0.3), 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.globalAlpha = 1;
@@ -306,13 +348,10 @@ function drawParticles(ctx, time) {
     ctx.restore();
   }
 
-  // ─── ПОДПИСЬ ДОХОДА (после звезды) ───
+  // Подпись дохода
   if (hasStar) {
-    const perHour = (typeof dustPerSec === 'function')
-      ? dustPerSec() * 3600
-      : 0;
+    const perHour = (typeof dustPerSec === 'function') ? dustPerSec() * 3600 : 0;
     const yOff = 55 * z;
-
     ctx.save();
     ctx.textAlign = 'center';
     ctx.globalAlpha = 0.9;
@@ -378,6 +417,17 @@ function handleParticleDrag(x, y, active) {
   PART.dragY = y;
   PART.dragActive = active;
 }
+
+// ─── РЕАКЦИЯ НА ВОЗВРАТ ВКЛАДКИ ─────────────────────────────────
+// Когда игрок возвращается после долгого отсутствия — разбрасываем частицы,
+// чтобы не видеть «застывшее кольцо»
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && PART.particles.length > 0) {
+    for (let i = 0; i < PART.particles.length; i++) {
+      PART.particles[i] = makeEdgeParticle();
+    }
+  }
+});
 
 window.initParticles = initParticles;
 window.updateParticles = updateParticles;
