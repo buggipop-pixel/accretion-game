@@ -44,3 +44,9 @@ window.initGas = initGas;
 window.gasDensity = gasDensity;
 window.gasPercent = gasPercent;
 window.migrationRate = migrationRate;
+// ─── Перезапуск газа (при выборе звезды) ────────────────────────
+function resetGas() {
+  GAS.initTime = performance.now() / 1000;
+}
+
+window.resetGas = resetGas;
