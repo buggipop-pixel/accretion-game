@@ -98,15 +98,20 @@ function openEvolution() {
            stats: 'От красного карлика до голубой звезды',
            color: '#ff9500', icon: '🔥' }]),
       { ignite: () => {
-          tryMinigame('ignite', () => {
-            // ★ Определяем тип звезды по качеству
+                    tryMinigame('ignite', () => {
+            // ★ Тип звезды по остатку топлива:
+            // 90%+ → M (красный карлик, rateMult 6) — очень сложно
+            // 70-90% → B (голубая)
+            // 45-70% → K (оранжевая)
+            // 25-45% → A (белая)
+            // 0-25%  → G (жёлтая) — самый слабый результат
             const q = (typeof MG !== 'undefined' && MG.quality) ? MG.quality : 0.5;
             let starType;
-            if (q >= 0.75) starType = 'B';
-            else if (q >= 0.55) starType = 'A';
-            else if (q >= 0.35) starType = 'G';
-            else if (q >= 0.15) starType = 'K';
-            else starType = 'M';
+            if (q >= 0.90)      starType = 'M';
+            else if (q >= 0.70) starType = 'B';
+            else if (q >= 0.45) starType = 'K';
+            else if (q >= 0.25) starType = 'A';
+            else                starType = 'G';
 
             S.starType = starType;
             showStarReveal(starType, q);
