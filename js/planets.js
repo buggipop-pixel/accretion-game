@@ -5,16 +5,17 @@
 const VIEW_COS = 0.5;
 
 // ─── Физические константы (Hayashi 1981) ────────────────────────
-const PHYS = {
-  refRadius: 100,   // 1 а.е. = 100 px
-  refTemp: 280,     // T(1 а.е.) = 280 K
-  snowLine: 270,    // 2.7 а.е. — снеговая линия
+// Имя P_PHYS — чтобы не конфликтовать с physics.js
+const P_PHYS = {
+  refRadius: 100,
+  refTemp: 280,
+  snowLine: 270,
 };
 
 // Температура на расстоянии r (px): T(r) = T0 · (r0/r)^(1/2)
 function tempAt(r) {
   if (r < 1) r = 1;
-  return PHYS.refTemp * Math.sqrt(PHYS.refRadius / r);
+  return P_PHYS.refTemp * Math.sqrt(P_PHYS.refRadius / r);
 }
 
 // Зона по температуре
@@ -246,7 +247,7 @@ function drawPlanets(ctx, time) {
 
   // ★ СНЕГОВАЯ ЛИНИЯ — рисуется сразу после выбора звезды, даже если планет ещё нет
   if (S.starType) {
-    const snowPx = PHYS.snowLine;
+        const snowPx = P_PHYS.snowLine;
     ctx.save();
     ctx.strokeStyle = 'rgba(126, 200, 227, 0.15)';
     ctx.lineWidth = 1;
@@ -558,7 +559,7 @@ function hash(n) {
 }
 
 // ─── Экспорт ────────────────────────────────────────────────────
-window.PHYS = PHYS;
+window.P_PHYS = P_PHYS;
 window.tempAt = tempAt;
 window.zoneAt = zoneAt;
 window.addPlanet = addPlanet;
