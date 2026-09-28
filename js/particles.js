@@ -276,10 +276,25 @@ function updatePassing(dt, time) {
   const z = S.zoom || 1;
   const halfW = W / (2 * z), halfH = H / (2 * z);
 
-  for (let i = PART.passing.length - 1; i >= 0; i--) {
+    for (let i = PART.passing.length - 1; i >= 0; i--) {
     const o = PART.passing[i];
+
+    // ★ Гравитационное влияние звезды на кометы
+    if (o.type === 'comet' && S.starType && !o.dying) {
+      const dx = -o.x;
+      const dy = -o.y;
+      const d = Math.sqrt(dx * dx + dy * dy) || 1;
+      // Гравитация: чем ближе, тем сильнее
+      const gravPower = 8000 / (d * d + 100);
+      if (d < 300) {
+        o.vx += (dx / d) * gravPower * dt;
+        o.vy += (dy / d) * gravPower * dt;
+      }
+    }
+
     if (o.type === 'comet' && S.starType && !o.dying) {
       const d = Math.sqrt(o.x * o.x + o.y * o.y);
+      if (d < 90) {
       if (d < 90) {
         o.dying = true; o.dieAt = now;
         if (Array.isArray(S.explosions)) {
