@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  PARTICLES.JS — фаза I: спираль. Фаза II: яркая звезда + кольца
+//  PARTICLES.JS — Ф1: мягкая спираль. Ф2: узкие кольца у звезды
 // ═══════════════════════════════════════════════════════════════
 
 const PART = {
@@ -14,40 +14,38 @@ const PART = {
   lastPassingAt: 0,
 };
 
-const PART_COUNT      = 700;
+const PART_COUNT      = 900;
 const TOUCH_RADIUS    = 100;
 const TOUCH_VELOCITY  = 400;
-const DUST_PER_CENTER = 0.15;
-const DUST_PER_STAR   = 1.5;
-const DUST_PER_FINGER = 0.5;
+const DUST_PER_PARTICLE = 1;   // 1 пылинка = 1 пыль
+const DUST_PER_FINGER   = 1;
 
-// ─── КОНФИГ ФАЗ ─────────────────────────────────────────────────
+// ─── ФАЗА I: ОЧЕНЬ слабая спираль, медленное стягивание ────────
 const CLOUD = {
-  pull: 0.35,          // медленное стягивание
-  spiralForce: 18,     // сила удержания на рукаве
-  spiralTight: 0.85,   // «закрученность» log-спирали
-  arms: 2,             // 2 рукава
-  armSpread: 0.5,      // разброс частиц вокруг рукава
-  pullCenterBoost: 1.0 // без ускорения у центра
+  pull: 0.10,
+  spiralForce: 3.5,
+  spiralTight: 0.7,
+  armSpread: 0.9,
 };
 
+// ─── ФАЗА II: узкие кольца у самой звезды ──────────────────────
 const CONDENSE = {
-  pull: 0.9,           // стягивание в центр
-  ringHold: 1.6,       // сила удержания на кольце
-  ringSpin: 85,        // скорость вращения вдоль кольца
-  ringPull: 1.2,       // стягивание внутри кольца
-  rings: [55, 108],    // 2 кольца
-  ringWidth: 24,       // ширина зоны кольца
-  coreGrow: 2.0,       // скорость роста ядра
+  rings: [22, 50],       // очень близко к центру
+  ringWidth: 8,           // узкие
+  ringHold: 2.4,
+  ringSpin: 55,
+  ringPull: 1.4,
+  betweenPull: 1.8,       // стекание между кольцами
+  coreGrow: 2.0,
 };
 
 const PASSING_MIN_MS = 120000;
 const PASSING_MAX_MS = 300000;
 
-// ─── ВИДИМОСТЬ ПЫЛИ ─────────────────────────────────────────────
+// ─── Видимость ──────────────────────────────────────────────────
 function particleVisibility() {
   if (S.stage === 'cloud')       return 1.0;
-  if (S.stage === 'condense')    return 0.9;
+  if (S.stage === 'condense')    return 0.95;
   if (S.stage === 'protostar')   return 0.55;
   if (S.stage === 'firstPlanet') return 0.40;
   if (S.stage === 'system') {
@@ -58,7 +56,7 @@ function particleVisibility() {
   return 1.0;
 }
 
-// ─── СОЗДАНИЕ ЧАСТИЦ ────────────────────────────────────────────
+// ─── Создание частиц ────────────────────────────────────────────
 function makeWorldParticle() {
   const W = window.CANVAS_W || 400;
   const H = window.CANVAS_H || 700;
@@ -73,9 +71,9 @@ function makeWorldParticle() {
     bright: 0.4 + Math.random() * 0.5,
     twinkle: Math.random() * Math.PI * 2,
     spinVar: 0.75 + Math.random() * 0.5,
-    arm: Math.random() < 0.5 ? 0 : 1,          // в какой рукав
+    arm: Math.random() < 0.5 ? 0 : 1,
     armOffset: (Math.random() - 0.5) * CLOUD.armSpread,
-    ring: Math.random() < 0.5 ? 0 : 1,          // какое кольцо
+    ring: Math.random() < 0.5 ? 0 : 1,
     age: 0,
   };
 }
@@ -114,7 +112,7 @@ function initParticles() {
   PART.lastPassingAt = performance.now();
 }
 
-// ─── ФИЗИКА ─────────────────────────────────────────────────────
+// ─── Физика ─────────────────────────────────────────────────────
 function normAngle(a) {
   while (a > Math.PI) a -= Math.PI * 2;
   while (a < -Math.PI) a += Math.PI * 2;
@@ -133,14 +131,15 @@ function updateParticles(dt, time) {
   const isDisk  = stage === 'condense' || stage === 'protostar';
 
   const target = Math.round(PART_COUNT * Math.pow(1 / z, 1.2));
-  const clampedTarget = Math.max(200, Math.min(1500, target));
-  while (PART.particles.length < clampedTarget - 15) PART.particles.push(makeWorldParticle());
-  while (PART.particles.length > clampedTarget + 15) PART.particles.pop();
+  const clampedTarget = Math.max(300, Math.min(1800, target));
+  // Быстрый респавн — держим экран полным
+  while (PART.particles.length < clampedTarget) PART.particles.push(makeWorldParticle());
+  while (PART.particles.length > clampedTarget + 5) PART.particles.pop();
 
   PART.corePulse *= 0.9;
   PART.starPulse *= 0.92;
 
-  const absorbR = PART.coreR + 4;
+  const absorbR = PART.coreR + 3;
 
   for (let i = PART.particles.length - 1; i >= 0; i--) {
     const p = PART.particles[i];
@@ -154,41 +153,38 @@ function updateParticles(dt, time) {
 
     let vx = 0, vy = 0;
 
-    // ─── ФАЗА I: СПИРАЛЬНЫЕ РУКАВА ───
+    // ─── ФАЗА I: слабые рукава + медленное стягивание ───
     if (isCloud) {
-      // Целевой угол логарифмической спирали
       const targetA = p.arm * Math.PI
                     + Math.log(dist + 1) * CLOUD.spiralTight
                     + p.armOffset;
       const curA = Math.atan2(p.y, p.x);
       const aDiff = normAngle(targetA - curA);
-
-      // Тангенциальная сила к рукаву
+      // очень мягкая коррекция к рукаву
       vx += tanX * aDiff * CLOUD.spiralForce * p.spinVar;
       vy += tanY * aDiff * CLOUD.spiralForce * p.spinVar;
-
-      // Медленное стягивание в центр (постоянное, без ускорения)
+      // медленное равномерное стягивание
       vx += dirX * CLOUD.pull;
       vy += dirY * CLOUD.pull;
     }
 
-    // ─── ФАЗА II: КОЛЬЦА + СТЯГИВАНИЕ ───
+    // ─── ФАЗА II: узкие кольца + стекание ───
     else if (isDisk) {
       const ringR = p.ring === 0 ? CONDENSE.rings[0] : CONDENSE.rings[1];
       const rDiff = ringR - dist;
 
       if (Math.abs(rDiff) < CONDENSE.ringWidth) {
-        // В зоне кольца: удержание + вращение
+        // На кольце — удержание + вращение
         vx += dirX * rDiff * CONDENSE.ringHold;
         vy += dirY * rDiff * CONDENSE.ringHold;
         vx += tanX * CONDENSE.ringSpin * p.spinVar;
         vy += tanY * CONDENSE.ringSpin * p.spinVar;
-        // Медленное стягивание в центр
+        // стекание к звезде
         vx += dirX * CONDENSE.ringPull;
         vy += dirY * CONDENSE.ringPull;
       } else {
-        // Вне кольца: падение к ближайшему кольцу
-        const pull = CONDENSE.pull * (rDiff > 0 ? 1.4 : 0.8);
+        // Между кольцами — падение к ближайшему
+        const pull = CONDENSE.betweenPull;
         vx += dirX * pull;
         vy += dirY * pull;
       }
@@ -196,12 +192,11 @@ function updateParticles(dt, time) {
 
     // ─── ФАЗА III+ ───
     else if (hasStar) {
-      // Простое медленное стягивание к звезде
       vx += dirX * 1.5;
       vy += dirY * 1.5;
     }
 
-    // ─── DRAG ───
+    // DRAG
     if (!hasStar && PART.dragActive) {
       const cx0 = window.CANVAS_CX || 0;
       const cy0 = window.CANVAS_CY || 0;
@@ -217,26 +212,20 @@ function updateParticles(dt, time) {
       }
     }
 
-    // Anti-stuck
     p.age += dt;
-    if (dist < 30 && p.age > 4) {
-      vx += dirX * 25;
-      vy += dirY * 25;
-    }
+    if (dist < 25 && p.age > 4) { vx += dirX * 25; vy += dirY * 25; }
     if (dist > 100) p.age = 0;
 
     p.x += vx * dt;
     p.y += vy * dt;
 
-    // ─── ПОГЛОЩЕНИЕ ───
+    // ─── ПОГЛОЩЕНИЕ — 1 частица = 1 пыль ───
     const dCenter = Math.sqrt(p.x * p.x + p.y * p.y);
     if (dCenter < absorbR) {
-      const gain = hasStar ? DUST_PER_STAR : DUST_PER_CENTER;
-      S.dust += gain;
-      S.dustTotal += gain;
+      S.dust += DUST_PER_PARTICLE;
+      S.dustTotal += DUST_PER_PARTICLE;
       PART.absorbed++;
-      if (hasStar) PART.starPulse = 1;
-      else PART.corePulse = 1;
+      if (hasStar) PART.starPulse = 1; else PART.corePulse = 1;
       PART.particles[i] = makeEdgeParticle();
       continue;
     }
@@ -261,7 +250,6 @@ function updateParticles(dt, time) {
     }
   }
 
-  // Рост ядра
   if (isDisk) {
     PART.coreR = 1.8 + Math.min(6, Math.log10(PART.absorbed + 1) * CONDENSE.coreGrow);
   } else {
@@ -271,7 +259,7 @@ function updateParticles(dt, time) {
   updatePassing(dt, time);
 }
 
-// ─── ПРОЛЁТЫ ────────────────────────────────────────────────────
+// ─── Пролёты (в мировых координатах — зумятся) ─────────────────
 function updatePassing(dt, time) {
   const now = performance.now();
   const interval = PASSING_MIN_MS + Math.random() * (PASSING_MAX_MS - PASSING_MIN_MS);
@@ -280,23 +268,25 @@ function updatePassing(dt, time) {
     spawnPassing();
   }
 
-  const cx = window.CANVAS_CX || 0;
-  const cy = window.CANVAS_CY || 0;
   const W = window.CANVAS_W || 400;
   const H = window.CANVAS_H || 700;
+  const z = S.zoom || 1;
+  const halfW = W / (2 * z);
+  const halfH = H / (2 * z);
 
   for (let i = PART.passing.length - 1; i >= 0; i--) {
     const o = PART.passing[i];
 
-    // Комета гибнет у звезды
     if (o.type === 'comet' && S.starType && !o.dying) {
-      const d = Math.sqrt((o.x - cx) ** 2 + (o.y - cy) ** 2);
+      const d = Math.sqrt(o.x * o.x + o.y * o.y);
       if (d < 90) {
         o.dying = true;
         o.dieAt = now;
         if (Array.isArray(S.explosions)) {
           S.explosions.push({
-            x: o.x, y: o.y, type: 'destroy',
+            x: (window.CANVAS_CX || 0) + o.x * z,
+            y: (window.CANVAS_CY || 0) + o.y * z,
+            type: 'destroy',
             startAt: now, endAt: now + 800, size: 25,
           });
         }
@@ -319,7 +309,8 @@ function updatePassing(dt, time) {
     o.trail.push({ x: o.x, y: o.y });
     if (o.trail.length > o.tailLen) o.trail.shift();
 
-    if (o.x < -150 || o.x > W + 150 || o.y < -150 || o.y > H + 150) {
+    if (o.x < -halfW - 150 || o.x > halfW + 150 ||
+        o.y < -halfH - 150 || o.y > halfH + 150) {
       PART.passing.splice(i, 1);
     }
   }
@@ -328,16 +319,20 @@ function updatePassing(dt, time) {
 function spawnPassing() {
   const W = window.CANVAS_W || 400;
   const H = window.CANVAS_H || 700;
+  const z = S.zoom || 1;
+  const halfW = W / (2 * z);
+  const halfH = H / (2 * z);
   const isComet = Math.random() < 0.6;
   const size = 0.7 + Math.random() * 1.8;
   const tailLen = Math.round(8 + size * 9);
   const side = Math.floor(Math.random() * 4);
   let x, y, vx, vy;
   const speed = 50 + Math.random() * 90;
-  if (side === 0) { x = Math.random() * W; y = -50; vx = (Math.random() - 0.5) * 40; vy = speed; }
-  else if (side === 1) { x = W + 50; y = Math.random() * H; vx = -speed; vy = (Math.random() - 0.5) * 40; }
-  else if (side === 2) { x = Math.random() * W; y = H + 50; vx = (Math.random() - 0.5) * 40; vy = -speed; }
-  else { x = -50; y = Math.random() * H; vx = speed; vy = (Math.random() - 0.5) * 40; }
+  // Спавн в мировых координатах
+  if (side === 0) { x = (Math.random() * 2 - 1) * halfW; y = -halfH - 40; vx = (Math.random() - 0.5) * 40; vy = speed; }
+  else if (side === 1) { x = halfW + 40; y = (Math.random() * 2 - 1) * halfH; vx = -speed; vy = (Math.random() - 0.5) * 40; }
+  else if (side === 2) { x = (Math.random() * 2 - 1) * halfW; y = halfH + 40; vx = (Math.random() - 0.5) * 40; vy = -speed; }
+  else { x = -halfW - 40; y = (Math.random() * 2 - 1) * halfH; vx = speed; vy = (Math.random() - 0.5) * 40; }
   PART.passing.push({
     x, y, vx, vy,
     type: isComet ? 'comet' : 'ship',
@@ -346,7 +341,7 @@ function spawnPassing() {
   });
 }
 
-// ─── ФОРМАТ ─────────────────────────────────────────────────────
+// ─── Формат ─────────────────────────────────────────────────────
 function fmtShort(n) {
   if (typeof window.fmt === 'function') return window.fmt(n);
   if (n < 1000) return Math.floor(n).toString();
@@ -356,7 +351,7 @@ function fmtShort(n) {
   return n.toFixed(1) + units[i];
 }
 
-// ─── РИСОВАНИЕ ──────────────────────────────────────────────────
+// ─── Рисование ──────────────────────────────────────────────────
 function drawParticles(ctx, time) {
   const cx = window.CANVAS_CX || 0;
   const cy = window.CANVAS_CY || 0;
@@ -369,44 +364,35 @@ function drawParticles(ctx, time) {
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
 
-  // ─── ОРЕОЛ ЦЕНТРА ───
   if (!hasStar) {
     const pulse = 1 + PART.corePulse * 0.5;
+    const coreRNow = PART.coreR * pulse * z;
 
+    // Ореол центра
+    const haloR = (isDisk ? 20 : 10) * z;
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, haloR);
     if (isDisk) {
-      // Фаза II — яркая внутренняя корона
-      const haloR = 22 * z;
-      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, haloR);
-      g.addColorStop(0, 'rgba(230, 210, 255, 0.55)');
-      g.addColorStop(0.3, 'rgba(180, 150, 240, 0.28)');
-      g.addColorStop(0.7, 'rgba(130, 100, 210, 0.08)');
+      g.addColorStop(0, 'rgba(230, 210, 255, 0.5)');
+      g.addColorStop(0.4, 'rgba(180, 150, 240, 0.2)');
       g.addColorStop(1, 'rgba(80, 60, 150, 0)');
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
-      ctx.fill();
     } else {
-      // Фаза I — маленький ореол
-      const haloR = 10 * z;
-      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, haloR);
-      g.addColorStop(0, 'rgba(200, 180, 255, 0.25)');
-      g.addColorStop(0.6, 'rgba(140, 120, 220, 0.08)');
+      g.addColorStop(0, 'rgba(200, 180, 255, 0.22)');
+      g.addColorStop(0.6, 'rgba(140, 120, 220, 0.06)');
       g.addColorStop(1, 'rgba(80, 60, 150, 0)');
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
-      ctx.fill();
     }
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
+    ctx.fill();
 
-    // Точка центра — как частица, чуть ярче
-    const R = PART.coreR * pulse * z;
+    // Точка центра — размер частицы
     ctx.fillStyle = 'rgba(240, 235, 255, 0.95)';
     ctx.beginPath();
-    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.arc(cx, cy, coreRNow, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  // ─── ЧАСТИЦЫ ───
+  // Частицы
   const sizeFactor = Math.max(0.7, z);
   for (const p of PART.particles) {
     const sx = cx + p.x * z;
@@ -463,19 +449,26 @@ function drawParticles(ctx, time) {
   drawPassing(ctx);
 }
 
+// Пролёты — рисуем с учётом зума
 function drawPassing(ctx) {
+  const cx = window.CANVAS_CX || 0;
+  const cy = window.CANVAS_CY || 0;
   const z = S.zoom || 1;
+
   for (const o of PART.passing) {
     const alpha = o.alpha != null ? o.alpha : 1;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
 
+    // Мировая позиция → экран
     for (let i = 0; i < o.trail.length; i++) {
       const seg = o.trail[i];
+      const sx = cx + seg.x * z;
+      const sy = cy + seg.y * z;
       const life = i / o.trail.length;
       ctx.globalAlpha = life * 0.7 * alpha;
-      const size = (1 + life * 2.5) * o.size;
-      const grad = ctx.createRadialGradient(seg.x, seg.y, 0, seg.x, seg.y, size * 2);
+      const size = (1 + life * 2.5) * o.size * z;
+      const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, size * 2);
       if (o.type === 'comet') {
         grad.addColorStop(0, 'rgba(150, 220, 255, 0.9)');
         grad.addColorStop(1, 'rgba(100, 150, 255, 0)');
@@ -485,17 +478,20 @@ function drawPassing(ctx) {
       }
       ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.arc(seg.x, seg.y, size * 2, 0, Math.PI * 2);
+      ctx.arc(sx, sy, size * 2, 0, Math.PI * 2);
       ctx.fill();
     }
+
+    const ox = cx + o.x * z;
+    const oy = cy + o.y * z;
 
     ctx.globalAlpha = 0.95 * alpha;
     ctx.fillStyle = o.type === 'comet' ? '#e8f6ff' : '#ffeec8';
     ctx.beginPath();
-    ctx.arc(o.x, o.y, 2 * o.size * z, 0, Math.PI * 2);
+    ctx.arc(ox, oy, 2 * o.size * z, 0, Math.PI * 2);
     ctx.fill();
 
-    const halo = ctx.createRadialGradient(o.x, o.y, 0, o.x, o.y, 12 * o.size * z);
+    const halo = ctx.createRadialGradient(ox, oy, 0, ox, oy, 12 * o.size * z);
     if (o.type === 'comet') {
       halo.addColorStop(0, 'rgba(150, 220, 255, 0.5)');
       halo.addColorStop(1, 'rgba(100, 150, 255, 0)');
@@ -505,7 +501,7 @@ function drawPassing(ctx) {
     }
     ctx.fillStyle = halo;
     ctx.beginPath();
-    ctx.arc(o.x, o.y, 12 * o.size * z, 0, Math.PI * 2);
+    ctx.arc(ox, oy, 12 * o.size * z, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
