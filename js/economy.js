@@ -32,8 +32,23 @@ function gammaMult() {
 function planetRate() {
   let sum = 0;
   for (const p of S.planets) {
-    if (p.forming) continue; // планета ещё формируется — дохода нет
-    sum += PLANET_TYPES[p.type].rate;
+    if (p.forming) continue;
+    let base = PLANET_TYPES[p.type].rate;
+
+    // ★ Формула Сафронова: чем больше планета, тем быстрее растёт
+    if (typeof safronovAccretion === 'function') {
+      const accretion = safronovAccretion(p);
+      base *= (1 + accretion * 10);
+    }
+
+    // ★ Ближе к звезде — горячее, дороже содержание, но и быстрее поток
+    if (typeof tempAt === 'function') {
+      const rAe = (p.orbitR || 100) / (window.PHYS?.refRadius || 100);
+      const tempMult = 0.8 + Math.min(1, tempAt(rAe) / 400) * 0.4;
+      base *= tempMult;
+    }
+
+    sum += base;
   }
   return sum;
 }
