@@ -194,9 +194,24 @@ function updateParticles(dt, time) {
       if (aDiff < -CONDENSE.maxArmKick) aDiff = -CONDENSE.maxArmKick;
       vx += tanX * aDiff * CONDENSE.armForce;
       vy += tanY * aDiff * CONDENSE.armForce;
-    } else if (hasStar) {
-      vx += dirX * 1.5;
-      vy += dirY * 1.5;
+       } else if (hasStar) {
+      // ★ Кеплеровское вращение — пыль закручивается вокруг звезды
+      const tangential = keplerTangential(dist, CONDENSE.vRef) * p.spinVar * 0.7;
+      const radial = tangential * CONDENSE.spiralB / Math.max(25, dist);
+
+      vx += tanX * tangential;
+      vy += tanY * tangential;
+      vx += dirX * (radial + CONDENSE.radialDrift * 0.5);
+      vy += dirY * (radial + CONDENSE.radialDrift * 0.5);
+
+      // Слабое выравнивание к 2 рукавам — чтобы сохранить визуальную красоту
+      const targetA = p.arm * Math.PI + dist * CONDENSE.armAngleB + p.armOffset;
+      const curA = Math.atan2(p.y, p.x);
+      let aDiff = normAngle(targetA - curA);
+      if (aDiff > 0.3) aDiff = 0.3;
+      if (aDiff < -0.3) aDiff = -0.3;
+      vx += tanX * aDiff * 0.4;
+      vy += tanY * aDiff * 0.4;
     }
 
     if (fingerWorld) {
