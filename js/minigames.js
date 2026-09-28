@@ -41,10 +41,10 @@ const MG_VORTEX = {
 };
 
 const MG_IGNITE = {
-  duration: 30,           // секунд
-  baseDecay: 0.05,        // затухание на старте
-  decayAccel: 0.10,       // как быстро растёт затухание
-  tapBoost: 0.08,         // сколько даёт тап
+  duration: 30,
+  baseDecay: 0.10,        // ★ было 0.05 — в 2 раза быстрее затухает
+  decayAccel: 0.15,       // ★ было 0.10 — ускорение затухания
+  tapBoost: 0.08,
   tapRadius: 250,
 };
 
@@ -445,13 +445,14 @@ function drawMass(ctx, cx, cy, t) {
 function drawIgnite(ctx, cx, cy, t) {
   const left = Math.max(0, MG_IGNITE.duration - (MG.elapsedSec || 0));
 
-  // Прогноз звезды
+    // ★ Прогноз — точная копия того, что будет в финале
+  const q = MG.power;   // финальный quality = power в момент 30 сек
   let tier = 'G';
   let tierColor = '#ffcc55';
-  if (MG.power >= 0.90) { tier = 'M'; tierColor = '#ff3030'; }
-  else if (MG.power >= 0.70) { tier = 'B'; tierColor = '#5577ff'; }
-  else if (MG.power >= 0.45) { tier = 'K'; tierColor = '#ff9944'; }
-  else if (MG.power >= 0.25) { tier = 'A'; tierColor = '#ccccff'; }
+  if (q >= 0.90)      { tier = 'M'; tierColor = '#ff3030'; }
+  else if (q >= 0.70) { tier = 'B'; tierColor = '#5577ff'; }
+  else if (q >= 0.45) { tier = 'K'; tierColor = '#ff9944'; }
+  else if (q >= 0.25) { tier = 'A'; tierColor = '#ccccff'; }
 
   // Заголовок
   ctx.save();
@@ -521,6 +522,16 @@ function drawIgnite(ctx, cx, cy, t) {
   ctx.fillStyle = '#a89ce0';
   ctx.globalAlpha = 0.7;
   ctx.fillText('прогноз звезды', cx, cy - 108);
+    // ★ Предупреждение о риске
+  const distToBorder = q >= 0.90 ? q - 0.90 :
+                       q >= 0.70 ? q - 0.70 :
+                       q >= 0.45 ? q - 0.45 : q - 0.25;
+  if (distToBorder < 0.05 && q < 0.95) {
+    ctx.font = 'bold 10px -apple-system, sans-serif';
+    ctx.fillStyle = '#ff8866';
+    ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 8);
+    ctx.fillText('⚠ МОЖЕТ СНИЗИТЬСЯ', cx, cy - 92);
+  }
   ctx.restore();
 
   // Таймер
