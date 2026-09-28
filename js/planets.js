@@ -2,7 +2,28 @@
 // ═══════════════════════════════════════════════════════════════
 //  PLANETS.JS — минимальная рабочая версия
 // ═══════════════════════════════════════════════════════════════
+// ─── Физические константы (Hayashi 1981) ────────────────────────
+const PHYS = {
+  refRadius: 100,   // 1 а.е. = 100 px
+  refTemp: 280,     // T(1 а.е.) = 280 K
+  snowLine: 270,    // 2.7 а.е. — снеговая линия
+};
 
+// Температура на расстоянии r (px): T(r) = T0 · (r0/r)^(1/2)
+function tempAt(r) {
+  if (r < 1) r = 1;
+  return PHYS.refTemp * Math.sqrt(PHYS.refRadius / r);
+}
+
+// Зона по температуре (определяет тип планеты)
+function zoneAt(r) {
+  const t = tempAt(r);
+  if (t > 1000) return 'lava';
+  if (t > 400)  return 'hot';
+  if (t > 170)  return 'rocky';
+  if (t > 80)   return 'ice';
+  return 'gas';
+}
 const VIEW_COS = 0.5;
 
 function addPlanet(type) {
@@ -198,7 +219,31 @@ function drawPlanets(ctx, time) {
   const t = time;
   const z = S.zoom || 1;
   const starHue = S.starType ? STAR_TYPES[S.starType].color : 260;
-
+  // ★ Снеговая линия — рисуем до орбит
+  if (S.starType) {
+    const snowPx = PHYS.snowLine;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(126, 200, 227, 0.15)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([8, 12]);
+    ctx.beginPath();
+    for (let a = 0; a <= Math.PI * 2 + 0.01; a += 0.2) {
+      const wx = Math.cos(a) * snowPx;
+      const wy = Math.sin(a) * snowPx * VIEW_COS;
+      const sp = worldToScreen(wx, wy);
+      if (a === 0) ctx.moveTo(sp.x, sp.y);
+      else ctx.lineTo(sp.x, sp.y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const lblPos = worldToScreen(snowPx, 0);
+    ctx.fillStyle = 'rgba(126, 200, 227, 0.5)';
+    ctx.font = '9px -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('❄ снеговая линия', lblPos.x + 6, lblPos.y - 4);
+    ctx.restore();
+  }
   ctx.save();
   for (let i = 0; i < S.planets.length; i++) {
     const p = S.planets[i];
@@ -455,7 +500,9 @@ function hash(n) {
   const s = Math.sin(n * 12.9898) * 43758.5453;
   return s - Math.floor(s);
 }
-
+window.PHYS = PHYS;
+window.tempAt = tempAt;
+window.zoneAt = zoneAt;
 window.addPlanet = addPlanet;
 window.updatePlanets = updatePlanets;
 window.drawPlanets = drawPlanets;
