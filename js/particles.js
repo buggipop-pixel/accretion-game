@@ -21,11 +21,14 @@ const TOUCH_VELOCITY    = 400;
 const DUST_PER_PARTICLE = 1;
 const DUST_PER_FINGER   = 1;
 
+// ─── ФАЗА I: слабая спираль + ощутимое стягивание ───
 const CLOUD = {
-  pull: 0.10,
-  spiralForce: 3.5,
+  pull: 0.45,          // было 0.10 — стягивание заметнее
+  spiralForce: 0.8,    // было 3.5 — спираль мягкая
   spiralTight: 0.7,
-  armSpread: 0.9,
+  armSpread: 1.4,      // было 0.9 — рукава шире
+  maxArmKick: 0.5,     // ограничение силы рукава
+  armMinDist: 100,     // спираль действует только дальше 100px
 };
 
 const CONDENSE = {
@@ -185,16 +188,24 @@ function updateParticles(dt, time) {
     let vx = 0, vy = 0;
 
     // ─── ФАЗА I: спираль + медленное стягивание ───
-    if (isCloud) {
-      const targetA = p.arm * Math.PI
-                    + Math.log(dist + 1) * CLOUD.spiralTight
-                    + p.armOffset;
-      const curA = Math.atan2(p.y, p.x);
-      const aDiff = normAngle(targetA - curA);
-      vx += tanX * aDiff * CLOUD.spiralForce * p.spinVar;
-      vy += tanY * aDiff * CLOUD.spiralForce * p.spinVar;
-      vx += dirX * CLOUD.pull;
-      vy += dirY * CLOUD.pull;
+        if (isCloud) {
+      // Спираль действует только на дальних дистанциях
+      if (dist > CLOUD.armMinDist) {
+        const targetA = p.arm * Math.PI
+                      + Math.log(dist + 1) * CLOUD.spiralTight
+                      + p.armOffset;
+        const curA = Math.atan2(p.y, p.x);
+        let aDiff = normAngle(targetA - curA);
+        // ОГРАНИЧИВАЕМ силу, чтобы частица не улетала за рукав
+        if (aDiff > CLOUD.maxArmKick) aDiff = CLOUD.maxArmKick;
+        if (aDiff < -CLOUD.maxArmKick) aDiff = -CLOUD.maxArmKick;
+        vx += tanX * aDiff * CLOUD.spiralForce * p.spinVar;
+        vy += tanY * aDiff * CLOUD.spiralForce * p.spinVar;
+      }
+      // Притяжение к центру — усиливается у центра
+      const pullPower = CLOUD.pull * (1 + 80 / (dist + 100));
+      vx += dirX * pullPower;
+      vy += dirY * pullPower;
     }
 
     // ─── ФАЗА II: узкие кольца ───
@@ -233,9 +244,9 @@ function updateParticles(dt, time) {
     }
 
     // Anti-stuck
-    p.age += dt;
-    if (dist < 25 && p.age > 4) { vx += dirX * 25; vy += dirY * 25; }
-    if (dist > 100) p.age = 0;
+        p.age += dt;
+    if (dist < 70 && p.age > 3) { vx += dirX * 45; vy += dirY * 45; }
+    if (dist > 160) p.age = 0;
 
     p.x += vx * dt;
     p.y += vy * dt;
