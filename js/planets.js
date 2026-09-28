@@ -11,7 +11,41 @@ const P_PHYS = {
   refTemp: 280,
   snowLine: 270,
 };
+// ─── Escape-скорость (Safronov) ─────────────────────────────────
+// v_esc = √(2GM/R). В игровом масштабе: √(масса / радиус) × 0.5
+function escapeVelocity(mass, radius) {
+  if (radius <= 0) return 0;
+  return Math.sqrt(2 * mass / radius) * 0.5;
+}
 
+// Относительная скорость на разных орбитах
+function relativeVelocity(r1, r2) {
+  // v ∝ 1/√r → |v1 - v2|
+  const v1 = 1 / Math.sqrt(Math.max(10, r1) / 100);
+  const v2 = 1 / Math.sqrt(Math.max(10, r2) / 100);
+  return Math.abs(v1 - v2);
+}
+
+// Правило слияния (Safronov/Ida-Lin)
+function shouldMerge(p1, p2) {
+  const r1 = p1.orbitR || 100;
+  const r2 = p2.orbitR || 100;
+  const gap = Math.abs(r1 - r2);
+  const sumRadii = (p1.diameter + p2.diameter) * 8;
+
+  const vRel = relativeVelocity(r1, r2);
+  const vEsc = escapeVelocity(p1.mass + p2.mass, p1.diameter + p2.diameter);
+
+  // Гравитационный фокус — захват шире физического радиуса
+  const focusFactor = vRel > 0.01
+    ? Math.sqrt(1 + (vEsc * vEsc) / (vRel * vRel))
+    : 1;
+  const captureDist = sumRadii * Math.min(4, focusFactor);
+
+  if (gap > captureDist) return null;
+  if (vRel > vEsc * 1.2) return 'bounce';
+  return 'merge';
+}
 // Температура на расстоянии r (px): T(r) = T0 · (r0/r)^(1/2)
 function tempAt(r) {
   if (r < 1) r = 1;
@@ -92,18 +126,21 @@ function checkCollisions() {
   const chance = st.collisionPerPlanet * active.length;
   if (Math.random() > chance) return;
 
-  const sorted = active.slice().sort(function(a, b) { return a.orbitR - b.orbitR; });
+    const sorted = active.slice().sort(function(a, b) { return a.orbitR - b.orbitR; });
   for (let i = 0; i < sorted.length - 1; i++) {
-    const gap = sorted[i + 1].orbitR - sorted[i].orbitR;
-    const sumDiam = (sorted[i].diameter + sorted[i + 1].diameter) * 5;
-    if (gap < sumDiam + 15) {
-      collidePlanets(sorted[i], sorted[i + 1]);
+    const decision = shouldMerge(sorted[i], sorted[i + 1]);
+    if (decision === 'merge') {
+      collidePlanets(sorted[i], sorted[i + 1], 'merge');
+      return;
+    }
+    if (decision === 'bounce') {
+      collidePlanets(sorted[i], sorted[i + 1], 'bounce');
       return;
     }
   }
 }
 
-function collidePlanets(a, b) {
+function collidePlanets(a, b, decision) {
   const aPt = PLANET_TYPES[a.type];
   const bPt = PLANET_TYPES[b.type];
 
@@ -117,6 +154,21 @@ function collidePlanets(a, b) {
   const wmy = (wyA + wyB) / 2;
   const bigMass = a.mass + b.mass;
   const roll = Math.random();
+  // ★ Отскок — если скорости слишком высокие для слияния
+  if (decision === 'bounce') {
+    const avgR = (a.orbitR + b.orbitR) / 2;
+    a.baseOrbitR = Math.max(60, avgR - 20);
+    b.baseOrbitR = avgR + 20;
+    const sp = worldToScreen(wmx, wmy);
+    S.explosions.push({
+      x: sp.x, y: sp.y, type: 'moon',
+      startAt: Date.now(), endAt: Date.now() + 600, size: 20,
+    });
+    if (typeof toast === 'function') {
+      toast('💫 Отскок', 'Скорость слишком высока');
+    }
+    return;
+  }
 
   if (roll < 0.5) {
     // Разрушение
