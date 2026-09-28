@@ -36,15 +36,16 @@
       <button class="evolve-btn" id="evolveBtn">Эволюция</button>
 
       <!-- Кнопки запуска -->
-      <div class="launch-row" id="launchRow"></div>
+          <div class="mission-buttons" id="missionButtons"></div>
 
       <!-- Хранилища ресурсов -->
       <div class="storage-panel" id="storagePanel">
-        <div class="storage-cell" data-res="dust">
-          <div class="storage-icon">✦</div>
-          <div class="storage-val" id="dustVal">0</div>
-          <div class="storage-label">ПЫЛЬ</div>
-        </div>
+              <div class="storage-cell" data-res="dust">
+        <div class="storage-icon">✦</div>
+        <div class="storage-val" id="dustVal">0</div>
+        <div class="storage-label">ПЫЛЬ</div>
+        <div class="storage-rate" id="dustRate">+0 / ч</div>
+      </div>
         <div class="storage-cell" data-res="energy">
           <div class="storage-icon">⚡</div>
           <div class="storage-val" id="energyVal">0</div>
@@ -88,12 +89,12 @@
   <script src="js/state.js"></script>
   <script src="js/economy.js"></script>
   <script src="js/particles.js"></script>
-  <script src="js/minigames.js"></script>
   <script src="js/planets.js"></script>
+  <script src="js/minigames.js"></script>
+  <script src="js/missions.js"></script>
   <script src="js/evolution.js"></script>
   <!-- <script src="js/flights.js"></script> -->
   <!-- <script src="js/events.js"></script> -->
-  <!-- <script src="js/missions.js"></script> -->
   <!-- <script src="js/civ.js"></script> -->
   <!-- <script src="js/tech.js"></script> -->
   <!-- <script src="js/quests.js"></script> -->
