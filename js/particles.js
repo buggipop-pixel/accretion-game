@@ -520,9 +520,60 @@ function drawPassing(ctx) {
       ctx.arc(sp.x, sp.y, size * 2, 0, Math.PI * 2);
       ctx.fill();
     }
-    const sp = worldToScreen(o.x, o.y);
+        const sp = worldToScreen(o.x, o.y);
+
+    // ★ Корабль рисуется по-другому — треугольный корпус
+    if (o.type === 'ship') {
+      const angle = Math.atan2(o.vy, o.vx);
+      const s = o.size * z * 4;
+
+      ctx.save();
+      ctx.globalAlpha = 0.95 * alpha;
+      ctx.translate(sp.x, sp.y);
+      ctx.rotate(angle);
+
+      // Корпус (треугольник)
+      ctx.fillStyle = '#c8e6ff';
+      ctx.beginPath();
+      ctx.moveTo(s * 1.8, 0);
+      ctx.lineTo(-s * 0.8, -s * 0.7);
+      ctx.lineTo(-s * 0.4, 0);
+      ctx.lineTo(-s * 0.8, s * 0.7);
+      ctx.closePath();
+      ctx.fill();
+
+      // Кабина
+      ctx.fillStyle = '#7ec8ff';
+      ctx.beginPath();
+      ctx.arc(s * 0.5, 0, s * 0.25, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Сопло
+      ctx.fillStyle = '#ff9944';
+      ctx.beginPath();
+      ctx.moveTo(-s * 0.8, -s * 0.3);
+      ctx.lineTo(-s * 1.3, 0);
+      ctx.lineTo(-s * 0.8, s * 0.3);
+      ctx.closePath();
+      ctx.fill();
+
+      // Двигательный след
+      const trail = ctx.createRadialGradient(-s * 1.4, 0, 0, -s * 1.4, 0, s * 1.2);
+      trail.addColorStop(0, 'rgba(255,180,80,0.9)');
+      trail.addColorStop(1, 'rgba(255,100,40,0)');
+      ctx.fillStyle = trail;
+      ctx.beginPath();
+      ctx.arc(-s * 1.4, 0, s * 1.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+      ctx.restore();
+      continue;   // пропускаем обычную отрисовку кружка
+    }
+
+    // Обычная отрисовка (для комет)
     ctx.globalAlpha = 0.95 * alpha;
-    ctx.fillStyle = o.type === 'comet' ? '#e8f6ff' : '#ffeec8';
+    ctx.fillStyle = '#e8f6ff';
     ctx.beginPath();
     ctx.arc(sp.x, sp.y, 1.6 * o.size * z, 0, Math.PI * 2);
     ctx.fill();
