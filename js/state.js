@@ -1,90 +1,50 @@
-// STATE.JS — состояние игры
+// ═══════════════════════════════════════════════════════════════
+//  STATE.JS — состояние игры и сохранение
+// ═══════════════════════════════════════════════════════════════
 
 const S = {
   stage: 'cloud',
-  dust: 0,
-  dustTotal: 0,
-  energy: 0,
-  civLevel: 0,
-
-  // ─── Активная система ───
-  starType: null,
-  systemType: null,
-  planets: [],
-  systemName: 'Родная',
-
-  // ─── Другие системы ───
-  otherSystems: [],       // [{name, starType, systemType, planets[]}]
-  activeSystemIdx: 0,     // 0 = активная, 1+ = из otherSystems
-
-  // ─── Камера ───
-  panX: 0,
-  panY: 0,
-  zoom: 1.0,
-
-  // ─── Прогресс ───
-  systems: 1,
-  totalSystemsCreated: 1,
-
-  // ─── Активные процессы ───
-  missions: [],
-  flights: [],
-  invasions: [],
-  explosions: [],          // визуальные взрывы
-
-  // ─── Кулдауны ───
+  dust: 0, dustTotal: 0,
+  energy: 0, civLevel: 0,
+  starType: null, systemType: null,
+  planets: [], systemName: 'Родная',
+  otherSystems: [], activeSystemIdx: 0,
+  panX: 0, panY: 0, zoom: 1.0, rotation: 0,
+  systems: 1, totalSystemsCreated: 1,
+  missions: [], flights: [], invasions: [], explosions: [],
   cooldowns: { expedition: 0, comet: 0 },
-
-  // ─── Таймеры ───
   lastTick: Date.now(),
-  eventTimer: 0,
-  choiceTimer: 0,
-  collisionTimer: 0,
-  gammaDebuff: 0,
-
-  // ─── Визуал ───
+  eventTimer: 0, choiceTimer: 0, collisionTimer: 0, gammaDebuff: 0,
   vis: { collapse: 0 },
+  activeMinigame: null,
 };
 
-const SAVE_KEY = 'accretion_v14';
+const SAVE_KEY = 'accretion_v15';
 let isResetting = false;
 
 function resetStateValues() {
   S.stage = 'cloud';
-  S.dust = 0;
-  S.dustTotal = 0;
-  S.energy = 0;
-  S.civLevel = 0;
-  S.starType = null;
-  S.systemType = null;
+  S.dust = 0; S.dustTotal = 0;
+  S.energy = 0; S.civLevel = 0;
+  S.starType = null; S.systemType = null;
   S.planets = [];
   S.systemName = 'Родная';
-  S.otherSystems = [];
-  S.activeSystemIdx = 0;
-  S.panX = 0;
-  S.panY = 0;
-  S.zoom = 1.0;
-  S.systems = 1;
-  S.totalSystemsCreated = 1;
-  S.missions = [];
-  S.flights = [];
-  S.invasions = [];
-  S.explosions = [];
+  S.otherSystems = []; S.activeSystemIdx = 0;
+  S.panX = 0; S.panY = 0; S.zoom = 1.0; S.rotation = 0;
+  S.systems = 1; S.totalSystemsCreated = 1;
+  S.missions = []; S.flights = []; S.invasions = []; S.explosions = [];
   S.cooldowns = { expedition: 0, comet: 0 };
   S.lastTick = Date.now();
-  S.eventTimer = 0;
-  S.choiceTimer = 0;
-  S.collisionTimer = 0;
-  S.gammaDebuff = 0;
+  S.eventTimer = 0; S.choiceTimer = 0; S.collisionTimer = 0; S.gammaDebuff = 0;
   S.vis = { collapse: 0 };
+  S.activeMinigame = null;
 }
 
-// ─── ПЕРЕКЛЮЧЕНИЕ СИСТЕМ ────────────────────────────────────────
+// ─── Переключение систем ────────────────────────────────────────
 function switchToSystem(idx) {
   if (idx === S.activeSystemIdx) return false;
   if (idx < 0) return false;
 
-  // Сохраняем текущие данные активной системы
   const currentData = {
     name: S.systemName,
     starType: S.starType,
@@ -92,19 +52,12 @@ function switchToSystem(idx) {
     planets: S.planets || [],
   };
 
-  // Слот 0 — placeholder или сохранённая родная система
   if (idx === 0) {
-    // Возвращаемся на родную
     const home = S.otherSystems[0];
-    if (!home) {
-      // Никогда не переключались — ничего не делаем
-      return false;
-    }
-    // Сохраняем текущую (не родную) в её слот
+    if (!home) return false;
     if (S.activeSystemIdx > 0) {
       S.otherSystems[S.activeSystemIdx] = currentData;
     }
-    // Восстанавливаем родную из слота 0
     S.otherSystems[0] = null;
     S.systemName = home.name;
     S.starType = home.starType;
@@ -114,15 +67,12 @@ function switchToSystem(idx) {
     return true;
   }
 
-  // Переключаемся на не-родную
   const target = S.otherSystems[idx];
   if (!target) return false;
 
-  // Если сейчас на родной — сохраняем её в слот 0
   if (S.activeSystemIdx === 0) {
     S.otherSystems[0] = currentData;
   } else {
-    // Иначе сохраняем текущую не-родную в её слот
     S.otherSystems[S.activeSystemIdx] = currentData;
   }
 
@@ -134,33 +84,21 @@ function switchToSystem(idx) {
   return true;
 }
 
-// ─── СОХРАНЕНИЕ ─────────────────────────────────────────────────
+// ─── Сохранение ─────────────────────────────────────────────────
 function saveGame() {
   if (isResetting) return;
   try {
     S.lastTick = Date.now();
     const data = {
-      stage: S.stage,
-      dust: S.dust,
-      dustTotal: S.dustTotal,
-      energy: S.energy,
-      civLevel: S.civLevel,
-      starType: S.starType,
-      systemType: S.systemType,
-      planets: S.planets,
-      systemName: S.systemName,
-      otherSystems: S.otherSystems,
-      activeSystemIdx: S.activeSystemIdx,
-      panX: S.panX,
-      panY: S.panY,
-      zoom: S.zoom,
-      rotation: S.rotation || 0,
-      systems: S.systems,
-      totalSystemsCreated: S.totalSystemsCreated,
-      cooldowns: S.cooldowns,
-      missions: S.missions,
-      gammaDebuff: S.gammaDebuff,
-      lastTick: S.lastTick,
+      stage: S.stage, dust: S.dust, dustTotal: S.dustTotal,
+      energy: S.energy, civLevel: S.civLevel,
+      starType: S.starType, systemType: S.systemType,
+      planets: S.planets, systemName: S.systemName,
+      otherSystems: S.otherSystems, activeSystemIdx: S.activeSystemIdx,
+      panX: S.panX, panY: S.panY, zoom: S.zoom, rotation: S.rotation || 0,
+      systems: S.systems, totalSystemsCreated: S.totalSystemsCreated,
+      cooldowns: S.cooldowns, missions: S.missions,
+      gammaDebuff: S.gammaDebuff, lastTick: S.lastTick,
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
   } catch (e) { console.warn('save error', e); }
@@ -189,23 +127,14 @@ function loadGame() {
     if (typeof S.civLevel !== 'number') S.civLevel = 0;
     if (typeof S.energy !== 'number') S.energy = 0;
     if (!S.systemName) S.systemName = 'Родная';
-    if (typeof S.rotation !== 'number') S.rotation = 0;
 
-    // Восстанавливаем массы и диаметры планет
-    for (const p of S.planets) {
+    for (let i = 0; i < S.planets.length; i++) {
+      const p = S.planets[i];
       if (!p.baseOrbitR) p.baseOrbitR = p.orbitR || 100;
       if (typeof p.forming !== 'boolean') p.forming = false;
       if (typeof p.mass !== 'number') p.mass = planetMass(p.type);
       if (typeof p.diameter !== 'number') p.diameter = planetDiameter(p.type);
       if (!p.moons) p.moons = [];
-    }
-    for (const sys of S.otherSystems) {
-      if (!sys.planets) continue;
-      for (const p of sys.planets) {
-        if (!p.moons) p.moons = [];
-        if (typeof p.mass !== 'number') p.mass = planetMass(p.type);
-        if (typeof p.diameter !== 'number') p.diameter = planetDiameter(p.type);
-      }
     }
 
     S.vis.collapse = S.starType ? 1 : (S.stage === 'condense' ? 0.3 : 0);
@@ -216,25 +145,16 @@ function resetGame() {
   isResetting = true;
   localStorage.removeItem(SAVE_KEY);
   resetStateValues();
-  S.rotation = 0;
-  S.activeMinigame = null;
-  setTimeout(() => location.reload(), 50);
+  setTimeout(function() { location.reload(); }, 50);
 }
 
-// ─── ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ПЛАНЕТ ─────────────────────────
 function planetMass(type) {
-  const map = {
-    rocky: 1.0, superEarth: 2.5,
-    iceGiant: 4.0, gasGiant: 8.0, lava: 1.5,
-  };
-  return map[type] || 1.0;
+  const m = { rocky: 1.0, superEarth: 2.5, iceGiant: 4.0, gasGiant: 8.0, lava: 1.5 };
+  return m[type] || 1.0;
 }
 function planetDiameter(type) {
-  const map = {
-    rocky: 1.0, superEarth: 1.3,
-    iceGiant: 1.5, gasGiant: 1.8, lava: 0.9,
-  };
-  return map[type] || 1.0;
+  const d = { rocky: 1.0, superEarth: 1.3, iceGiant: 1.5, gasGiant: 1.8, lava: 0.9 };
+  return d[type] || 1.0;
 }
 
 window.S = S;
@@ -242,6 +162,5 @@ window.saveGame = saveGame;
 window.loadGame = loadGame;
 window.resetGame = resetGame;
 window.switchToSystem = switchToSystem;
-window.getSystemList = getSystemList;
 window.planetMass = planetMass;
 window.planetDiameter = planetDiameter;
