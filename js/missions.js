@@ -3,30 +3,24 @@
 // ═══════════════════════════════════════════════════════════════
 
 const MISS = {
-  comets: [],
-  expeditions: [],
-  lastCometAt: 0,
-  lastExpeditionAt: 0,
+  comets: [], expeditions: [],
+  lastCometAt: 0, lastExpeditionAt: 0,
 };
 
 // ─── Генератор имён ─────────────────────────────────────────────
-const SYS_PREFIXES = [
-  'Альфа', 'Бета', 'Гамма', 'Дельта', 'Эпсилон', 'Дзета', 'Эта',
-  'Тета', 'Йота', 'Каппа', 'Лямбда', 'Мю', 'Ню', 'Кси', 'Омикрон',
-  'Пи', 'Ро', 'Сигма', 'Тау', 'Ипсилон', 'Фи', 'Хи', 'Пси', 'Омега'
-];
-const SYS_NAMES = [
-  'Кентавра', 'Центавра', 'Ориона', 'Лебедя', 'Лира', 'Дракона',
-  'Феникса', 'Кита', 'Гидры', 'Пегаса', 'Кассиопеи', 'Персея',
-  'Андромеды', 'Волопаса', 'Геркулеса', 'Змееносца', 'Ворона',
-  'Орла', 'Павлина', 'Журавля', 'Тукана', 'Единорога'
-];
-const SYS_SUFFIXES = ['', ' I', ' II', ' III', ' IV', ' V', ' A', ' B'];
+const SYS_PREFIXES = ['Альфа','Бета','Гамма','Дельта','Эпсилон','Дзета','Эта',
+  'Тета','Йота','Каппа','Лямбда','Мю','Ню','Кси','Омикрон','Пи','Ро','Сигма',
+  'Тау','Ипсилон','Фи','Хи','Пси','Омега'];
+const SYS_NAMES = ['Кентавра','Центавра','Ориона','Лебедя','Лира','Дракона',
+  'Феникса','Кита','Гидры','Пегаса','Кассиопеи','Персея','Андромеды',
+  'Волопаса','Геркулеса','Змееносца','Ворона','Орла','Павлина','Журавля',
+  'Тукана','Единорога'];
+const SYS_SUFFIXES = ['',' I',' II',' III',' IV',' V',' A',' B'];
 
 function generateSystemName() {
-  const prefix = SYS_PREFIXES[Math.floor(Math.random() * SYS_PREFIXES.length)];
-  const name = SYS_NAMES[Math.floor(Math.random() * SYS_NAMES.length)];
-  const suffix = SYS_SUFFIXES[Math.floor(Math.random() * SYS_SUFFIXES.length)];
+  const prefix = SYS_PREFIXES[Math.floor(Math.random()*SYS_PREFIXES.length)];
+  const name = SYS_NAMES[Math.floor(Math.random()*SYS_NAMES.length)];
+  const suffix = SYS_SUFFIXES[Math.floor(Math.random()*SYS_SUFFIXES.length)];
   return prefix + ' ' + name + suffix;
 }
 
@@ -39,25 +33,13 @@ function cometCost() {
   return Math.floor(500000 / Math.max(1, ice));
 }
 
-function expeditionEnergyCost() {
-  return Math.floor(5000 * Math.pow(2, S.systems - 1));
-}
+function expeditionEnergyCost() { return Math.floor(5000 * Math.pow(2, S.systems-1)); }
+function colonyEnergyCost() { return Math.floor(50000 * Math.pow(2, S.systems-1)); }
+function colonyCivCost() { return Math.floor(50 * Math.pow(1.8, S.systems-1)); }
+function newSystemEnergyCost() { return Math.floor(150000 * Math.pow(2.5, S.systems-1)); }
+function newSystemCivCost() { return Math.floor(80 * Math.pow(1.8, S.systems-1)); }
 
-function colonyEnergyCost() {
-  return Math.floor(50000 * Math.pow(2, S.systems - 1));
-}
-function colonyCivCost() {
-  return Math.floor(50 * Math.pow(1.8, S.systems - 1));
-}
-
-function newSystemEnergyCost() {
-  return Math.floor(150000 * Math.pow(2.5, S.systems - 1));
-}
-function newSystemCivCost() {
-  return Math.floor(80 * Math.pow(1.8, S.systems - 1));
-}
-
-// ─── КОМЕТЫ ─────────────────────────────────────────────────────
+// ─── Кометы ─────────────────────────────────────────────────────
 function canLaunchComet() {
   let ice = 0;
   for (let i = 0; i < S.planets.length; i++) {
@@ -76,21 +58,13 @@ function canLaunchComet() {
 
 function openCometDialog() {
   const check = canLaunchComet();
-  if (!check.ok) {
-    toast('Комета недоступна', check.reason);
-    return;
-  }
-
+  if (!check.ok) { toast('Комета недоступна', check.reason); return; }
   const maxDust = S.dust;
   const sizes = [
-    { id: 'small',  name: 'Малая комета',  pct: 0.15,
-      desc: 'Быстрая, малая награда' },
-    { id: 'medium', name: 'Средняя комета', pct: 0.40,
-      desc: 'Баланс скорости и награды' },
-    { id: 'large',  name: 'Большая комета', pct: 0.70,
-      desc: 'Медленная, большая награда' },
+    { id:'small',  name:'Малая комета',  pct:0.15, desc:'Быстрая, малая награда' },
+    { id:'medium', name:'Средняя комета', pct:0.40, desc:'Баланс скорости и награды' },
+    { id:'large',  name:'Большая комета', pct:0.70, desc:'Медленная, большая награда' },
   ];
-
   const choices = [];
   for (let i = 0; i < sizes.length; i++) {
     const s = sizes[i];
@@ -98,16 +72,11 @@ function openCometDialog() {
     const flightSec = Math.round(60 * (0.5 + s.pct * 1.5));
     const canAfford = cost >= 100000 && cost <= maxDust;
     choices.push({
-      id: s.id,
-      name: s.name,
-      desc: s.desc,
+      id: s.id, name: s.name, desc: s.desc,
       stats: 'Стоимость: ' + fmt(cost) + ' ✦ · полёт ~' + flightSec + 'с',
-      color: '#3d6dd4',
-      icon: '☄️',
-      disabled: !canAfford,
+      color: '#3d6dd4', icon: '☄️', disabled: !canAfford,
     });
   }
-
   if (typeof setModal === 'function') {
     const handlers = {};
     for (let i = 0; i < sizes.length; i++) {
@@ -118,83 +87,60 @@ function openCometDialog() {
         };
       })(sizes[i]);
     }
-    setModal(
-      buildModal('Запуск кометы',
-        'Больше размер — дольше полёт и выше награда.',
-        choices),
-      handlers
-    );
+    setModal(buildModal('Запуск кометы',
+      'Больше размер — дольше полёт и выше награда.', choices), handlers);
   }
 }
 
 function launchComet(sizePct) {
   const check = canLaunchComet();
-  if (!check.ok) {
-    toast('Комета недоступна', check.reason);
-    return false;
-  }
-
+  if (!check.ok) { toast('Комета недоступна', check.reason); return false; }
   if (sizePct === undefined) sizePct = 0.4;
   const cost = Math.floor(S.dust * sizePct);
-  if (cost < 100000 || cost > S.dust) {
-    toast('Не хватает пыли');
-    return false;
-  }
+  if (cost < 100000 || cost > S.dust) { toast('Не хватает пыли'); return false; }
   S.dust -= cost;
   MISS.lastCometAt = Date.now();
 
-  const baseFlight = 60000;
-  const baseReward = 500000;
-  const flightTime = Math.floor(baseFlight * (0.5 + sizePct * 1.5));
-  const reward = Math.floor(baseReward * (1 + S.planets.length * 0.3) *
-                            check.ice * (0.3 + sizePct * 3));
+  const baseFlight = 60000, baseReward = 500000;
+  const flightTime = Math.floor(baseFlight * (0.5 + sizePct*1.5));
+  const reward = Math.floor(baseReward * (1 + S.planets.length*0.3) *
+                            check.ice * (0.3 + sizePct*3));
 
-  // Находим ледяной гигант
   let icePlanet = null;
   for (let i = 0; i < S.planets.length; i++) {
     if (S.planets[i].type === 'iceGiant' && !S.planets[i].forming) {
-      icePlanet = S.planets[i];
-      break;
+      icePlanet = S.planets[i]; break;
     }
   }
-
-  // Спавним визуальную комету от планеты
   if (typeof PART !== 'undefined' && PART.passing) {
     let startX = 0, startY = 0;
     if (icePlanet) {
       const angle = icePlanet.angle;
-      startX = Math.cos(angle) * icePlanet.orbitR;
-      startY = Math.sin(angle) * icePlanet.orbitR * 0.5;
+      startX = Math.cos(angle)*icePlanet.orbitR;
+      startY = Math.sin(angle)*icePlanet.orbitR*0.5;
     }
-    const dirAngle = Math.random() * Math.PI * 2;
-    const speed = 40 + sizePct * 40;
+    const dirAngle = Math.random()*Math.PI*2;
+    const speed = 40 + sizePct*40;
     PART.passing.push({
       x: startX, y: startY,
-      vx: Math.cos(dirAngle) * speed,
-      vy: Math.sin(dirAngle) * speed * 0.6,
-      type: 'comet',
-      size: 0.4 + sizePct * 1.2,
-      tailLen: Math.round(10 + sizePct * 20),
+      vx: Math.cos(dirAngle)*speed, vy: Math.sin(dirAngle)*speed*0.6,
+      type: 'comet', size: 0.4 + sizePct*1.2,
+      tailLen: Math.round(10 + sizePct*20),
       alpha: 1, age: 0, trail: [],
     });
   }
-
   MISS.comets.push({
     id: Math.random().toString(36).slice(2),
-    startAt: Date.now(),
-    flightTime: flightTime,
-    reward: reward,
-    fail: Math.random() < 0.25,
-    size: sizePct,
+    startAt: Date.now(), flightTime: flightTime,
+    reward: reward, fail: Math.random() < 0.25, size: sizePct,
   });
-
   toast('☄️ Комета запущена',
-    'Размер: ' + Math.round(sizePct * 100) + '% · возврат через ' +
-    fmtTime(flightTime / 1000));
+    'Размер: ' + Math.round(sizePct*100) + '% · возврат через ' +
+    fmtTime(flightTime/1000));
   return true;
 }
 
-// ─── ЭКСПЕДИЦИИ ─────────────────────────────────────────────────
+// ─── Экспедиции ─────────────────────────────────────────────────
 function canLaunchExpedition() {
   if (S.civLevel < 6) return { ok: false, reason: 'Нужен цив. 6' };
   const cost = expeditionEnergyCost();
@@ -208,8 +154,7 @@ function canLaunchExpedition() {
   let hasCiv = false;
   for (let i = 0; i < S.planets.length; i++) {
     if (PLANET_TYPES[S.planets[i].type].civ && !S.planets[i].forming) {
-      hasCiv = true;
-      break;
+      hasCiv = true; break;
     }
   }
   if (!hasCiv) return { ok: false, reason: 'Нужна планета с жизнью' };
@@ -218,51 +163,40 @@ function canLaunchExpedition() {
 
 function launchExpedition() {
   const check = canLaunchExpedition();
-  if (!check.ok) {
-    toast('Экспедиция недоступна', check.reason);
-    return false;
-  }
+  if (!check.ok) { toast('Экспедиция недоступна', check.reason); return false; }
   S.energy -= check.cost;
   MISS.lastExpeditionAt = Date.now();
-
-  const flightTime = 120000 + Math.random() * 180000;
-  const reward = Math.floor(1000000 * (1 + S.planets.length * 0.4) * S.systems);
+  const flightTime = 120000 + Math.random()*180000;
+  const reward = Math.floor(1000000 * (1 + S.planets.length*0.4) * S.systems);
 
   if (typeof PART !== 'undefined' && PART.passing) {
-    const W = window.CANVAS_W || 400;
-    const H = window.CANVAS_H || 700;
+    const W = window.CANVAS_W || 400, H = window.CANVAS_H || 700;
     const z = S.zoom || 1;
-    const halfW = W / (2 * z), halfH = H / (2 * z);
-    const side = Math.floor(Math.random() * 4);
+    const halfW = W/(2*z), halfH = H/(2*z);
+    const side = Math.floor(Math.random()*4);
     let vx, vy, x, y;
-    const speed = 50 + Math.random() * 40;
-    if (side === 0) { x = (Math.random() * 2 - 1) * halfW; y = -halfH - 40; vx = (Math.random() - 0.5) * 20; vy = speed; }
-    else if (side === 1) { x = halfW + 40; y = (Math.random() * 2 - 1) * halfH; vx = -speed; vy = (Math.random() - 0.5) * 20; }
-    else if (side === 2) { x = (Math.random() * 2 - 1) * halfW; y = halfH + 40; vx = (Math.random() - 0.5) * 20; vy = -speed; }
-    else { x = -halfW - 40; y = (Math.random() * 2 - 1) * halfH; vx = speed; vy = (Math.random() - 0.5) * 20; }
+    const speed = 50 + Math.random()*40;
+    if (side === 0) { x = (Math.random()*2-1)*halfW; y = -halfH-40; vx = (Math.random()-0.5)*20; vy = speed; }
+    else if (side === 1) { x = halfW+40; y = (Math.random()*2-1)*halfH; vx = -speed; vy = (Math.random()-0.5)*20; }
+    else if (side === 2) { x = (Math.random()*2-1)*halfW; y = halfH+40; vx = (Math.random()-0.5)*20; vy = -speed; }
+    else { x = -halfW-40; y = (Math.random()*2-1)*halfH; vx = speed; vy = (Math.random()-0.5)*20; }
     PART.passing.push({
-      x: x, y: y, vx: vx, vy: vy,
-      type: 'ship',
-      size: 0.4 + Math.random() * 0.4,
-      tailLen: 10,
+      x: x, y: y, vx: vx, vy: vy, type: 'ship',
+      size: 0.4 + Math.random()*0.4, tailLen: 10,
       alpha: 1, age: 0, trail: [],
     });
   }
-
   MISS.expeditions.push({
     id: Math.random().toString(36).slice(2),
-    startAt: Date.now(),
-    flightTime: flightTime,
-    reward: reward,
-    fail: Math.random() < 0.15,
+    startAt: Date.now(), flightTime: flightTime,
+    reward: reward, fail: Math.random() < 0.15,
     hasColony: Math.random() < 0.05,
   });
-
-  toast('🚀 Экспедиция запущена', 'Возврат через ' + fmtTime(flightTime / 1000));
+  toast('🚀 Экспедиция запущена', 'Возврат через ' + fmtTime(flightTime/1000));
   return true;
 }
 
-// ─── НОВАЯ СИСТЕМА ──────────────────────────────────────────────
+// ─── Новая система ──────────────────────────────────────────────
 function canCreateSystem() {
   if (S.civLevel < 8) return { ok: false, reason: 'Нужен цив. 8' };
   const eCost = newSystemEnergyCost();
@@ -274,137 +208,90 @@ function canCreateSystem() {
 
 function createNewSystem() {
   const check = canCreateSystem();
-  if (!check.ok) {
-    toast('Система недоступна', check.reason);
-    return false;
-  }
+  if (!check.ok) { toast('Система недоступна', check.reason); return false; }
   S.energy -= check.eCost;
   S.civLevel -= check.cCost;
-
   const finalName = generateSystemName();
-
   if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) {
     S.otherSystems[0] = null;
   }
-
   const newIdx = S.otherSystems.length;
   S.otherSystems.push({
-    name: finalName,
-    starType: 'G',
-    systemType: 'single',
-    planets: [],
+    name: finalName, starType: 'G',
+    systemType: 'single', planets: [],
   });
-
   S.systems++;
   S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
-
   toast('Система основана', finalName);
-
-  if (typeof switchToSystem === 'function') {
-    switchToSystem(newIdx);
-  }
+  if (typeof switchToSystem === 'function') switchToSystem(newIdx);
   return true;
 }
 
-// ─── ОБНОВЛЕНИЕ ─────────────────────────────────────────────────
+// ─── Обновление ─────────────────────────────────────────────────
 function updateMissions() {
   const now = Date.now();
-
   for (let i = MISS.comets.length - 1; i >= 0; i--) {
     const c = MISS.comets[i];
     if (now - c.startAt >= c.flightTime) {
-      if (c.fail) {
-        toast('☄️ Комета потеряна', 'Не вернулась');
-      } else {
-        S.dust += c.reward;
-        S.dustTotal += c.reward;
-        toast('☄️ Комета вернулась', '+' + fmt(c.reward));
-      }
+      if (c.fail) toast('☄️ Комета потеряна', 'Не вернулась');
+      else { S.dust += c.reward; S.dustTotal += c.reward;
+        toast('☄️ Комета вернулась', '+' + fmt(c.reward)); }
       MISS.comets.splice(i, 1);
     }
   }
-
   for (let i = MISS.expeditions.length - 1; i >= 0; i--) {
     const e = MISS.expeditions[i];
     if (now - e.startAt >= e.flightTime) {
-      if (e.fail) {
-        toast('🚀 Экспедиция потеряна', 'Корабль не вернулся');
-      } else {
-        S.dust += e.reward;
-        S.dustTotal += e.reward;
+      if (e.fail) toast('🚀 Экспедиция потеряна', 'Корабль не вернулся');
+      else { S.dust += e.reward; S.dustTotal += e.reward;
         toast('🚀 Экспедиция вернулась', '+' + fmt(e.reward));
-        if (e.hasColony) setTimeout(offerColony, 800);
-      }
+        if (e.hasColony) setTimeout(offerColony, 800); }
       MISS.expeditions.splice(i, 1);
     }
   }
 }
 
-// ─── КОЛОНИЯ ────────────────────────────────────────────────────
+// ─── Колония ────────────────────────────────────────────────────
 function offerColony() {
   const modal = document.getElementById('modal');
   if (modal && modal.classList.contains('show')) return;
-
   const eCost = colonyEnergyCost();
   const cCost = colonyCivCost();
-  const canE = S.energy >= eCost;
-  const canC = S.civLevel >= cCost;
+  const canE = S.energy >= eCost, canC = S.civLevel >= cCost;
   const can = canE && canC;
-
   const choices = [
-    {
-      id: 'colonize',
-      name: 'Освоить систему',
+    { id:'colonize', name:'Освоить систему',
       desc: can ? '+50% к глобальному доходу' : 'Не хватает ресурсов',
-      stats: '⚡ ' + fmt(eCost) + (canE ? ' ✓' : ' ✗') +
-             ' · 🧬 ' + cCost + (canC ? ' ✓' : ' ✗'),
-      color: '#2eaa77',
-      icon: '🌍',
-      disabled: !can,
-    },
-    {
-      id: 'skip',
-      name: 'Отказаться',
-      desc: 'Сохранить ресурсы',
-      stats: '',
-      color: '#6b6b6b',
-      icon: '✕',
-    },
+      stats: '⚡ ' + fmt(eCost) + (canE?' ✓':' ✗') + ' · 🧬 ' +
+             cCost + (canC?' ✓':' ✗'),
+      color:'#2eaa77', icon:'🌍', disabled: !can },
+    { id:'skip', name:'Отказаться', desc:'Сохранить ресурсы',
+      stats:'', color:'#6b6b6b', icon:'✕' },
   ];
-
   if (typeof setModal === 'function') {
     const handlers = {
       colonize: function() {
-        S.energy -= eCost;
-        S.civLevel -= cCost;
-        S.systems++;
-        S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
+        S.energy -= eCost; S.civLevel -= cCost;
+        S.systems++; S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
         toast('Колония основана', 'Всего систем: ' + S.systems);
         if (typeof closeEvolutionModal === 'function') closeEvolutionModal();
       },
-      skip: function() {
-        toast('Отказ', 'Ресурсы сохранены');
-        if (typeof closeEvolutionModal === 'function') closeEvolutionModal();
-      },
+      skip: function() { toast('Отказ', 'Ресурсы сохранены');
+        if (typeof closeEvolutionModal === 'function') closeEvolutionModal(); },
     };
-    setModal(
-      buildModal('Обнаружена система',
-        'Экспедиция нашла пригодную для жизни систему. Освоить её?',
-        choices),
-      handlers
-    );
+    setModal(buildModal('Обнаружена система',
+      'Экспедиция нашла пригодную для жизни систему. Освоить её?',
+      choices), handlers);
   }
 }
 
-// ─── КНОПКИ МИССИЙ ──────────────────────────────────────────────
+// ─── Кнопки миссий ──────────────────────────────────────────────
 function renderMissionButtons() {
   const container = document.getElementById('missionButtons');
   if (!container) return;
-
   const cometCheck = canLaunchComet();
   const expCheck = canLaunchExpedition();
   const sysCheck = canCreateSystem();
-
   let html = '';
 
   if (cometCheck.ok) {
@@ -416,7 +303,6 @@ function renderMissionButtons() {
       '<div class="mb-icon">☄️</div><div>Комета</div>' +
       '<div class="mb-cost">' + cometCheck.reason + '</div></button>';
   }
-
   if (expCheck.ok) {
     html += '<button class="mission-btn exp" data-action="exp">' +
       '<div class="mb-icon">🚀</div><div>Экспедиция</div>' +
@@ -427,8 +313,6 @@ function renderMissionButtons() {
       '<div class="mb-icon">🚀</div><div>Экспедиция</div>' +
       '<div class="mb-cost">' + expCheck.reason + '</div></button>';
   }
-
-  // Система — показываем при цив. 3+
   if (S.civLevel >= 3) {
     if (sysCheck.ok) {
       html += '<button class="mission-btn sys" data-action="sys">' +
@@ -441,7 +325,6 @@ function renderMissionButtons() {
         '<div class="mb-cost">' + sysCheck.reason + '</div></button>';
     }
   }
-
   if (container.dataset.key !== html) {
     container.innerHTML = html;
     container.dataset.key = html;
@@ -466,12 +349,9 @@ function renderMissionButtons() {
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', attach);
-  } else {
-    attach();
-  }
+  } else { attach(); }
 })();
 
-// ─── Экспорт ────────────────────────────────────────────────────
 window.updateMissions = updateMissions;
 window.renderMissionButtons = renderMissionButtons;
 window.canLaunchComet = canLaunchComet;
