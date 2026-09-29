@@ -5,7 +5,37 @@
 const canvas = document.getElementById('sky');
 const ctx = canvas.getContext('2d');
 let W, H, cx, cy, dpr;
+// ─── Fullscreen при первом тапе ─────────────────────────────────
+let fullscreenRequested = false;
+function requestFullscreen() {
+  if (fullscreenRequested) return;
+  fullscreenRequested = true;
+  const el = document.documentElement;
+  if (el.requestFullscreen) {
+    el.requestFullscreen().catch(function() {});
+  } else if (el.webkitRequestFullscreen) {
+    el.webkitRequestFullscreen();
+  } else if (el.mozRequestFullScreen) {
+    el.mozRequestFullScreen();
+  }
+}
 
+// ─── Защита от случайного сворачивания ──────────────────────────
+// Предотвращаем pull-to-refresh и swipe-back
+document.addEventListener('touchmove', function(e) {
+  // Разрешаем мульти-тач (pinch)
+  if (e.touches.length > 1) return;
+  // Блокируем вертикальный скролл на канвасе и HUD
+  if (e.target.closest('#sky') || e.target.closest('.hud')) {
+    const dy = Math.abs(e.touches[0].clientY - (window._lastTouchY || 0));
+    window._lastTouchY = e.touches[0].clientY;
+    if (dy > 5) e.preventDefault();
+  }
+}, { passive: false });
+
+document.addEventListener('touchstart', function(e) {
+  window._lastTouchY = e.touches[0].clientY;
+}, { passive: true });
 function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, 2);
   W = canvas.clientWidth;
@@ -140,8 +170,10 @@ let panStartX = 0, panStartY = 0;
 let panStartPanX = 0, panStartPanY = 0;
 let isPanning = false;
 
-canvas.addEventListener('pointerdown', (e) => {
-  e.preventDefault();
+document.body.addEventListener('touchstart', function(e) {
+  // Проверяем, что тап на кнопку — не мешает fullscreen
+  if (!fullscreenRequested) requestFullscreen();
+}, { passive: true, once: false });
 
   // ★ Миниигра перехватывает ввод
   if (S.activeMinigame) {
