@@ -25,9 +25,34 @@ const MG_IGNITE = {
   tapBoost: 0.08, tapRadius: 250,
 };
 
+// ═══ Мини-игра "Сборка планеты" ═══
+// 4 типа частиц по цветам, крупные, сталкиваются и сливаются.
+// Первое ядро (уровень 3) определяет тип планеты.
 const MG_ASSEMBLE = {
-  duration: 20, targetMass: 20, fingerRadius: 130,
-  fingerForce: 500, absorbRadius: 50,
+  duration: 25,           // Секунд на всю игру
+  fingerRadius: 110,      // Радиус действия пальца
+  fingerForce: 700,       // Сила притяжения к пальцу
+  particleRadius: 22,     // Радиус частицы уровня 1
+  levelBonus: 8,          // +8 px за каждый уровень
+  mergeDist: 6,           // Зазор для слияния
+  levelToCore: 3,         // Уровень, при котором частица становится ядром
+  finishDelay: 1500,      // Задержка после первого ядра (мс)
+};
+
+// Цвета частиц: 🔵 лёд, 🔴 лава, 🟢 камень, 🟡 газ
+const ASSEMBLE_TYPES = {
+  ice:   { color: '#3b9eff', glow: 'rgba(59,158,255,0.8)', name: 'лёд' },
+  lava:  { color: '#ff2d2d', glow: 'rgba(255,45,45,0.8)',  name: 'лава' },
+  stone: { color: '#2ecc5c', glow: 'rgba(46,204,92,0.8)',  name: 'камень' },
+  gas:   { color: '#ffd633', glow: 'rgba(255,214,51,0.8)', name: 'газ' },
+};
+
+// Соответствие типа частицы → типу планеты
+const ASSEMBLE_TO_PLANET = {
+  ice:   'iceGiant',
+  lava:  'lava',
+  stone: 'rocky',
+  gas:   'gasGiant',
 };
 
 // ─── Запуск ─────────────────────────────────────────────────────
@@ -52,21 +77,29 @@ function startMinigame(type, onComplete) {
     }
   } else if (type === 'ignite') {
     MG.power = 0; MG.elapsedSec = 0; MG.quality = 0;
-  } else if (type === 'assemble') {
-    MG.fieldParticles = []; MG.absorbed = 0; MG.coreR = 15;
+    } else if (type === 'assemble') {
+    MG.fieldParticles = [];
     MG.result = null;
-    MG.composition = { stone: 0, ice: 0, gas: 0, fire: 0 };
+    MG.resultLabel = null;
     MG.elapsedSec = 0;
-    const typePool = ['stone','stone','stone','stone',
-                      'ice','ice','ice','gas','gas','fire'];
-    for (let i = 0; i < 70; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const r = 130 + Math.random() * 180;
+    MG.finishAt = 0;
+
+    // ★ 12 частиц: 3 льда (синие), 3 лавы (красные),
+    //   3 камня (зелёные), 3 газа (жёлтые)
+    const types = ['ice', 'lava', 'stone', 'gas'];
+    for (let i = 0; i < 12; i++) {
+      const typeKey = types[Math.floor(i / 3)];
+      const angle = (i / 12) * Math.PI * 2 + Math.random() * 0.5;
+      const dist = 130 + Math.random() * 80;
       MG.fieldParticles.push({
-        x: Math.cos(a)*r, y: Math.sin(a)*r*0.85,
-        vx: (Math.random()-0.5)*30, vy: (Math.random()-0.5)*30,
-        r: 2 + Math.random()*2,
-        type: typePool[Math.floor(Math.random()*typePool.length)],
+        x: Math.cos(angle) * dist,
+        y: Math.sin(angle) * dist * 0.8,
+        vx: (Math.random() - 0.5) * 80,
+        vy: (Math.random() - 0.5) * 80,
+        r: MG_ASSEMBLE.particleRadius,
+        type: typeKey,
+        level: 1,
+        fixed: false,
       });
     }
   }
@@ -159,50 +192,130 @@ function updateIgnite(dt, elapsed) {
 
 function updateAssemble(dt, elapsed, cx, cy) {
   MG.elapsedSec = elapsed;
+
+  // ─── Притяжение к пальцу ───
   if (MG.dragActive) {
-    const fx = MG.dragX - cx, fy = MG.dragY - cy;
+    const fx = MG.dragX - cx;
+    const fy = MG.dragY - cy;
     for (let i = 0; i < MG.fieldParticles.length; i++) {
       const p = MG.fieldParticles[i];
-      const dx = fx - p.x, dy = fy - p.y;
+      if (p.fixed) continue;
+      const dx = fx - p.x;
+      const dy = fy - p.y;
       const d = Math.hypot(dx, dy) || 1;
       if (d < MG_ASSEMBLE.fingerRadius) {
-        const force = (1 - d/MG_ASSEMBLE.fingerRadius) * MG_ASSEMBLE.fingerForce;
-        p.vx += (dx/d)*force*dt; p.vy += (dy/d)*force*dt;
+        const force = (1 - d / MG_ASSEMBLE.fingerRadius) * MG_ASSEMBLE.fingerForce;
+        p.vx += (dx / d) * force * dt;
+        p.vy += (dy / d) * force * dt;
       }
     }
   }
-  for (let i = MG.fieldParticles.length - 1; i >= 0; i--) {
+
+  // ─── Движение и границы ───
+  for (let i = 0; i < MG.fieldParticles.length; i++) {
     const p = MG.fieldParticles[i];
-    p.vx *= 0.96; p.vy *= 0.96;
-    p.x += p.vx*dt; p.y += p.vy*dt;
-    if (Math.abs(p.x) > 280) { p.x = Math.sign(p.x)*280; p.vx *= -0.8; }
-    if (Math.abs(p.y) > 200) { p.y = Math.sign(p.y)*200; p.vy *= -0.8; }
-    const dCore = Math.hypot(p.x, p.y);
-    if (dCore < MG_ASSEMBLE.absorbRadius) {
-      MG.composition[p.type]++;
-      MG.absorbed++;
-      MG.coreR += 0.6;
-      MG.fieldParticles.splice(i, 1);
+    if (p.fixed) continue;
+    p.vx *= 0.96;
+    p.vy *= 0.96;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+
+    // Отражение от границ
+    if (Math.abs(p.x) > 260) { p.x = Math.sign(p.x) * 260; p.vx *= -0.7; }
+    if (Math.abs(p.y) > 180) { p.y = Math.sign(p.y) * 180; p.vy *= -0.7; }
+  }
+
+  // ─── Столкновения и слияния ───
+  for (let i = 0; i < MG.fieldParticles.length; i++) {
+    const a = MG.fieldParticles[i];
+    for (let j = i + 1; j < MG.fieldParticles.length; j++) {
+      const b = MG.fieldParticles[j];
+
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      const d = Math.hypot(dx, dy);
+      const minD = a.r + b.r + MG_ASSEMBLE.mergeDist;
+
+      if (d >= minD) continue;
+
+      // ★ Одинаковый тип + одинаковый уровень → слияние
+      if (a.type === b.type && a.level === b.level) {
+        const newLevel = a.level + 1;
+        a.x = (a.x + b.x) / 2;
+        a.y = (a.y + b.y) / 2;
+        a.vx = (a.vx + b.vx) / 2;
+        a.vy = (a.vy + b.vy) / 2;
+        a.level = newLevel;
+        a.r = MG_ASSEMBLE.particleRadius + (newLevel - 1) * MG_ASSEMBLE.levelBonus;
+
+        // Уровень 3 = ядро, фиксируем
+        if (newLevel >= MG_ASSEMBLE.levelToCore) {
+          a.fixed = true;
+          a.vx = 0;
+          a.vy = 0;
+          // Первое ядро определяет планету
+          if (!MG.result) {
+            MG.result = a.type;
+            MG.finishAt = performance.now();
+          }
+        }
+
+        MG.fieldParticles.splice(j, 1);
+        j--;
+      } else {
+        // ★ Отскок (разные типы или разные уровни)
+        const overlap = minD - d;
+        if (d > 0.001) {
+          const nx = dx / d;
+          const ny = dy / d;
+          a.x += nx * overlap * 0.5;
+          a.y += ny * overlap * 0.5;
+          b.x -= nx * overlap * 0.5;
+          b.y -= ny * overlap * 0.5;
+
+          // Обмен скоростями с потерей энергии
+          const avx = a.vx, avy = a.vy;
+          a.vx = b.vx * 0.85;
+          a.vy = b.vy * 0.85;
+          b.vx = avx * 0.85;
+          b.vy = avy * 0.85;
+        }
+      }
     }
   }
-  MG.progress = Math.min(1, MG.absorbed / MG_ASSEMBLE.targetMass);
-  if (elapsed >= MG_ASSEMBLE.duration) finishAssemble();
+
+  // Прогресс — доля собранного ядра
+  if (MG.result) {
+    MG.progress = 1;
+  } else {
+    // Прогресс по времени
+    MG.progress = Math.min(0.95, elapsed / MG_ASSEMBLE.duration);
+  }
+
+  // ─── Финал ───
+  if (MG.finishAt && performance.now() - MG.finishAt > MG_ASSEMBLE.finishDelay) {
+    finishAssemble();
+    return;
+  }
+  if (elapsed >= MG_ASSEMBLE.duration) {
+    finishAssemble();
+  }
 }
 
 function finishAssemble() {
-  const c = MG.composition;
-  const total = c.stone + c.ice + c.gas + c.fire;
-  if (total === 0) { MG.result = 'rocky'; MG.quality = 0; endMinigame(false); return; }
-  const stoneR = c.stone/total, iceR = c.ice/total;
-  const gasR = c.gas/total, fireR = c.fire/total;
-  if (fireR >= 0.4) MG.result = 'lava';
-  else if (stoneR >= 0.55) MG.result = 'rocky';
-  else if (iceR >= 0.55) MG.result = 'iceGiant';
-  else if (gasR >= 0.55) MG.result = 'gasGiant';
-  else if (stoneR >= 0.3 && iceR >= 0.3) MG.result = 'superEarth';
-  else MG.result = 'rocky';
-  MG.quality = Math.min(1, MG.absorbed / MG_ASSEMBLE.targetMass);
-  endMinigame(MG.absorbed >= 3);
+  // Если ядро не собрано — землеподобная (баланс)
+  if (!MG.result) {
+    MG.result = 'superEarth';
+    MG.quality = 0.5;
+    endMinigame(true);
+    return;
+  }
+
+  // Ядро собрано — определяем планету
+  const planetType = ASSEMBLE_TO_PLANET[MG.result] || 'rocky';
+  MG.result = planetType;
+  MG.quality = 1.0;
+  endMinigame(true);
 }
 
 // ─── Рисование ──────────────────────────────────────────────────
@@ -420,91 +533,158 @@ function drawIgnite(ctx, cx, cy, t) {
 
 function drawAssemble(ctx, cx, cy, t) {
   const left = Math.max(0, MG_ASSEMBLE.duration - (MG.elapsedSec || 0));
+
+  // Заголовок
   ctx.save();
   ctx.textAlign = 'center';
   ctx.font = 'bold 16px -apple-system, sans-serif';
   ctx.fillStyle = '#e8e2ff';
-  ctx.fillText('Собери планету', cx, cy - 230);
+  ctx.fillText('Собери планету', cx, cy - 240);
   ctx.font = '13px -apple-system, sans-serif';
   ctx.fillStyle = '#a89ce0';
-  ctx.fillText('Води пальцем — частицы тянутся за ним', cx, cy - 208);
+  ctx.fillText('Сталкивай одинаковые частицы — они сливаются',
+               cx, cy - 218);
   ctx.restore();
 
-  const corePulse = 1 + 0.06*Math.sin(t*4);
-  const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, MG.coreR*3*corePulse);
-  cg.addColorStop(0, 'rgba(255,240,200,0.95)');
-  cg.addColorStop(0.4, 'rgba(255,180,80,0.45)');
-  cg.addColorStop(1, 'rgba(255,100,40,0)');
-  ctx.fillStyle = cg;
-  ctx.beginPath();
-  ctx.arc(cx, cy, MG.coreR*3*corePulse, 0, Math.PI*2);
-  ctx.fill();
-  ctx.fillStyle = '#fff8dc';
-  ctx.beginPath();
-  ctx.arc(cx, cy, MG.coreR*corePulse, 0, Math.PI*2);
-  ctx.fill();
-
-  ctx.save();
-  ctx.strokeStyle = 'rgba(255,200,120,0.2)';
-  ctx.lineWidth = 1;
-  ctx.setLineDash([4, 6]);
-  ctx.beginPath();
-  ctx.arc(cx, cy, MG_ASSEMBLE.absorbRadius, 0, Math.PI*2);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.restore();
-
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-  for (let i = 0; i < MG.fieldParticles.length; i++) {
-    const p = MG.fieldParticles[i];
-    const sx = cx + p.x, sy = cy + p.y;
-    let hue = 30;
-    if (p.type === 'ice') hue = 200;
-    if (p.type === 'gas') hue = 50;
-    if (p.type === 'fire') hue = 15;
-    const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, p.r*3);
-    g.addColorStop(0, 'hsla(' + hue + ', 85%, 82%, 1)');
-    g.addColorStop(0.5, 'hsla(' + hue + ', 75%, 62%, 0.6)');
-    g.addColorStop(1, 'hsla(' + hue + ', 70%, 50%, 0)');
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(sx, sy, p.r*3, 0, Math.PI*2);
-    ctx.fill();
-  }
-  ctx.restore();
-
-  const barW = 240, barH = 6;
-  const bx = cx - barW/2, by = cy + 210;
+  // Прогресс
+  const barW = 260, barH = 6;
+  const bx = cx - barW / 2, by = cy + 220;
   ctx.save();
   ctx.fillStyle = 'rgba(139,127,212,0.2)';
   ctx.fillRect(bx, by, barW, barH);
-  ctx.fillStyle = MG.progress >= 1 ? '#ffb347' : '#b9a8ff';
-  ctx.fillRect(bx, by, barW*MG.progress, barH);
+  ctx.fillStyle = MG.result ? '#ffb347' : '#b9a8ff';
+  ctx.fillRect(bx, by, barW * MG.progress, barH);
+
   ctx.textAlign = 'center';
   ctx.font = '11px -apple-system, sans-serif';
   ctx.fillStyle = '#8b7fd4';
-  const c = MG.composition;
-  const total = c.stone + c.ice + c.gas + c.fire;
-  const stoneP = total ? Math.round(c.stone/total*100) : 0;
-  const iceP = total ? Math.round(c.ice/total*100) : 0;
-  const gasP = total ? Math.round(c.gas/total*100) : 0;
-  const fireP = total ? Math.round(c.fire/total*100) : 0;
-  ctx.fillText('🪨 ' + stoneP + '% · ❄ ' + iceP + '% · 💨 ' + gasP + '% · 🔥 ' + fireP + '%',
-               cx, by + 22);
-  ctx.fillText(MG.absorbed + ' / ' + MG_ASSEMBLE.targetMass + ' частиц · ' +
-               left.toFixed(1) + 'с', cx, by + 40);
+
+  if (MG.result) {
+    // Ядро собрано — показываем результат
+    const pt = PLANET_TYPES[MG.result] || PLANET_TYPES.rocky;
+    ctx.fillStyle = '#5ee0a0';
+    ctx.font = 'bold 13px -apple-system, sans-serif';
+    ctx.fillText('★ ЯДРО СОБРАНО: ' + pt.name, cx, by + 22);
+  } else {
+    ctx.fillText('Ядро не собрано — ' + left.toFixed(1) + 'с · получишь землеподобную',
+                 cx, by + 22);
+  }
   ctx.restore();
 
-  if (!MG.dragActive && MG.absorbed === 0) {
+  // Легенда цветов
+  const legendY = cy + 260;
+  const legendItems = [
+    { type: 'ice',   label: 'лёд' },
+    { type: 'lava',  label: 'лава' },
+    { type: 'stone', label: 'камень' },
+    { type: 'gas',   label: 'газ' },
+  ];
+  const legendW = 60;
+  const totalW = legendItems.length * legendW;
+  const startX = cx - totalW / 2 + legendW / 2;
+
+  ctx.save();
+  for (let i = 0; i < legendItems.length; i++) {
+    const item = legendItems[i];
+    const conf = ASSEMBLE_TYPES[item.type];
+    const lx = startX + i * legendW;
+
+    // Кружок
+    const g = ctx.createRadialGradient(lx, legendY, 0, lx, legendY, 8);
+    g.addColorStop(0, conf.color);
+    g.addColorStop(1, conf.glow);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(lx, legendY, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Подпись
+    ctx.fillStyle = '#a89ce0';
+    ctx.font = '9px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(item.label, lx, legendY + 16);
+  }
+  ctx.restore();
+
+  // Частицы
+  ctx.save();
+  for (let i = 0; i < MG.fieldParticles.length; i++) {
+    const p = MG.fieldParticles[i];
+    const conf = ASSEMBLE_TYPES[p.type];
+    const sx = cx + p.x;
+    const sy = cy + p.y;
+
+    // Свечение
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const pulse = 1 + 0.06 * Math.sin(t * 4 + i);
+    const glowR = p.r * 2.2 * pulse;
+    const gg = ctx.createRadialGradient(sx, sy, 0, sx, sy, glowR);
+    gg.addColorStop(0, conf.glow);
+    gg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gg;
+    ctx.beginPath();
+    ctx.arc(sx, sy, glowR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Тело частицы
+    const bodyG = ctx.createRadialGradient(
+      sx - p.r * 0.3, sy - p.r * 0.3, 0, sx, sy, p.r);
+    bodyG.addColorStop(0, lightenHex(conf.color, 0.3));
+    bodyG.addColorStop(1, darkenHex(conf.color, 0.3));
+    ctx.fillStyle = bodyG;
+    ctx.beginPath();
+    ctx.arc(sx, sy, p.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Обводка
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = p.level >= 2 ? 2.5 : 1.5;
+    ctx.beginPath();
+    ctx.arc(sx, sy, p.r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Уровень (звёздочки)
+    if (p.level >= 2) {
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold ' + (p.level * 5 + 6) + 'px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(p.level === 3 ? '★' : '★', sx, sy);
+    }
+  }
+  ctx.restore();
+
+  // Подсказка
+  if (!MG.dragActive && !MG.result && (MG.elapsedSec || 0) < 4) {
     ctx.save();
     ctx.font = 'bold 14px -apple-system, sans-serif';
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'center';
-    ctx.globalAlpha = 0.7 + 0.3*Math.sin(t*6);
-    ctx.fillText('ВОДИ ПАЛЬЦЕМ ПО ЭКРАНУ', cx, cy + 270);
+    ctx.globalAlpha = 0.7 + 0.3 * Math.sin(t * 5);
+    ctx.fillText('ТАЩИ ПАЛЬЦЕМ — СТАЛКИВАЙ ОДИНАКОВЫЕ',
+                 cx, cy + 300);
     ctx.restore();
   }
+}
+
+// ─── Утилиты цветов для assemble ────────────────────────────────
+function lightenHex(hex, amt) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return 'rgb(' + Math.min(255, r + amt * 255) + ',' +
+    Math.min(255, g + amt * 255) + ',' +
+    Math.min(255, b + amt * 255) + ')';
+}
+function darkenHex(hex, amt) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return 'rgb(' + Math.max(0, r - amt * 255) + ',' +
+    Math.max(0, g - amt * 255) + ',' +
+    Math.max(0, b - amt * 255) + ')';
 }
 
 // ─── Ввод ───────────────────────────────────────────────────────
