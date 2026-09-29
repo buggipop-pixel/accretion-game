@@ -1,5 +1,8 @@
 // ═══════════════════════════════════════════════════════════════
 //  MISSIONS.JS — кометы, экспедиции, колонии
+//  Кнопка «Система» удалена. Новая система появляется:
+//   • автоматически при 8 планетах через эволюцию,
+//   • или через 5% шанс колонии при возврате экспедиции.
 // ═══════════════════════════════════════════════════════════════
 
 const MISS = {
@@ -36,8 +39,6 @@ function cometCost() {
 function expeditionEnergyCost() { return Math.floor(5000 * Math.pow(2, S.systems - 1)); }
 function colonyEnergyCost() { return Math.floor(50000 * Math.pow(2, S.systems - 1)); }
 function colonyCivCost() { return Math.floor(50 * Math.pow(1.8, S.systems - 1)); }
-function newSystemEnergyCost() { return Math.floor(150000 * Math.pow(2.5, S.systems - 1)); }
-function newSystemCivCost() { return Math.floor(80 * Math.pow(1.8, S.systems - 1)); }
 
 // ─── КОМЕТЫ ─────────────────────────────────────────────────────
 function canLaunchComet() {
@@ -56,7 +57,6 @@ function canLaunchComet() {
   return { ok: true, cost: cost, ice: ice };
 }
 
-// Диалог выбора размера кометы
 function openCometDialog() {
   const check = canLaunchComet();
   if (!check.ok) { toast('Комета недоступна', check.reason); return; }
@@ -93,7 +93,6 @@ function openCometDialog() {
   }
 }
 
-// Запуск кометы
 function launchComet(sizePct) {
   const check = canLaunchComet();
   if (!check.ok) { toast('Комета недоступна', check.reason); return false; }
@@ -108,16 +107,13 @@ function launchComet(sizePct) {
   const reward = Math.floor(baseReward * (1 + S.planets.length * 0.3) *
                             check.ice * (0.3 + sizePct * 3));
 
-  // ★ Находим ледяной гигант для старта
   let icePlanet = null;
   for (let i = 0; i < S.planets.length; i++) {
     if (S.planets[i].type === 'iceGiant' && !S.planets[i].forming) {
-      icePlanet = S.planets[i];
-      break;
+      icePlanet = S.planets[i]; break;
     }
   }
 
-  // ★ Спавним комету из реальной позиции планеты
   if (typeof PART !== 'undefined' && PART.passing) {
     let startX = 0, startY = 0;
     if (icePlanet && typeof getPlanetWorldPos === 'function') {
@@ -178,7 +174,6 @@ function launchExpedition() {
   const flightTime = 120000 + Math.random() * 180000;
   const reward = Math.floor(1000000 * (1 + S.planets.length * 0.4) * S.systems);
 
-  // Спавн визуального корабля
   if (typeof PART !== 'undefined' && PART.passing) {
     const W = window.CANVAS_W || 400, H = window.CANVAS_H || 700;
     const z = S.zoom || 1;
@@ -209,7 +204,7 @@ function launchExpedition() {
   return true;
 }
 
-// ─── КОЛОНИЯ (найдена экспедицией) ──────────────────────────────
+// ─── КОЛОНИЯ ────────────────────────────────────────────────────
 function offerColony() {
   const modal = document.getElementById('modal');
   if (modal && modal.classList.contains('show')) return;
@@ -274,8 +269,8 @@ function updateMissions() {
 }
 
 // ─── КНОПКИ МИССИЙ ──────────────────────────────────────────────
-// Кнопка «Система» убрана — система появляется автоматически
-// при 8 планетах или через колонию из экспедиции.
+// Кнопки: только Комета и Экспедиция.
+// Никаких «Система» — системы приходят автоматически.
 function renderMissionButtons() {
   const container = document.getElementById('missionButtons');
   if (!container) return;
@@ -330,15 +325,14 @@ function renderMissionButtons() {
   } else { attach(); }
 })();
 
+// ─── Экспорт ────────────────────────────────────────────────────
 window.updateMissions = updateMissions;
 window.renderMissionButtons = renderMissionButtons;
 window.canLaunchComet = canLaunchComet;
 window.canLaunchExpedition = canLaunchExpedition;
-window.canCreateSystem = canCreateSystem;
 window.launchComet = launchComet;
 window.openCometDialog = openCometDialog;
 window.launchExpedition = launchExpedition;
-window.createNewSystem = createNewSystem;
 window.offerColony = offerColony;
 window.cometCost = cometCost;
 window.generateSystemName = generateSystemName;
