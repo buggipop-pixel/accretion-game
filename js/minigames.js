@@ -1,32 +1,28 @@
 // ═══════════════════════════════════════════════════════════════
-//  MINIGAMES.JS — три мини-игры на переходах фаз
-//  1. mass     — раскрути вихрь, собери всю пыль
-//  2. ignite   — 30 секунд держи топливо
-//  3. accretion — сталкивай обломки
+//  MINIGAMES.JS — mass (вихрь), ignite (30с), assemble (сборка)
 // ═══════════════════════════════════════════════════════════════
 
 const MG = {
   type: null,
   startAt: 0,
   onComplete: null,
-
-  // Общее
   progress: 0,
   dragX: 0, dragY: 0, dragActive: false,
   trail: [],
-
   // mass
   particles: [],
   capturedCount: 0,
   finishAt: 0,
-
   // ignite
   power: 0,
   elapsedSec: 0,
   quality: 0,
-
-  // accretion
-  chunks: [],
+  // assemble
+  fieldParticles: [],
+  absorbed: 0,
+  composition: null,
+  coreR: 15,
+  result: null,
 };
 
 // ─── Параметры ──────────────────────────────────────────────────
@@ -42,10 +38,18 @@ const MG_VORTEX = {
 
 const MG_IGNITE = {
   duration: 30,
-  baseDecay: 0.10,        // ★ было 0.05 — в 2 раза быстрее затухает
-  decayAccel: 0.15,       // ★ было 0.10 — ускорение затухания
+  baseDecay: 0.10,
+  decayAccel: 0.18,
   tapBoost: 0.08,
   tapRadius: 250,
+};
+
+const MG_ASSEMBLE = {
+  duration: 20,
+  targetMass: 20,
+  fingerRadius: 130,
+  fingerForce: 500,
+  absorbRadius: 50,
 };
 
 // ─── Запуск ─────────────────────────────────────────────────────
@@ -80,18 +84,31 @@ function startMinigame(type, onComplete) {
     MG.power = 0;
     MG.elapsedSec = 0;
     MG.quality = 0;
-  } else if (type === 'accretion') {
-    MG.chunks = [];
-    const types = ['stone', 'ice', 'fire', 'gas'];
-    for (let i = 0; i < 8; i++) {
-      MG.chunks.push({
-        x: (Math.random() * 2 - 1) * 200,
-        y: (Math.random() * 2 - 1) * 150,
+  } else if (type === 'assemble') {
+    MG.fieldParticles = [];
+    MG.absorbed = 0;
+    MG.coreR = 15;
+    MG.result = null;
+    MG.composition = { stone: 0, ice: 0, gas: 0, fire: 0 };
+    MG.elapsedSec = 0;
+
+    // ★ Спавним частицы 4 типов
+    const typePool = [
+      'stone', 'stone', 'stone', 'stone',
+      'ice', 'ice', 'ice',
+      'gas', 'gas',
+      'fire',
+    ];
+    for (let i = 0; i < 70; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 130 + Math.random() * 180;
+      MG.fieldParticles.push({
+        x: Math.cos(a) * r,
+        y: Math.sin(a) * r * 0.85,
         vx: (Math.random() - 0.5) * 30,
         vy: (Math.random() - 0.5) * 30,
-        r: 12,
-        type: types[i % 4],
-        level: 1,
+        r: 2 + Math.random() * 2,
+        type: typePool[Math.floor(Math.random() * typePool.length)],
       });
     }
   }
@@ -108,15 +125,12 @@ function endMinigame(success) {
   if (cb) cb(success);
 }
 
-// ═══════════════════════════════════════════════════════════════
-//  ОБНОВЛЕНИЕ
-// ═══════════════════════════════════════════════════════════════
+// ─── Обновление ─────────────────────────────────────────────────
 function updateMinigame(dt, time) {
   const cx = window.CANVAS_CX || 0;
   const cy = window.CANVAS_CY || 0;
   const elapsed = (performance.now() - MG.startAt) / 1000;
 
-  // Затухание трейла (общее)
   for (let i = MG.trail.length - 1; i >= 0; i--) {
     MG.trail[i].age += dt;
     if (MG.trail[i].age > 0.7) MG.trail.splice(i, 1);
@@ -124,31 +138,25 @@ function updateMinigame(dt, time) {
 
   if (MG.type === 'mass')     updateMass(dt, cx, cy);
   if (MG.type === 'ignite')   updateIgnite(dt, elapsed);
-  if (MG.type === 'accretion') updateAccretion(dt, cx, cy);
+  if (MG.type === 'assemble') updateAssemble(dt, elapsed, cx, cy);
 }
 
 // ─── ВИХРЬ ──────────────────────────────────────────────────────
 function updateMass(dt, cx, cy) {
-  if (MG.dragActive) {
-    MG.trail.push({ x: MG.dragX, y: MG.dragY, age: 0 });
-  }
+  if (MG.dragActive) MG.trail.push({ x: MG.dragX, y: MG.dragY, age: 0 });
 
   for (let i = 0; i < MG.particles.length; i++) {
     const p = MG.particles[i];
 
-    // Захваченная частица
     if (p.captured) {
       p.orbitAngle += p.orbitSpeed * dt;
       p.orbitRadius -= p.orbitRadius * MG_VORTEX.orbitDecay * dt;
-      if (p.orbitRadius < MG_VORTEX.minOrbitR) {
-        p.orbitRadius = MG_VORTEX.minOrbitR;
-      }
+      if (p.orbitRadius < MG_VORTEX.minOrbitR) p.orbitRadius = MG_VORTEX.minOrbitR;
       p.x = Math.cos(p.orbitAngle) * p.orbitRadius;
       p.y = Math.sin(p.orbitAngle) * p.orbitRadius * 0.85;
       continue;
     }
 
-    // Притяжение к пальцу
     if (MG.dragActive) {
       const tdx = (MG.dragX - cx) - p.x;
       const tdy = (MG.dragY - cy) - p.y;
@@ -160,7 +168,6 @@ function updateMass(dt, cx, cy) {
       }
     }
 
-    // Слабый дрейф к центру
     const dCenter = Math.hypot(p.x, p.y) || 1;
     if (dCenter < MG_VORTEX.maxDrift) {
       const drift = MG_VORTEX.slowDrift * (1 - dCenter / MG_VORTEX.maxDrift);
@@ -173,7 +180,6 @@ function updateMass(dt, cx, cy) {
     p.x += p.vx * dt;
     p.y += p.vy * dt;
 
-    // Захват
     const d = Math.hypot(p.x, p.y);
     if (d < MG_VORTEX.captureRadius) {
       p.captured = true;
@@ -199,108 +205,118 @@ function updateMass(dt, cx, cy) {
 
   if (MG.progress >= 1) {
     if (!MG.finishAt) MG.finishAt = performance.now();
-    if (performance.now() - MG.finishAt > 1500) {
-      endMinigame(true);
-    }
+    if (performance.now() - MG.finishAt > 1500) endMinigame(true);
   }
 }
 
-// ─── ЗАЖИГАНИЕ (30 сек) ─────────────────────────────────────────
+// ─── ЗАЖИГАНИЕ ──────────────────────────────────────────────────
 function updateIgnite(dt, elapsed) {
   MG.elapsedSec = elapsed;
-
-  // Затухание растёт со временем
   const decay = MG_IGNITE.baseDecay * (1 + elapsed * MG_IGNITE.decayAccel);
   MG.power = Math.max(0, MG.power - decay * dt);
-
   MG.progress = MG.power;
 
-  // Финал на 30 секундах
   if (elapsed >= MG_IGNITE.duration) {
     MG.quality = MG.power;
     endMinigame(true);
   }
 }
 
-// ─── АККРЕЦИЯ ───────────────────────────────────────────────────
-function updateAccretion(dt, cx, cy) {
-  const wx = MG.dragActive ? (MG.dragX - cx) : 0;
-  const wy = MG.dragActive ? (MG.dragY - cy) : 0;
+// ─── СБОРКА ПЛАНЕТЫ ─────────────────────────────────────────────
+function updateAssemble(dt, elapsed, cx, cy) {
+  MG.elapsedSec = elapsed;
 
-  for (let i = 0; i < MG.chunks.length; i++) {
-    const c = MG.chunks[i];
-    if (MG.dragActive) {
-      const dx = c.x - wx;
-      const dy = c.y - wy;
+  // Притяжение к пальцу
+  if (MG.dragActive) {
+    const fx = MG.dragX - cx;
+    const fy = MG.dragY - cy;
+    for (let i = 0; i < MG.fieldParticles.length; i++) {
+      const p = MG.fieldParticles[i];
+      const dx = fx - p.x;
+      const dy = fy - p.y;
       const d = Math.hypot(dx, dy) || 1;
-      if (d < 80) {
-        c.vx += dx / d * 300 * dt;
-        c.vy += dy / d * 300 * dt;
+      if (d < MG_ASSEMBLE.fingerRadius) {
+        const force = (1 - d / MG_ASSEMBLE.fingerRadius) * MG_ASSEMBLE.fingerForce;
+        p.vx += (dx / d) * force * dt;
+        p.vy += (dy / d) * force * dt;
       }
     }
-    c.vx *= 0.97;
-    c.vy *= 0.97;
-    c.x += c.vx * dt;
-    c.y += c.vy * dt;
-
-    if (Math.abs(c.x) > 260) c.vx *= -0.8;
-    if (Math.abs(c.y) > 190) c.vy *= -0.8;
-    c.x = Math.max(-260, Math.min(260, c.x));
-    c.y = Math.max(-190, Math.min(190, c.y));
   }
 
-  // Слияния
-  for (let i = 0; i < MG.chunks.length; i++) {
-    for (let j = i + 1; j < MG.chunks.length; j++) {
-      const a = MG.chunks[i], b = MG.chunks[j];
-      const d = Math.hypot(a.x - b.x, a.y - b.y);
-      if (d < a.r + b.r) {
-        const merged = {
-          x: (a.x + b.x) / 2,
-          y: (a.y + b.y) / 2,
-          vx: (a.vx + b.vx) / 2,
-          vy: (a.vy + b.vy) / 2,
-          r: Math.min(40, a.r + b.r * 0.6),
-          type: a.type,
-          level: a.level + b.level,
-        };
-        MG.chunks.splice(j, 1);
-        MG.chunks.splice(i, 1);
-        MG.chunks.push(merged);
-        i = -1;
-        break;
-      }
+  // Обновление частиц
+  for (let i = MG.fieldParticles.length - 1; i >= 0; i--) {
+    const p = MG.fieldParticles[i];
+    p.vx *= 0.96;
+    p.vy *= 0.96;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+
+    // Отражение от границ
+    if (Math.abs(p.x) > 280) { p.x = Math.sign(p.x) * 280; p.vx *= -0.8; }
+    if (Math.abs(p.y) > 200) { p.y = Math.sign(p.y) * 200; p.vy *= -0.8; }
+
+    // Поглощение ядром
+    const dCore = Math.hypot(p.x, p.y);
+    if (dCore < MG_ASSEMBLE.absorbRadius) {
+      MG.composition[p.type]++;
+      MG.absorbed++;
+      MG.coreR += 0.6;
+      MG.fieldParticles.splice(i, 1);
     }
-    if (i < 0) break;
   }
 
-  let maxLevel = 0;
-  for (let i = 0; i < MG.chunks.length; i++) {
-    if (MG.chunks[i].level > maxLevel) maxLevel = MG.chunks[i].level;
+  MG.progress = Math.min(1, MG.absorbed / MG_ASSEMBLE.targetMass);
+
+  // Финал
+  if (elapsed >= MG_ASSEMBLE.duration) {
+    finishAssemble();
   }
-  MG.progress = Math.min(1, maxLevel / 5);
-  if (MG.progress >= 1) endMinigame(true);
 }
 
-// ═══════════════════════════════════════════════════════════════
-//  РИСОВАНИЕ
-// ═══════════════════════════════════════════════════════════════
+function finishAssemble() {
+  const c = MG.composition;
+  const total = c.stone + c.ice + c.gas + c.fire;
+
+  if (total === 0) {
+    MG.result = 'rocky';
+    MG.quality = 0;
+    endMinigame(false);
+    return;
+  }
+
+  const stoneR = c.stone / total;
+  const iceR = c.ice / total;
+  const gasR = c.gas / total;
+  const fireR = c.fire / total;
+
+  // ★ Определяем планету по составу
+  if (fireR >= 0.4) MG.result = 'lava';
+  else if (stoneR >= 0.55) MG.result = 'rocky';
+  else if (iceR >= 0.55) MG.result = 'iceGiant';
+  else if (gasR >= 0.55) MG.result = 'gasGiant';
+  else if (stoneR >= 0.3 && iceR >= 0.3) MG.result = 'superEarth';
+  else MG.result = 'rocky';
+
+  MG.quality = Math.min(1, MG.absorbed / MG_ASSEMBLE.targetMass);
+  endMinigame(MG.absorbed >= 3);
+}
+
+// ─── Рисование ──────────────────────────────────────────────────
 function drawMinigame(ctx, time) {
   const cx = window.CANVAS_CX || 0;
   const cy = window.CANVAS_CY || 0;
   const t = time;
 
-  // Затемнение
   ctx.save();
   ctx.fillStyle = 'rgba(2, 1, 10, 0.60)';
   ctx.fillRect(0, 0, window.CANVAS_W, window.CANVAS_H);
   ctx.restore();
 
-  if (MG.type === 'mass')      drawMass(ctx, cx, cy, t);
-  if (MG.type === 'ignite')    drawIgnite(ctx, cx, cy, t);
-  if (MG.type === 'accretion') drawAccretion(ctx, cx, cy, t);
+  if (MG.type === 'mass')     drawMass(ctx, cx, cy, t);
+  if (MG.type === 'ignite')   drawIgnite(ctx, cx, cy, t);
+  if (MG.type === 'assemble') drawAssemble(ctx, cx, cy, t);
 
-  // Кнопка «Пропустить» — вверху справа
+  // Пропустить
   ctx.save();
   ctx.textAlign = 'right';
   ctx.font = '11px -apple-system, sans-serif';
@@ -309,9 +325,8 @@ function drawMinigame(ctx, time) {
   ctx.restore();
 }
 
-// ─── ВИХРЬ: рисуем ──────────────────────────────────────────────
+// ─── Рисование: ВИХРЬ ───────────────────────────────────────────
 function drawMass(ctx, cx, cy, t) {
-  // Заголовок
   ctx.save();
   ctx.textAlign = 'center';
   ctx.font = 'bold 16px -apple-system, sans-serif';
@@ -323,7 +338,6 @@ function drawMass(ctx, cx, cy, t) {
                cx, cy - 208);
   ctx.restore();
 
-  // Кольцо захвата
   ctx.save();
   ctx.strokeStyle = 'rgba(160, 130, 240, ' + (0.2 + MG.progress * 0.4) + ')';
   ctx.lineWidth = 1.5;
@@ -334,7 +348,6 @@ function drawMass(ctx, cx, cy, t) {
   ctx.setLineDash([]);
   ctx.restore();
 
-  // Спиральные линии
   if (MG.capturedCount > 0) {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
@@ -355,7 +368,6 @@ function drawMass(ctx, cx, cy, t) {
     ctx.restore();
   }
 
-  // Частицы
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   for (let i = 0; i < MG.particles.length; i++) {
@@ -374,7 +386,6 @@ function drawMass(ctx, cx, cy, t) {
   }
   ctx.restore();
 
-  // Трейл пальца
   if (MG.trail.length > 1) {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
@@ -393,7 +404,6 @@ function drawMass(ctx, cx, cy, t) {
     ctx.restore();
   }
 
-  // Центр
   const coreBase = 18 + MG.progress * 26;
   const corePulse = 1 + 0.08 * Math.sin(t * 3);
   const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreBase * corePulse * 3);
@@ -409,7 +419,6 @@ function drawMass(ctx, cx, cy, t) {
   ctx.arc(cx, cy, 6 + MG.progress * 8, 0, Math.PI * 2);
   ctx.fill();
 
-  // Подсказка
   if (!MG.dragActive && MG.progress < 0.05) {
     ctx.save();
     ctx.globalAlpha = 0.5 + 0.3 * Math.sin(t * 3);
@@ -420,18 +429,9 @@ function drawMass(ctx, cx, cy, t) {
     ctx.beginPath();
     ctx.arc(cx, cy, hintR, -Math.PI * 0.2, Math.PI * 0.9);
     ctx.stroke();
-    const endA = Math.PI * 0.9;
-    const ex = cx + Math.cos(endA) * hintR;
-    const ey = cy + Math.sin(endA) * hintR;
-    ctx.beginPath();
-    ctx.moveTo(ex - 10, ey - 5);
-    ctx.lineTo(ex, ey);
-    ctx.lineTo(ex - 5, ey - 12);
-    ctx.stroke();
     ctx.restore();
   }
 
-  // Счётчик
   ctx.save();
   ctx.textAlign = 'center';
   ctx.font = '11px -apple-system, sans-serif';
@@ -441,20 +441,17 @@ function drawMass(ctx, cx, cy, t) {
   ctx.restore();
 }
 
-// ─── ЗАЖИГАНИЕ: рисуем ──────────────────────────────────────────
+// ─── Рисование: ЗАЖИГАНИЕ ───────────────────────────────────────
 function drawIgnite(ctx, cx, cy, t) {
   const left = Math.max(0, MG_IGNITE.duration - (MG.elapsedSec || 0));
 
-    // ★ Прогноз — точная копия того, что будет в финале
-  const q = MG.power;   // финальный quality = power в момент 30 сек
   let tier = 'G';
   let tierColor = '#ffcc55';
-  if (q >= 0.90)      { tier = 'M'; tierColor = '#ff3030'; }
-  else if (q >= 0.70) { tier = 'B'; tierColor = '#5577ff'; }
-  else if (q >= 0.45) { tier = 'K'; tierColor = '#ff9944'; }
-  else if (q >= 0.25) { tier = 'A'; tierColor = '#ccccff'; }
+  if (MG.power >= 0.90) { tier = 'M'; tierColor = '#ff3030'; }
+  else if (MG.power >= 0.70) { tier = 'B'; tierColor = '#5577ff'; }
+  else if (MG.power >= 0.45) { tier = 'K'; tierColor = '#ff9944'; }
+  else if (MG.power >= 0.25) { tier = 'A'; tierColor = '#ccccff'; }
 
-  // Заголовок
   ctx.save();
   ctx.textAlign = 'center';
   ctx.font = 'bold 16px -apple-system, sans-serif';
@@ -465,7 +462,6 @@ function drawIgnite(ctx, cx, cy, t) {
   ctx.fillText('Держи топливо ' + MG_IGNITE.duration + ' секунд', cx, cy - 208);
   ctx.restore();
 
-  // Ядро
   const pulse = 1 + MG.power * 0.5;
   const coreR = (15 + MG.power * 30) * pulse;
   const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 4);
@@ -481,34 +477,27 @@ function drawIgnite(ctx, cx, cy, t) {
   ctx.arc(cx, cy, coreR * 0.4, 0, Math.PI * 2);
   ctx.fill();
 
-  // Кольцо топлива
   ctx.save();
   ctx.strokeStyle = 'rgba(60, 30, 20, 0.7)';
   ctx.lineWidth = 12;
   ctx.beginPath();
   ctx.arc(cx, cy, 110, 0, Math.PI * 2);
   ctx.stroke();
-
   ctx.strokeStyle = tierColor;
   ctx.lineWidth = 8;
   ctx.lineCap = 'round';
   ctx.beginPath();
-  ctx.arc(cx, cy, 110, -Math.PI / 2,
-          -Math.PI / 2 + Math.PI * 2 * MG.power);
+  ctx.arc(cx, cy, 110, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * MG.power);
   ctx.stroke();
-
-  // Свечение
   ctx.globalCompositeOperation = 'lighter';
   ctx.strokeStyle = tierColor;
   ctx.globalAlpha = 0.4 + 0.3 * Math.sin(t * 5);
   ctx.lineWidth = 14;
   ctx.beginPath();
-  ctx.arc(cx, cy, 110, -Math.PI / 2,
-          -Math.PI / 2 + Math.PI * 2 * MG.power);
+  ctx.arc(cx, cy, 110, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * MG.power);
   ctx.stroke();
   ctx.restore();
 
-  // Прогноз звезды
   ctx.save();
   ctx.textAlign = 'center';
   ctx.font = 'bold 28px -apple-system, sans-serif';
@@ -522,19 +511,8 @@ function drawIgnite(ctx, cx, cy, t) {
   ctx.fillStyle = '#a89ce0';
   ctx.globalAlpha = 0.7;
   ctx.fillText('прогноз звезды', cx, cy - 108);
-    // ★ Предупреждение о риске
-  const distToBorder = q >= 0.90 ? q - 0.90 :
-                       q >= 0.70 ? q - 0.70 :
-                       q >= 0.45 ? q - 0.45 : q - 0.25;
-  if (distToBorder < 0.05 && q < 0.95) {
-    ctx.font = 'bold 10px -apple-system, sans-serif';
-    ctx.fillStyle = '#ff8866';
-    ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 8);
-    ctx.fillText('⚠ МОЖЕТ СНИЗИТЬСЯ', cx, cy - 92);
-  }
   ctx.restore();
 
-  // Таймер
   ctx.save();
   ctx.textAlign = 'center';
   ctx.font = 'bold 20px -apple-system, sans-serif';
@@ -543,7 +521,6 @@ function drawIgnite(ctx, cx, cy, t) {
   ctx.fillText(left.toFixed(1) + 'с', cx, cy + 170);
   ctx.restore();
 
-  // Подсказка
   if (MG.power < 0.1 && (MG.elapsedSec || 0) < 3) {
     ctx.save();
     ctx.font = 'bold 14px -apple-system, sans-serif';
@@ -555,71 +532,112 @@ function drawIgnite(ctx, cx, cy, t) {
   }
 }
 
-// ─── АККРЕЦИЯ: рисуем ───────────────────────────────────────────
-function drawAccretion(ctx, cx, cy, t) {
-  // Заголовок
+// ─── Рисование: СБОРКА ПЛАНЕТЫ ──────────────────────────────────
+function drawAssemble(ctx, cx, cy, t) {
+  const left = Math.max(0, MG_ASSEMBLE.duration - (MG.elapsedSec || 0));
+
   ctx.save();
   ctx.textAlign = 'center';
   ctx.font = 'bold 16px -apple-system, sans-serif';
   ctx.fillStyle = '#e8e2ff';
-  ctx.fillText('Направь аккрецию', cx, cy - 230);
+  ctx.fillText('Собери планету', cx, cy - 230);
   ctx.font = '13px -apple-system, sans-serif';
   ctx.fillStyle = '#a89ce0';
-  ctx.fillText('Свайпами сталкивай обломки', cx, cy - 208);
+  ctx.fillText('Води пальцем — частицы тянутся за ним', cx, cy - 208);
   ctx.restore();
 
-  // Обломки
-  for (let i = 0; i < MG.chunks.length; i++) {
-    const c = MG.chunks[i];
-    const sx = cx + c.x;
-    const sy = cy + c.y;
-    let col = '#8a7159';
-    if (c.type === 'ice') col = '#7ec8e3';
-    if (c.type === 'fire') col = '#ff4a22';
-    if (c.type === 'gas') col = '#d4a76a';
-    const g = ctx.createRadialGradient(sx - c.r * 0.3, sy - c.r * 0.3, 0,
-                                        sx, sy, c.r * 1.5);
-    g.addColorStop(0, col);
-    g.addColorStop(1, 'rgba(0,0,0,0.4)');
+  // Ядро
+  const corePulse = 1 + 0.06 * Math.sin(t * 4);
+  const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, MG.coreR * 3 * corePulse);
+  cg.addColorStop(0, 'rgba(255, 240, 200, 0.95)');
+  cg.addColorStop(0.4, 'rgba(255, 180, 80, 0.45)');
+  cg.addColorStop(1, 'rgba(255, 100, 40, 0)');
+  ctx.fillStyle = cg;
+  ctx.beginPath();
+  ctx.arc(cx, cy, MG.coreR * 3 * corePulse, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff8dc';
+  ctx.beginPath();
+  ctx.arc(cx, cy, MG.coreR * corePulse, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Радиус поглощения
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255, 200, 120, 0.2)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 6]);
+  ctx.beginPath();
+  ctx.arc(cx, cy, MG_ASSEMBLE.absorbRadius, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Частицы поля
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < MG.fieldParticles.length; i++) {
+    const p = MG.fieldParticles[i];
+    const sx = cx + p.x;
+    const sy = cy + p.y;
+    let hue = 30;      // камень
+    if (p.type === 'ice') hue = 200;
+    if (p.type === 'gas') hue = 50;
+    if (p.type === 'fire') hue = 15;
+    const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, p.r * 3);
+    g.addColorStop(0, 'hsla(' + hue + ', 85%, 82%, 1)');
+    g.addColorStop(0.5, 'hsla(' + hue + ', 75%, 62%, 0.6)');
+    g.addColorStop(1, 'hsla(' + hue + ', 70%, 50%, 0)');
     ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.arc(sx, sy, c.r, 0, Math.PI * 2);
+    ctx.arc(sx, sy, p.r * 3, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(sx, sy, c.r, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.font = 'bold 11px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(c.level, sx, sy);
   }
+  ctx.restore();
 
-  // Прогресс
+  // Прогресс-бар + состав
+  const barW = 240, barH = 6;
+  const bx = cx - barW / 2, by = cy + 210;
   ctx.save();
+  ctx.fillStyle = 'rgba(139, 127, 212, 0.2)';
+  ctx.fillRect(bx, by, barW, barH);
+  ctx.fillStyle = MG.progress >= 1 ? '#ffb347' : '#b9a8ff';
+  ctx.fillRect(bx, by, barW * MG.progress, barH);
+
   ctx.textAlign = 'center';
   ctx.font = '11px -apple-system, sans-serif';
   ctx.fillStyle = '#8b7fd4';
-  ctx.fillText(Math.floor(MG.progress * 100) + '% · макс уровень: ' +
-               Math.round(MG.progress * 5), cx, cy + 220);
+  const c = MG.composition;
+  const total = c.stone + c.ice + c.gas + c.fire;
+  const stoneP = total ? Math.round(c.stone / total * 100) : 0;
+  const iceP = total ? Math.round(c.ice / total * 100) : 0;
+  const gasP = total ? Math.round(c.gas / total * 100) : 0;
+  const fireP = total ? Math.round(c.fire / total * 100) : 0;
+  ctx.fillText('🪨 ' + stoneP + '% · ❄ ' + iceP + '% · 💨 ' + gasP + '% · 🔥 ' + fireP + '%',
+               cx, by + 22);
+  ctx.fillText(MG.absorbed + ' / ' + MG_ASSEMBLE.targetMass + ' частиц · ' +
+               left.toFixed(1) + 'с', cx, by + 40);
   ctx.restore();
+
+  if (!MG.dragActive && MG.absorbed === 0) {
+    ctx.save();
+    ctx.font = 'bold 14px -apple-system, sans-serif';
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.globalAlpha = 0.7 + 0.3 * Math.sin(t * 6);
+    ctx.fillText('ВОДИ ПАЛЬЦЕМ ПО ЭКРАНУ', cx, cy + 270);
+    ctx.restore();
+  }
 }
 
-// ═══════════════════════════════════════════════════════════════
-//  ВВОД
-// ═══════════════════════════════════════════════════════════════
+// ─── Ввод ───────────────────────────────────────────────────────
 function mgPointerDown(x, y) {
   if (!MG.type) return;
-
-  // Пропустить
   if (y < 50 && x > (window.CANVAS_W || 400) - 120) {
     endMinigame(false);
     return;
   }
 
-  if (MG.type === 'mass') {
+  if (MG.type === 'mass' || MG.type === 'assemble') {
     MG.dragActive = true;
     MG.dragX = x;
     MG.dragY = y;
@@ -629,16 +647,12 @@ function mgPointerDown(x, y) {
     if (Math.hypot(x - cx, y - cy) < MG_IGNITE.tapRadius) {
       MG.power = Math.min(1, MG.power + MG_IGNITE.tapBoost);
     }
-  } else if (MG.type === 'accretion') {
-    MG.dragActive = true;
-    MG.dragX = x;
-    MG.dragY = y;
   }
 }
 
 function mgPointerMove(x, y) {
   if (!MG.type) return;
-  if (MG.type === 'mass' || MG.type === 'accretion') {
+  if (MG.type === 'mass' || MG.type === 'assemble') {
     MG.dragX = x;
     MG.dragY = y;
   }
@@ -648,9 +662,7 @@ function mgPointerUp() {
   MG.dragActive = false;
 }
 
-// ═══════════════════════════════════════════════════════════════
-//  ЭКСПОРТ
-// ═══════════════════════════════════════════════════════════════
+// ─── Экспорт ────────────────────────────────────────────────────
 window.startMinigame = startMinigame;
 window.updateMinigame = updateMinigame;
 window.drawMinigame = drawMinigame;
