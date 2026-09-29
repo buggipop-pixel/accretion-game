@@ -282,26 +282,52 @@ function updatePassing(dt, time) {
       }
     }
 
-    // ★ Столкновение с планетами через реальные позиции
-    if (o.type === 'comet' && !o.dying && S.planets && S.planets.length > 0
-        && typeof getPlanetWorldPos === 'function') {
+        // ★ Столкновение с планетами.
+    //    Пролетающие кометы (не запущены игроком) наносят УРОН.
+    //    Запущенные игроком кометы помечены immune=true — пролетают мимо.
+    if (o.type === 'comet' && !o.dying && !o.immune &&
+        S.planets && S.planets.length > 0 &&
+        typeof getPlanetWorldPos === 'function') {
       const nowSec = now / 1000;
+      const dmgCfg = window.MISSIONS_CFG || {};
+      const dmgRange = dmgCfg.cometDamageRange || 2.5;
+      const dmgChance = dmgCfg.cometDamageChance || 0.35;
+
       for (let j = 0; j < S.planets.length; j++) {
         const pl = S.planets[j];
         if (pl.forming) continue;
         const pos = getPlanetWorldPos(pl, nowSec);
         const dd = Math.hypot(o.x - pos.x, o.y - pos.y);
-        const hitR = pl.diameter * 8 + o.size * 15;
+        const hitR = (pl.diameter * 5) * dmgRange + o.size * 15;
+
         if (dd < hitR) {
+          // Комета уничтожена
           o.dying = true;
           o.dieAt = now;
-          const sp = worldToScreen(o.x, o.y);
-          S.explosions.push({
-            x: sp.x, y: sp.y, type: 'destroy',
-            startAt: now, endAt: now + 900, size: 30,
-          });
-          if (typeof toast === 'function') {
-            toast('☄️ Комета врезалась', PLANET_TYPES[pl.type].name);
+
+          // ★ Урон планете
+          if (Math.random() < dmgChance) {
+            // Полное разрушение планеты
+            const sp = worldToScreen(o.x, o.y);
+            S.explosions.push({
+              x: sp.x, y: sp.y, type: 'destroy',
+              startAt: now, endAt: now + 1500, size: 40,
+            });
+            const planetName = PLANET_TYPES[pl.type].name;
+            S.planets = S.planets.filter(function(p) { return p !== pl; });
+            if (typeof toast === 'function') {
+              toast('💥 Комета уничтожила', planetName);
+            }
+          } else {
+            // Комета разрушена, планета выжила
+            const sp = worldToScreen(o.x, o.y);
+            S.explosions.push({
+              x: sp.x, y: sp.y, type: 'moon',
+              startAt: now, endAt: now + 700, size: 25,
+            });
+            if (typeof toast === 'function') {
+              toast('☄️ Комета разбилась', PLANET_TYPES[pl.type].name + ' выжила');
+            }
           }
           break;
         }
