@@ -204,36 +204,36 @@ function openEvolution() {
   }
 
   // ═══ ФАЗА VI: расширение ═══
-  if (stage === 'galaxy') {
-    const cost = Math.floor(50e9 * Math.pow(4, S.systems - 1));
-    const canAfford = S.dust >= cost;
-    setModal(
-      buildModal('Новая система',
-        'Стоимость системы №' + (S.systems + 1) + ': ' + fmt(cost) + ' пыли.',
-        [{ id: 'build', name: 'Основать систему',
-           desc: canAfford ? 'Заложить фундамент' : 'Не хватает ' + fmt(cost - S.dust),
-           stats: '+50% к доходу',
-           color: '#8b5cf6', icon: '🌌',
-           disabled: !canAfford }]),
-      { build: () => {
+        { build: () => {
           if (S.dust < cost) return;
-          S.dust -= cost;
           const newName = prompt('Имя новой системы:', 'Система ' + (S.systems + 1));
+          if (newName === null) return;   // отмена
+          S.dust -= cost;
           const finalName = (newName || 'Система ' + (S.systems + 1)).trim().slice(0, 16);
+
+          // ★ Слот 0 — placeholder
+          if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) {
+            S.otherSystems[0] = null;
+          }
+
+          const newIdx = S.otherSystems.length;
           S.otherSystems.push({
-            name: finalName, starType: 'G',
-            systemType: 'single', planets: [],
+            name: finalName,
+            starType: 'G',
+            systemType: 'single',
+            planets: [],
           });
           S.systems++;
           S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
           closeEvolutionModal();
           toast('Система основана', finalName + ' · Всего: ' + S.systems);
+
+          // ★ Переключаемся на новую систему
+          if (typeof switchToSystem === 'function') {
+            switchToSystem(newIdx);
+          }
         }
       }
-    );
-    return;
-  }
-}
 
 // ─── Показ звезды по итогу ignite ═══════════════════════════════
 function showStarReveal(starType, quality) {
