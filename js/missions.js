@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  MISSIONS.JS — кометы, экспедиции, колонии
+//  MISSIONS.JS — кометы, экспедиции, колонии, системы
 // ═══════════════════════════════════════════════════════════════
 
 const MISS = {
@@ -14,8 +14,7 @@ function cometCost() {
   const ice = S.planets.filter(function(p) {
     return p.type === 'iceGiant' && !p.forming;
   }).length;
-  const base = 500000;
-  return Math.floor(base / Math.max(1, ice));
+  return Math.floor(500000 / Math.max(1, ice));
 }
 
 function expeditionEnergyCost() {
@@ -64,7 +63,6 @@ function launchComet() {
   const flightTime = 60000 + Math.random() * 60000;
   const reward = Math.floor(500000 * (1 + S.planets.length * 0.3) * check.ice);
 
-  // ★ Спавним визуальную комету
   if (typeof PART !== 'undefined' && PART.passing) {
     const W = window.CANVAS_W || 400;
     const H = window.CANVAS_H || 700;
@@ -77,7 +75,6 @@ function launchComet() {
     else if (side === 1) { x = halfW + 40; y = (Math.random() * 2 - 1) * halfH; vx = -speed; vy = (Math.random() - 0.5) * 30; }
     else if (side === 2) { x = (Math.random() * 2 - 1) * halfW; y = halfH + 40; vx = (Math.random() - 0.5) * 30; vy = -speed; }
     else { x = -halfW - 40; y = (Math.random() * 2 - 1) * halfH; vx = speed; vy = (Math.random() - 0.5) * 30; }
-
     PART.passing.push({
       x: x, y: y, vx: vx, vy: vy,
       type: 'comet',
@@ -131,7 +128,6 @@ function launchExpedition() {
   const flightTime = 120000 + Math.random() * 180000;
   const reward = Math.floor(1000000 * (1 + S.planets.length * 0.4) * S.systems);
 
-  // ★ Спавним визуальный корабль
   if (typeof PART !== 'undefined' && PART.passing) {
     const W = window.CANVAS_W || 400;
     const H = window.CANVAS_H || 700;
@@ -144,7 +140,6 @@ function launchExpedition() {
     else if (side === 1) { x = halfW + 40; y = (Math.random() * 2 - 1) * halfH; vx = -speed; vy = (Math.random() - 0.5) * 20; }
     else if (side === 2) { x = (Math.random() * 2 - 1) * halfW; y = halfH + 40; vx = (Math.random() - 0.5) * 20; vy = -speed; }
     else { x = -halfW - 40; y = (Math.random() * 2 - 1) * halfH; vx = speed; vy = (Math.random() - 0.5) * 20; }
-
     PART.passing.push({
       x: x, y: y, vx: vx, vy: vy,
       type: 'ship',
@@ -170,6 +165,15 @@ function launchExpedition() {
 }
 
 // ─── НОВАЯ СИСТЕМА ──────────────────────────────────────────────
+function canCreateSystem() {
+  if (S.civLevel < 8) return { ok: false, reason: 'Нужен цив. 8' };
+  const eCost = newSystemEnergyCost();
+  const cCost = newSystemCivCost();
+  if (S.energy < eCost) return { ok: false, reason: 'Нужно ' + fmt(eCost) + '⚡' };
+  if (S.civLevel < cCost) return { ok: false, reason: 'Нужно ' + cCost + '🧬' };
+  return { ok: true, eCost: eCost, cCost: cCost };
+}
+
 function createNewSystem() {
   const check = canCreateSystem();
   if (!check.ok) {
@@ -181,19 +185,16 @@ function createNewSystem() {
 
   const newName = prompt('Имя новой системы:', 'Система ' + (S.systems + 1));
   if (newName === null) {
-    // Отмена — возвращаем ресурсы
     S.energy += check.eCost;
     S.civLevel += check.cCost;
     return false;
   }
   const finalName = (newName || 'Система ' + (S.systems + 1)).trim().slice(0, 16);
 
-  // ★ Гарантируем слот 0 (placeholder для родной системы)
   if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) {
     S.otherSystems[0] = null;
   }
 
-  // ★ Добавляем новую систему в конец
   const newIdx = S.otherSystems.length;
   S.otherSystems.push({
     name: finalName,
@@ -209,7 +210,6 @@ function createNewSystem() {
     toast('Система основана', finalName + ' · Всего: ' + S.systems);
   }
 
-  // ★ Переключаемся на новую систему
   if (typeof switchToSystem === 'function') {
     switchToSystem(newIdx);
   }
@@ -228,9 +228,7 @@ function updateMissions() {
       } else {
         S.dust += c.reward;
         S.dustTotal += c.reward;
-        if (typeof toast === 'function') {
-          toast('☄️ Комета вернулась', '+' + fmt(c.reward));
-        }
+        if (typeof toast === 'function') toast('☄️ Комета вернулась', '+' + fmt(c.reward));
       }
       MISS.comets.splice(i, 1);
     }
@@ -244,9 +242,7 @@ function updateMissions() {
       } else {
         S.dust += e.reward;
         S.dustTotal += e.reward;
-        if (typeof toast === 'function') {
-          toast('🚀 Экспедиция вернулась', '+' + fmt(e.reward));
-        }
+        if (typeof toast === 'function') toast('🚀 Экспедиция вернулась', '+' + fmt(e.reward));
         if (e.hasColony) setTimeout(offerColony, 800);
       }
       MISS.expeditions.splice(i, 1);
@@ -289,7 +285,7 @@ function offerColony() {
       id: 'skip',
       name: 'Отказаться',
       desc: 'Сохранить ресурсы',
-      stats: 'Ничего не изменится',
+      stats: '',
       color: '#6b6b6b',
       icon: '✕',
       run: function() {
@@ -351,19 +347,19 @@ function renderMissionButtons() {
         sysCheck.cCost + '🧬</div></button>';
   }
 
-  // ★ Обновляем только если структура изменилась
-  const newKey = html;
-  if (container.dataset.key !== newKey) {
+  if (container.dataset.key !== html) {
     container.innerHTML = html;
-    container.dataset.key = newKey;
+    container.dataset.key = html;
   }
 }
 
-// ★ ОДИН обработчик на контейнер — устанавливается один раз
-(function setupMissionButtonsDelegation() {
+// ★ Делегирование — ставится ОДИН раз
+(function setupDelegation() {
   function attach() {
     const container = document.getElementById('missionButtons');
     if (!container) { setTimeout(attach, 200); return; }
+    if (container.dataset.delegated === '1') return;
+    container.dataset.delegated = '1';
     container.addEventListener('click', function(e) {
       const btn = e.target.closest('.mission-btn');
       if (!btn || btn.disabled) return;
