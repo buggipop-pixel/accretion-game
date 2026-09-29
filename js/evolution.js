@@ -145,15 +145,25 @@ function openEvolution() {
       setModal(buildModal('Система сформирована',
         'Все 8 планет на орбитах. Пора расширяться.',
         [{ id:'expand', name:'Основать новую систему',
-          desc:'Отправить экспедицию к соседней звезде',
-          stats:'+50% к глобальному доходу',
+          desc:'Автоматически заселить соседнюю систему',
+          stats:'+50% к глобальному доходу · Бесплатно',
           color:'#6b4de6', icon:'🌌' }]),
         { expand: function() {
-            S.stage = 'galaxy';
-            S.systems = Math.max(S.systems, 2);
-            S.totalSystemsCreated = Math.max(S.totalSystemsCreated || 1, 2);
             closeEvolutionModal();
-            toast('Первая колония', 'Галактика расширяется');
+            S.stage = 'galaxy';
+            if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) {
+              S.otherSystems[0] = null;
+            }
+            // ★ Первая система — только обитаемая (как из экспедиции)
+            const newSys = generateRandomSystem({ isColony: true });
+            const newIdx = S.otherSystems.length;
+            S.otherSystems.push(newSys);
+            S.systems++;
+            S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
+            toast('Система основана',
+              newSys.name + ' · ' + STAR_TYPES[newSys.starType].name);
+            // Автопереключение на новую систему
+            if (typeof switchToSystem === 'function') switchToSystem(newIdx);
           }
         });
       return;
@@ -193,37 +203,6 @@ function openEvolution() {
     return;
   }
 
-  if (stage === 'galaxy') {
-    const cost = Math.floor(50e9 * Math.pow(4, S.systems - 1));
-    const canAfford = S.dust >= cost;
-    setModal(buildModal('Новая система',
-      'Стоимость системы №' + (S.systems + 1) + ': ' + fmt(cost) + ' пыли.',
-      [{ id:'build', name:'Основать систему',
-        desc: canAfford ? 'Заложить фундамент' : 'Не хватает ' + fmt(cost - S.dust),
-        stats:'+50% к доходу', color:'#8b5cf6', icon:'🌌',
-        disabled: !canAfford }]),
-      { build: function() {
-          if (S.dust < cost) return;
-          const newName = generateSystemName();
-          S.dust -= cost;
-          if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) {
-            S.otherSystems[0] = null;
-          }
-          const newIdx = S.otherSystems.length;
-          S.otherSystems.push({
-            name: newName, starType: 'G',
-            systemType: 'single', planets: [],
-          });
-          S.systems++;
-          S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
-          closeEvolutionModal();
-          toast('Система основана', newName);
-          if (typeof switchToSystem === 'function') switchToSystem(newIdx);
-        }
-      });
-    return;
-  }
-}
 
 // ─── Показ звезды ───────────────────────────────────────────────
 function showStarReveal(starType, quality) {
