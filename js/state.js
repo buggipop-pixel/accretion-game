@@ -84,22 +84,28 @@ function switchToSystem(idx) {
   if (idx === S.activeSystemIdx) return false;
   if (idx < 0) return false;
 
-  // Сохраняем текущую как "другую" (или в 0-й слот)
+  // Сохраняем текущие данные активной системы
   const currentData = {
     name: S.systemName,
     starType: S.starType,
     systemType: S.systemType,
-    planets: S.planets,
+    planets: S.planets || [],
   };
 
+  // Слот 0 — placeholder или сохранённая родная система
   if (idx === 0) {
-    // Возвращаемся в родную — из сохранённых
-    if (!S.otherSystems[0]) {
-      S.otherSystems[0] = currentData;
+    // Возвращаемся на родную
+    const home = S.otherSystems[0];
+    if (!home) {
+      // Никогда не переключались — ничего не делаем
       return false;
     }
-    const home = S.otherSystems[0];
-    S.otherSystems[0] = currentData;
+    // Сохраняем текущую (не родную) в её слот
+    if (S.activeSystemIdx > 0) {
+      S.otherSystems[S.activeSystemIdx] = currentData;
+    }
+    // Восстанавливаем родную из слота 0
+    S.otherSystems[0] = null;
     S.systemName = home.name;
     S.starType = home.starType;
     S.systemType = home.systemType;
@@ -108,33 +114,24 @@ function switchToSystem(idx) {
     return true;
   }
 
+  // Переключаемся на не-родную
   const target = S.otherSystems[idx];
   if (!target) return false;
 
-  // Меняем местами
+  // Если сейчас на родной — сохраняем её в слот 0
   if (S.activeSystemIdx === 0) {
     S.otherSystems[0] = currentData;
   } else {
+    // Иначе сохраняем текущую не-родную в её слот
     S.otherSystems[S.activeSystemIdx] = currentData;
   }
+
   S.systemName = target.name;
   S.starType = target.starType;
   S.systemType = target.systemType;
-  S.planets = target.planets;
+  S.planets = target.planets || [];
   S.activeSystemIdx = idx;
   return true;
-}
-
-function getSystemList() {
-  const list = [{ idx: 0, name: S.systemName, active: S.activeSystemIdx === 0 }];
-  for (let i = 1; i < S.otherSystems.length; i++) {
-    const sys = S.otherSystems[i];
-    if (!sys) continue;
-    list.push({ idx: i, name: sys.name, active: S.activeSystemIdx === i });
-  }
-  // Убедимся что родная тоже в списке
-  if (S.otherSystems.length === 0) return list;
-  return list;
 }
 
 // ─── СОХРАНЕНИЕ ─────────────────────────────────────────────────
