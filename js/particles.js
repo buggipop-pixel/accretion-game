@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  PARTICLES.JS — Кеплеровский диск + температурный градиент
+//  PARTICLES.JS — Кеплеровский диск + гравитация для комет
 // ═══════════════════════════════════════════════════════════════
 
 const PART = {
@@ -14,7 +14,6 @@ const TOUCH_VELOCITY = 400;
 const DUST_PER_PARTICLE = 1;
 const DUST_PER_FINGER = 1;
 
-// ─── Кеплеровский диск: v_t = vRef · √(100/r) ──────────────────
 const CLOUD = {
   vRef: 22,
   spiralB: 5,
@@ -39,13 +38,11 @@ const CONDENSE = {
 const PASSING_MIN_MS = 120000;
 const PASSING_MAX_MS = 300000;
 
-// ★ Кеплеровская скорость
 function keplerTangential(r, vRef) {
   if (r < 20) r = 20;
   return vRef * Math.sqrt(100 / r);
 }
 
-// ─── Координатные утилиты ───────────────────────────────────────
 function worldToScreen(wx, wy) {
   const z = S.zoom || 1;
   const rot = S.rotation || 0;
@@ -68,7 +65,6 @@ function screenToWorld(sx, sy) {
 window.worldToScreen = worldToScreen;
 window.screenToWorld = screenToWorld;
 
-// ─── Видимость пыли ─────────────────────────────────────────────
 function particleVisibility() {
   if (S.stage === 'cloud')       return 1.0;
   if (S.stage === 'condense')    return 0.95;
@@ -79,7 +75,6 @@ function particleVisibility() {
   return 1.0;
 }
 
-// ─── Создание частиц ────────────────────────────────────────────
 function makeWorldParticle() {
   const W = window.CANVAS_W || 400, H = window.CANVAS_H || 700;
   const z = S.zoom || 1;
@@ -194,17 +189,14 @@ function updateParticles(dt, time) {
       if (aDiff < -CONDENSE.maxArmKick) aDiff = -CONDENSE.maxArmKick;
       vx += tanX * aDiff * CONDENSE.armForce;
       vy += tanY * aDiff * CONDENSE.armForce;
-       } else if (hasStar) {
-      // ★ Кеплеровское вращение — пыль закручивается вокруг звезды
+    } else if (hasStar) {
       const tangential = keplerTangential(dist, CONDENSE.vRef) * p.spinVar * 0.7;
       const radial = tangential * CONDENSE.spiralB / Math.max(25, dist);
-
       vx += tanX * tangential;
       vy += tanY * tangential;
       vx += dirX * (radial + CONDENSE.radialDrift * 0.5);
       vy += dirY * (radial + CONDENSE.radialDrift * 0.5);
 
-      // Слабое выравнивание к 2 рукавам — чтобы сохранить визуальную красоту
       const targetA = p.arm * Math.PI + dist * CONDENSE.armAngleB + p.armOffset;
       const curA = Math.atan2(p.y, p.x);
       let aDiff = normAngle(targetA - curA);
@@ -264,7 +256,7 @@ function updateParticles(dt, time) {
   updatePassing(dt, time);
 }
 
-// ─── Пролёты ────────────────────────────────────────────────────
+// ─── Пролёты (кометы, корабли) ──────────────────────────────────
 function updatePassing(dt, time) {
   const now = performance.now();
   const interval = PASSING_MIN_MS + Math.random() * (PASSING_MAX_MS - PASSING_MIN_MS);
@@ -272,31 +264,32 @@ function updatePassing(dt, time) {
     PART.lastPassingAt = now;
     spawnPassing();
   }
+
   const W = window.CANVAS_W || 400, H = window.CANVAS_H || 700;
   const z = S.zoom || 1;
   const halfW = W / (2 * z), halfH = H / (2 * z);
 
-    for (let i = PART.passing.length - 1; i >= 0; i--) {
+  for (let i = PART.passing.length - 1; i >= 0; i--) {
     const o = PART.passing[i];
 
-    // ★ Гравитационное влияние звезды на кометы
+    // ★ Гравитация звезды на кометы
     if (o.type === 'comet' && S.starType && !o.dying) {
       const dx = -o.x;
       const dy = -o.y;
       const d = Math.sqrt(dx * dx + dy * dy) || 1;
-      // Гравитация: чем ближе, тем сильнее
-      const gravPower = 8000 / (d * d + 100);
       if (d < 300) {
+        const gravPower = 8000 / (d * d + 100);
         o.vx += (dx / d) * gravPower * dt;
         o.vy += (dy / d) * gravPower * dt;
       }
     }
 
+    // Испарение у звезды
     if (o.type === 'comet' && S.starType && !o.dying) {
       const d = Math.sqrt(o.x * o.x + o.y * o.y);
       if (d < 90) {
-      if (d < 90) {
-        o.dying = true; o.dieAt = now;
+        o.dying = true;
+        o.dieAt = now;
         if (Array.isArray(S.explosions)) {
           const sp = worldToScreen(o.x, o.y);
           S.explosions.push({
@@ -308,14 +301,19 @@ function updatePassing(dt, time) {
         continue;
       }
     }
+
     if (o.dying) {
       const age = (now - o.dieAt) / 800;
       if (age > 1) { PART.passing.splice(i, 1); continue; }
       o.alpha = 1 - age;
     }
-    o.x += o.vx * dt; o.y += o.vy * dt; o.age += dt;
+
+    o.x += o.vx * dt;
+    o.y += o.vy * dt;
+    o.age += dt;
     o.trail.push({ x: o.x, y: o.y });
     if (o.trail.length > o.tailLen) o.trail.shift();
+
     if (o.x < -halfW - 150 || o.x > halfW + 150 ||
         o.y < -halfH - 150 || o.y > halfH + 150) {
       PART.passing.splice(i, 1);
@@ -339,9 +337,10 @@ function spawnPassing() {
   else { x = -halfW - 40; y = (Math.random() * 2 - 1) * halfH; vx = speed; vy = (Math.random() - 0.5) * 40; }
 
   PART.passing.push({
-    x, y, vx, vy,
+    x: x, y: y, vx: vx, vy: vy,
     type: isComet ? 'comet' : 'ship',
-    size, tailLen, alpha: 1, age: 0, trail: [],
+    size: size, tailLen: tailLen,
+    alpha: 1, age: 0, trail: [],
   });
 }
 
@@ -372,20 +371,24 @@ function drawParticles(ctx, time) {
       g.addColorStop(1, 'rgba(80, 60, 150, 0)');
     }
     ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(cpos.x, cpos.y, haloR, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cpos.x, cpos.y, haloR, 0, Math.PI * 2);
+    ctx.fill();
     ctx.fillStyle = 'rgba(240, 235, 255, 0.95)';
-    ctx.beginPath(); ctx.arc(cpos.x, cpos.y, coreRNow, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cpos.x, cpos.y, coreRNow, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   const sizeFactor = Math.max(0.7, z);
-  for (const p of PART.particles) {
+  for (let i = 0; i < PART.particles.length; i++) {
+    const p = PART.particles[i];
     const sp = worldToScreen(p.x, p.y);
     const dist = Math.sqrt(p.x * p.x + p.y * p.y);
 
-    // ★ Температурный градиент
     let heat = 0;
     if (typeof tempAt === 'function') {
-      const rAe = dist / (window.PHYS ? PHYS.refRadius : 100);
+      const rAe = dist / (window.P_PHYS ? P_PHYS.refRadius : 100);
       const temp = tempAt(rAe);
       heat = Math.max(0, Math.min(1, (temp - 50) / 400));
     } else {
@@ -424,14 +427,15 @@ function drawParticles(ctx, time) {
 
 function drawPassing(ctx) {
   const z = S.zoom || 1;
-  for (const o of PART.passing) {
+  for (let i = 0; i < PART.passing.length; i++) {
+    const o = PART.passing[i];
     const alpha = o.alpha != null ? o.alpha : 1;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    for (let i = 0; i < o.trail.length; i++) {
-      const seg = o.trail[i];
+    for (let j = 0; j < o.trail.length; j++) {
+      const seg = o.trail[j];
       const sp = worldToScreen(seg.x, seg.y);
-      const life = i / o.trail.length;
+      const life = j / o.trail.length;
       ctx.globalAlpha = life * 0.7 * alpha;
       const size = (1 + life * 2.5) * o.size * z;
       const grad = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, size * 2);
@@ -443,12 +447,16 @@ function drawPassing(ctx) {
         grad.addColorStop(1, 'rgba(200, 150, 80, 0)');
       }
       ctx.fillStyle = grad;
-      ctx.beginPath(); ctx.arc(sp.x, sp.y, size * 2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, size * 2, 0, Math.PI * 2);
+      ctx.fill();
     }
     const sp = worldToScreen(o.x, o.y);
     ctx.globalAlpha = 0.95 * alpha;
     ctx.fillStyle = o.type === 'comet' ? '#e8f6ff' : '#ffeec8';
-    ctx.beginPath(); ctx.arc(sp.x, sp.y, 1.6 * o.size * z, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y, 1.6 * o.size * z, 0, Math.PI * 2);
+    ctx.fill();
     const halo = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, 8 * o.size * z);
     if (o.type === 'comet') {
       halo.addColorStop(0, 'rgba(150, 220, 255, 0.5)');
@@ -458,14 +466,18 @@ function drawPassing(ctx) {
       halo.addColorStop(1, 'rgba(200, 150, 80, 0)');
     }
     ctx.fillStyle = halo;
-    ctx.beginPath(); ctx.arc(sp.x, sp.y, 8 * o.size * z, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y, 8 * o.size * z, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 }
 
 function handleParticleDrag(x, y, active) {
   if (S.starType) return;
-  PART.dragX = x; PART.dragY = y; PART.dragActive = active;
+  PART.dragX = x;
+  PART.dragY = y;
+  PART.dragActive = active;
 }
 
 document.addEventListener('visibilitychange', () => {
