@@ -8,7 +8,27 @@ const MISS = {
   lastCometAt: 0,
   lastExpeditionAt: 0,
 };
+// ─── Генератор имён систем ──────────────────────────────────────
+const SYS_PREFIXES = [
+  'Альфа', 'Бета', 'Гамма', 'Дельта', 'Эпсилон', 'Дзета', 'Эта',
+  'Тета', 'Йота', 'Каппа', 'Лямбда', 'Мю', 'Ню', 'Кси', 'Омикрон',
+  'Пи', 'Ро', 'Сигма', 'Тау', 'Ипсилон', 'Фи', 'Хи', 'Пси', 'Омега'
+];
+const SYS_NAMES = [
+  'Кентавра', 'Центавра', 'Ориона', 'Лебедя', 'Лира', 'Дракона',
+  'Феникса', 'Кита', 'Гидры', 'Пегаса', 'Кассиопеи', 'Персея',
+  'Андромеды', 'Волопаса', 'Геркулеса', 'Змееносца', 'Ворона',
+  'Орла', 'Павлина', 'Журавля', 'Тукана', 'Феникса', 'Единорога'
+];
+const SYS_SUFFIXES = ['', ' I', ' II', ' III', ' IV', ' V', ' A', ' B'];
 
+function generateSystemName() {
+  const prefix = SYS_PREFIXES[Math.floor(Math.random() * SYS_PREFIXES.length)];
+  const name = SYS_NAMES[Math.floor(Math.random() * SYS_NAMES.length)];
+  const suffix = SYS_SUFFIXES[Math.floor(Math.random() * SYS_SUFFIXES.length)];
+  return prefix + ' ' + name + suffix;
+}
+window.generateSystemName = generateSystemName;
 // ─── Стоимости ──────────────────────────────────────────────────
 function cometCost() {
   const ice = S.planets.filter(function(p) {
@@ -36,50 +56,117 @@ function newSystemCivCost() {
 }
 
 // ─── КОМЕТЫ ─────────────────────────────────────────────────────
-function canLaunchComet() {
-  const ice = S.planets.filter(function(p) {
-    return p.type === 'iceGiant' && !p.forming;
-  }).length;
-  if (ice === 0) return { ok: false, reason: 'Нужен ледяной гигант' };
-  const cost = cometCost();
-  if (S.dust < cost) return { ok: false, reason: 'Нужно ' + fmt(cost) };
-  const now = Date.now();
-  if (now - MISS.lastCometAt < 30000) {
-    const left = Math.ceil((30000 - (now - MISS.lastCometAt)) / 1000);
-    return { ok: false, reason: 'Кд ' + left + 'с' };
+// Открывает диалог выбора размера кометы
+function openCometDialog() {
+  const check = canLaunchComet();
+  if (!check.ok) {
+    if (typeof toast === 'function') toast('Комета недоступна', check.reason);
+    return;
   }
-  return { ok: true, cost: cost, ice: ice };
+
+  const maxDust = S.dust;
+  const minSize = 0.1;    // 10% от доступной
+  const maxSize = 0.8;    // 80% — нельзя всё
+
+  // Три варианта размера
+  const sizes = [
+    { id: 'small',  name: 'Малая комета',  pct: 0.15, icon: '☄️',
+      desc: 'Быстрая, малая награда' },
+    { id: 'medium', name: 'Средняя комета', pct: 0.40, icon: '☄️',
+      desc: 'Баланс скорости и награды' },
+    { id: 'large',  name: 'Большая комета', pct: 0.70, icon: '☄️',
+      desc: 'Медленная, большая награда' },
+  ];
+
+  const choices = sizes.map(function(s) {
+    const cost = Math.floor(maxDust * s.pct);
+    const canAfford = cost >= 100000 && cost <= maxDust;
+    return {
+      id: s.id,
+      name: s.name,
+      desc: s.desc,
+      stats: 'Стоимость: ' + fmt(cost) + ' ✦ · полёт ' +
+             Math.round(60 * (0.5 + s.pct)) + 'с',
+      color: '#3d6dd4',
+      icon: s.icon,
+      disabled: !canAfford,
+      _cost: cost,
+      _pct: s.pct,
+    };
+  });
+
+  if (typeof setModal === 'function') {
+    setModal(
+      buildModal('Запуск кометы',
+        'Выбери размер. Больше размер — дольше полёт и выше награда.',
+        choices),
+      buildHandlers(choices, function(id) {
+        const s = sizes.find(function(x) { return x.id === id; });
+        if (!s) return;
+        launchComet(s.pct);
+        if (typeof closeEvolutionModal === 'function') closeEvolutionModal();
+      })
+    );
+  }
 }
 
-function launchComet() {
+// Собственно запуск кометы
+function launchComet(sizePct) {
   const check = canLaunchComet();
   if (!check.ok) {
     if (typeof toast === 'function') toast('Комета недоступна', check.reason);
     return false;
   }
-  S.dust -= check.cost;
+
+  if (sizePct === undefined) sizePct = 0.4;   // default
+  const cost = Math.floor(S.dust * sizePct);
+  if (cost < 100000 || cost > S.dust) {
+    if (typeof toast === 'function') toast('Не хватает пыли');
+    return false;
+  }
+  S.dust -= cost;
   MISS.lastCometAt = Date.now();
 
-  const flightTime = 60000 + Math.random() * 60000;
-  const reward = Math.floor(500000 * (1 + S.planets.length * 0.3) * check.ice);
+  // Длительность и награда зависят от размера
+  // Большая: летит дольше + больше награда
+  const baseFlight = 60000;
+  const baseReward = 500000;
+  const flightTime = Math.floor(baseFlight * (0.5 + sizePct * 1.5));
+  const reward = Math.floor(baseReward * (1 + S.planets.length * 0.3) *
+                            check.ice * (0.3 + sizePct * 3));
 
+  // ★ Ищем ледяной гигант — источник кометы
+  let icePlanet = null;
+  for (let i = 0; i < S.planets.length; i++) {
+    if (S.planets[i].type === 'iceGiant' && !S.planets[i].forming) {
+      icePlanet = S.planets[i];
+      break;
+    }
+  }
+
+  // ★ Спавним визуальную комету от планеты
   if (typeof PART !== 'undefined' && PART.passing) {
-    const W = window.CANVAS_W || 400;
-    const H = window.CANVAS_H || 700;
-    const z = S.zoom || 1;
-    const halfW = W / (2 * z), halfH = H / (2 * z);
-    const side = Math.floor(Math.random() * 4);
-    let vx, vy, x, y;
-    const speed = 60 + Math.random() * 40;
-    if (side === 0) { x = (Math.random() * 2 - 1) * halfW; y = -halfH - 40; vx = (Math.random() - 0.5) * 30; vy = speed; }
-    else if (side === 1) { x = halfW + 40; y = (Math.random() * 2 - 1) * halfH; vx = -speed; vy = (Math.random() - 0.5) * 30; }
-    else if (side === 2) { x = (Math.random() * 2 - 1) * halfW; y = halfH + 40; vx = (Math.random() - 0.5) * 30; vy = -speed; }
-    else { x = -halfW - 40; y = (Math.random() * 2 - 1) * halfH; vx = speed; vy = (Math.random() - 0.5) * 30; }
+    let startX = 0, startY = 0;
+    if (icePlanet) {
+      const angle = icePlanet.angle;
+      startX = Math.cos(angle) * icePlanet.orbitR;
+      startY = Math.sin(angle) * icePlanet.orbitR * 0.5;
+    } else {
+      startX = (Math.random() * 2 - 1) * 100;
+      startY = (Math.random() * 2 - 1) * 100;
+    }
+
+    // Летит в случайном направлении
+    const dirAngle = Math.random() * Math.PI * 2;
+    const speed = 40 + sizePct * 40;
     PART.passing.push({
-      x: x, y: y, vx: vx, vy: vy,
+      x: startX,
+      y: startY,
+      vx: Math.cos(dirAngle) * speed,
+      vy: Math.sin(dirAngle) * speed * 0.6,
       type: 'comet',
-      size: 0.5 + Math.random() * 0.5,
-      tailLen: 18,
+      size: 0.4 + sizePct * 1.2,   // размер зависит от вложений
+      tailLen: Math.round(10 + sizePct * 20),
       alpha: 1, age: 0, trail: [],
     });
   }
@@ -90,13 +177,16 @@ function launchComet() {
     flightTime: flightTime,
     reward: reward,
     fail: Math.random() < 0.25,
+    size: sizePct,
   });
 
   if (typeof toast === 'function') {
-    toast('☄️ Комета запущена', 'Возврат через ' + fmtTime(flightTime / 1000));
+    toast('☄️ Комета запущена', 'Размер: ' + Math.round(sizePct * 100) +
+          '% · Возврат через ' + fmtTime(flightTime / 1000));
   }
   return true;
 }
+window.openCometDialog = openCometDialog;
 
 // ─── ЭКСПЕДИЦИИ ─────────────────────────────────────────────────
 function canLaunchExpedition() {
@@ -165,15 +255,6 @@ function launchExpedition() {
 }
 
 // ─── НОВАЯ СИСТЕМА ──────────────────────────────────────────────
-function canCreateSystem() {
-  if (S.civLevel < 8) return { ok: false, reason: 'Нужен цив. 8' };
-  const eCost = newSystemEnergyCost();
-  const cCost = newSystemCivCost();
-  if (S.energy < eCost) return { ok: false, reason: 'Нужно ' + fmt(eCost) + '⚡' };
-  if (S.civLevel < cCost) return { ok: false, reason: 'Нужно ' + cCost + '🧬' };
-  return { ok: true, eCost: eCost, cCost: cCost };
-}
-
 function createNewSystem() {
   const check = canCreateSystem();
   if (!check.ok) {
@@ -183,13 +264,8 @@ function createNewSystem() {
   S.energy -= check.eCost;
   S.civLevel -= check.cCost;
 
-  const newName = prompt('Имя новой системы:', 'Система ' + (S.systems + 1));
-  if (newName === null) {
-    S.energy += check.eCost;
-    S.civLevel += check.cCost;
-    return false;
-  }
-  const finalName = (newName || 'Система ' + (S.systems + 1)).trim().slice(0, 16);
+  // ★ Рандомное имя
+  const finalName = generateSystemName();
 
   if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) {
     S.otherSystems[0] = null;
@@ -207,7 +283,7 @@ function createNewSystem() {
   S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
 
   if (typeof toast === 'function') {
-    toast('Система основана', finalName + ' · Всего: ' + S.systems);
+    toast('Система основана', finalName);
   }
 
   if (typeof switchToSystem === 'function') {
@@ -340,11 +416,19 @@ function renderMissionButtons() {
       '<div class="mb-cost">' + expCheck.reason + '</div></button>';
   }
 
-  if (sysCheck.ok) {
-    html += '<button class="mission-btn sys" data-action="sys">' +
-      '<div class="mb-icon">🌌</div><div>Система</div>' +
-      '<div class="mb-cost">' + fmt(sysCheck.eCost) + '⚡ ' +
-        sysCheck.cCost + '🧬</div></button>';
+    // Всегда показываем кнопку «Система», если есть хоть какой-то прогресс
+  if (S.civLevel >= 3) {
+    if (sysCheck.ok) {
+      html += '<button class="mission-btn sys" data-action="sys">' +
+        '<div class="mb-icon">🌌</div><div>Система</div>' +
+        '<div class="mb-cost">' + fmt(sysCheck.eCost) + '⚡ ' +
+          sysCheck.cCost + '🧬</div></button>';
+    } else {
+      // Серая кнопка с требованием
+      html += '<button class="mission-btn disabled" disabled>' +
+        '<div class="mb-icon">🌌</div><div>Система</div>' +
+        '<div class="mb-cost">' + sysCheck.reason + '</div></button>';
+    }
   }
 
   if (container.dataset.key !== html) {
@@ -364,7 +448,7 @@ function renderMissionButtons() {
       const btn = e.target.closest('.mission-btn');
       if (!btn || btn.disabled) return;
       const action = btn.dataset.action;
-      if (action === 'comet') launchComet();
+            if (action === 'comet') openCometDialog();
       else if (action === 'exp') launchExpedition();
       else if (action === 'sys') createNewSystem();
     });
