@@ -1,6 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
 //  EVOLUTION.JS — эволюционные окна с минииграми
-//  Star type now determined by ignite quality
 // ═══════════════════════════════════════════════════════════════
 
 let evolutionModalOpen = false;
@@ -24,7 +23,7 @@ function tryMinigame(type, onSuccess) {
   closeEvolutionModal();
   if (typeof startMinigame === 'function') {
     try {
-      startMinigame(type, (success) => {
+      startMinigame(type, function(success) {
         if (success) onSuccess();
         else toast('Не получилось', 'Возвращайся, когда будешь готов');
       });
@@ -43,7 +42,6 @@ function closeEvolutionModal() {
   if (modal) modal.classList.remove('show');
 }
 
-// ─── Диспетчер ──────────────────────────────────────────────────
 function openEvolution() {
   if (evolutionModalOpen) return;
   if (S.activeMinigame) return;
@@ -55,11 +53,11 @@ function openEvolution() {
       buildModal('Критическая масса',
         'Облако готово к гравитационному коллапсу.',
         [{ id: 'go', name: 'Запустить коллапс',
-           desc: 'Собери критическую массу в мини-игре',
+           desc: 'Собери критическую массу',
            stats: 'Переход к уплотнению',
            color: '#6b4de6', icon: '🌀' }]),
-      { go: () => {
-          tryMinigame('mass', () => {
+      { go: function() {
+          tryMinigame('mass', function() {
             S.stage = 'condense';
             toast('Коллапс начался', 'Гравитация сжимает облако');
           });
@@ -69,16 +67,16 @@ function openEvolution() {
     return;
   }
 
-  // ═══ ФАЗА II → III: ядро формируется ═══
+  // ═══ ФАЗА II → III ═══
   if (stage === 'condense') {
     setModal(
       buildModal('Протозвезда формируется',
-        'Плотное ядро разогревается. Скоро запустится термоядерный синтез.',
+        'Плотное ядро разогревается.',
         [{ id: 'go', name: 'Продолжить',
            desc: 'Начать накопление топлива',
-           stats: 'Следующая цель: 200 000 пыли',
+           stats: 'Цель: 200 000 пыли',
            color: '#ff9500', icon: '🔥' }]),
-      { go: () => {
+      { go: function() {
           S.stage = 'protostar';
           closeEvolutionModal();
           toast('Протозвезда', 'Накапливай пыль до 200 000');
@@ -88,23 +86,17 @@ function openEvolution() {
     return;
   }
 
-  // ═══ ФАЗА III → IV: зажигание + определение звезды ═══
+  // ═══ ФАЗА III → IV ═══
   if (stage === 'protostar') {
     setModal(
       buildModal('Зажги синтез',
-        'Ядро достигло критической температуры. Заполни шкалу и удержи 3 секунды.',
+        'Заполни шкалу и держи топливо 30 секунд.',
         [{ id: 'ignite', name: 'Запустить синтез',
            desc: 'Качество зажигания определит тип звезды',
-           stats: 'От красного карлика до голубой звезды',
+           stats: 'От жёлтой G до красной M',
            color: '#ff9500', icon: '🔥' }]),
-      { ignite: () => {
-                    tryMinigame('ignite', () => {
-            // ★ Тип звезды по остатку топлива:
-            // 90%+ → M (красный карлик, rateMult 6) — очень сложно
-            // 70-90% → B (голубая)
-            // 45-70% → K (оранжевая)
-            // 25-45% → A (белая)
-            // 0-25%  → G (жёлтая) — самый слабый результат
+      { ignite: function() {
+          tryMinigame('ignite', function() {
             const q = (typeof MG !== 'undefined' && MG.quality) ? MG.quality : 0.5;
             let starType;
             if (q >= 0.90)      starType = 'M';
@@ -122,10 +114,10 @@ function openEvolution() {
     return;
   }
 
-  // ═══ ФАЗА IV → V: первая планета ═══
+  // ═══ ФАЗА IV → V ═══
   if (stage === 'firstPlanet') {
     const cost = planetCost(0);
-    const choices = Object.keys(PLANET_TYPES).map(k => {
+    const choices = Object.keys(PLANET_TYPES).map(function(k) {
       const pt = PLANET_TYPES[k];
       const hasCiv = S.starType && STAR_TYPES[S.starType].civ;
       const canCiv = !pt.civ || hasCiv;
@@ -141,10 +133,10 @@ function openEvolution() {
     setModal(
       buildModal('Первая планета',
         'Выбери первую планету. Цена: ' + fmt(cost) + '.', choices),
-      buildHandlers(choices, (id) => {
+      buildHandlers(choices, function(id) {
         if (S.dust < cost) return;
         S.dust -= cost;
-        tryMinigame('accretion', () => {
+        tryMinigame('accretion', function() {
           addPlanet(id);
           S.stage = 'system';
           toast(PLANET_TYPES[id].name + ' сформирована', 'Орбита 1');
@@ -154,7 +146,7 @@ function openEvolution() {
     return;
   }
 
-  // ═══ ФАЗА V: остальные планеты ═══
+  // ═══ ФАЗА V ═══
   if (stage === 'system') {
     if (S.planets.length >= 8) {
       setModal(
@@ -164,7 +156,7 @@ function openEvolution() {
              desc: 'Отправить экспедицию к соседней звезде',
              stats: '+50% к глобальному доходу',
              color: '#6b4de6', icon: '🌌' }]),
-        { expand: () => {
+        { expand: function() {
             S.stage = 'galaxy';
             S.systems = Math.max(S.systems, 2);
             S.totalSystemsCreated = Math.max(S.totalSystemsCreated || 1, 2);
@@ -176,7 +168,7 @@ function openEvolution() {
       return;
     }
     const cost = planetCost(S.planets.length);
-    const choices = Object.keys(PLANET_TYPES).map(k => {
+    const choices = Object.keys(PLANET_TYPES).map(function(k) {
       const pt = PLANET_TYPES[k];
       const hasCiv = S.starType && STAR_TYPES[S.starType].civ;
       const canCiv = !pt.civ || hasCiv;
@@ -192,7 +184,7 @@ function openEvolution() {
     setModal(
       buildModal('Новая планета',
         'Планета №' + (S.planets.length + 1) + '. Цена: ' + fmt(cost) + '.', choices),
-      buildHandlers(choices, (id) => {
+      buildHandlers(choices, function(id) {
         if (S.dust < cost) return;
         S.dust -= cost;
         addPlanet(id);
@@ -203,15 +195,25 @@ function openEvolution() {
     return;
   }
 
-  // ═══ ФАЗА VI: расширение ═══
-        { build: () => {
+  // ═══ ФАЗА VI ═══
+  if (stage === 'galaxy') {
+    const cost = Math.floor(50e9 * Math.pow(4, S.systems - 1));
+    const canAfford = S.dust >= cost;
+    setModal(
+      buildModal('Новая система',
+        'Стоимость системы №' + (S.systems + 1) + ': ' + fmt(cost) + ' пыли.',
+        [{ id: 'build', name: 'Основать систему',
+           desc: canAfford ? 'Заложить фундамент' : 'Не хватает ' + fmt(cost - S.dust),
+           stats: '+50% к доходу',
+           color: '#8b5cf6', icon: '🌌',
+           disabled: !canAfford }]),
+      { build: function() {
           if (S.dust < cost) return;
           const newName = prompt('Имя новой системы:', 'Система ' + (S.systems + 1));
-          if (newName === null) return;   // отмена
+          if (newName === null) return;
           S.dust -= cost;
           const finalName = (newName || 'Система ' + (S.systems + 1)).trim().slice(0, 16);
 
-          // ★ Слот 0 — placeholder
           if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) {
             S.otherSystems[0] = null;
           }
@@ -228,21 +230,24 @@ function openEvolution() {
           closeEvolutionModal();
           toast('Система основана', finalName + ' · Всего: ' + S.systems);
 
-          // ★ Переключаемся на новую систему
           if (typeof switchToSystem === 'function') {
             switchToSystem(newIdx);
           }
         }
       }
+    );
+    return;
+  }
+}
 
-// ─── Показ звезды по итогу ignite ═══════════════════════════════
+// ─── Показ звезды ───────────────────────────────────────────────
 function showStarReveal(starType, quality) {
   const st = STAR_TYPES[starType];
   let qualityText = '';
-  if (quality >= 0.75) qualityText = '🔥 ИДЕАЛЬНОЕ ЗАЖИГАНИЕ';
-  else if (quality >= 0.55) qualityText = '✨ Отличное зажигание';
-  else if (quality >= 0.35) qualityText = '✓ Хорошее зажигание';
-  else if (quality >= 0.15) qualityText = '~ Слабое зажигание';
+  if (quality >= 0.90) qualityText = '🔥 ИДЕАЛЬНОЕ ЗАЖИГАНИЕ';
+  else if (quality >= 0.70) qualityText = '✨ Отличное зажигание';
+  else if (quality >= 0.45) qualityText = '✓ Хорошее зажигание';
+  else if (quality >= 0.25) qualityText = '~ Слабое зажигание';
   else qualityText = '💤 Едва тлеет';
 
   const html =
@@ -266,22 +271,19 @@ function showStarReveal(starType, quality) {
           'Определить систему</div></div>' +
       '</button>' +
     '</div>';
-  setModalRaw(html, {
-    next: () => {
-      // Определяем тип системы (одиночная/двойная/кратная)
-      doSystemRoll();
-    }
+  setModal(html, {
+    next: function() { doSystemRoll(); }
   });
 }
 
 function doSystemRoll() {
-  setModalRaw(
+  setModal(
     '<div class="modal-title">Формирование системы</div>' +
     '<div class="modal-sub">Гравитационный коллапс...</div>' +
     '<div class="collapse-anim"><span>✦</span><span>✦</span><span>✦</span></div>',
     null
   );
-  setTimeout(() => {
+  setTimeout(function() {
     const roll = Math.random();
     let type;
     if (roll < 0.50) type = 'single';
@@ -311,11 +313,9 @@ function revealSystem(type) {
         '<div class="choice-body"><div class="choice-name">Продолжить</div></div>' +
       '</button>' +
     '</div>';
-  setModalRaw(html, {
-        done: () => {
+  setModal(html, {
+    done: function() {
       S.stage = 'firstPlanet';
-      // ★ Сбрасываем таймер газа — теперь он начнёт отсчёт с момента
-      //   выбора звезды (или первой планеты)
       if (typeof resetGas === 'function') resetGas();
       closeEvolutionModal();
       toast('Диск остывает', 'Накопи 800 000 пыли для первой планеты');
@@ -328,7 +328,8 @@ function buildModal(title, sub, choices) {
   let html = '<div class="modal-title">' + title + '</div>';
   if (sub) html += '<div class="modal-sub">' + sub + '</div>';
   html += '<div class="choices">';
-  for (const c of choices) {
+  for (let i = 0; i < choices.length; i++) {
+    const c = choices[i];
     html += '<button class="choice" data-id="' + c.id + '"' +
             (c.disabled ? ' disabled' : '') + '>';
     html += '<div class="choice-icon" style="background:' + c.color +
@@ -345,7 +346,12 @@ function buildModal(title, sub, choices) {
 
 function buildHandlers(choices, runFn) {
   const handlers = {};
-  for (const c of choices) handlers[c.id] = () => runFn(c.id);
+  for (let i = 0; i < choices.length; i++) {
+    const c = choices[i];
+    handlers[c.id] = (function(id) {
+      return function() { runFn(id); };
+    })(c.id);
+  }
   return handlers;
 }
 
@@ -357,14 +363,14 @@ function setModal(html, handlers) {
   evolutionModalOpen = true;
 
   const buttons = card.querySelectorAll('.choice');
-  buttons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const id = btn.dataset.id;
-      if (btn.disabled) return;
+  for (let i = 0; i < buttons.length; i++) {
+    buttons[i].addEventListener('click', function() {
+      const id = this.dataset.id;
+      if (this.disabled) return;
       if (handlers && handlers[id]) handlers[id]();
       else closeEvolutionModal();
     });
-  });
+  }
 }
 
 function setModalRaw(html, handlers) {
@@ -373,4 +379,3 @@ function setModalRaw(html, handlers) {
 
 window.checkEvolution = checkEvolution;
 window.openEvolution = openEvolution;
-}
