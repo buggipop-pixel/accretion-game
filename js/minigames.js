@@ -74,30 +74,30 @@ function startMinigame(type, onComplete) {
     }
   } else if (type === 'ignite') {
     MG.power = 0; MG.elapsedSec = 0; MG.quality = 0;
-    } else if (type === 'assemble') {
+      } else if (type === 'assemble') {
     MG.fieldParticles = [];
     MG.result = null;
     MG.resultLabel = null;
     MG.elapsedSec = 0;
     MG.finishAt = 0;
 
-    // ★ 12 частиц: 3 льда (синие), 3 лавы (красные),
-    //   3 камня (зелёные), 3 газа (жёлтые)
+    // ★ По 3 частицы каждого из 4 цветов = 12 частиц
     const types = ['ice', 'lava', 'stone', 'gas'];
-    for (let i = 0; i < 12; i++) {
-      const typeKey = types[Math.floor(i / 3)];
-      const angle = (i / 12) * Math.PI * 2 + Math.random() * 0.5;
-      const dist = 130 + Math.random() * 80;
-      MG.fieldParticles.push({
-        x: Math.cos(angle) * dist,
-        y: Math.sin(angle) * dist * 0.8,
-        vx: (Math.random() - 0.5) * 80,
-        vy: (Math.random() - 0.5) * 80,
-        r: MG_ASSEMBLE.particleRadius,
-        type: typeKey,
-        level: 1,
-        fixed: false,
-      });
+    for (let t = 0; t < types.length; t++) {
+      for (let k = 0; k < MG_ASSEMBLE.colorsPerType; k++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 130 + Math.random() * 80;
+        MG.fieldParticles.push({
+          x: Math.cos(angle) * dist,
+          y: Math.sin(angle) * dist * 0.8,
+          vx: (Math.random() - 0.5) * 80,
+          vy: (Math.random() - 0.5) * 80,
+          r: MG_ASSEMBLE.baseRadius,
+          colors: [types[t]],
+          tier: 1,
+          fixed: false,
+        });
+      }
     }
   }
 
@@ -208,7 +208,7 @@ function updateAssemble(dt, elapsed, cx, cy) {
     }
   }
 
-  // ─── Движение и границы ───
+  // ─── Движение ───
   for (let i = 0; i < MG.fieldParticles.length; i++) {
     const p = MG.fieldParticles[i];
     if (p.fixed) continue;
@@ -217,7 +217,6 @@ function updateAssemble(dt, elapsed, cx, cy) {
     p.x += p.vx * dt;
     p.y += p.vy * dt;
 
-    // Отражение от границ
     if (Math.abs(p.x) > 260) { p.x = Math.sign(p.x) * 260; p.vx *= -0.7; }
     if (Math.abs(p.y) > 180) { p.y = Math.sign(p.y) * 180; p.vy *= -0.7; }
   }
@@ -225,8 +224,11 @@ function updateAssemble(dt, elapsed, cx, cy) {
   // ─── Столкновения и слияния ───
   for (let i = 0; i < MG.fieldParticles.length; i++) {
     const a = MG.fieldParticles[i];
+    if (a.fixed) continue;
+
     for (let j = i + 1; j < MG.fieldParticles.length; j++) {
       const b = MG.fieldParticles[j];
+      if (b.fixed) continue;
 
       const dx = a.x - b.x;
       const dy = a.y - b.y;
@@ -235,68 +237,94 @@ function updateAssemble(dt, elapsed, cx, cy) {
 
       if (d >= minD) continue;
 
-      // ★ Одинаковый тип + одинаковый уровень → слияние
-      if (a.type === b.type && a.level === b.level) {
-        const newLevel = a.level + 1;
+      // ─── Определяем результат слияния ───
+      const sameColors = a.colors.length === b.colors.length &&
+                         a.colors.every(function(c) { return b.colors.indexOf(c) !== -1; });
+      let mergeResult = null;
+
+      if (sameColors) {
+        // Одинаковые цвета
+        if (a.colors.length === 1) {
+          // Одноцветные — tier растёт
+          const newTier = Math.min(3, Math.max(a.tier, b.tier) + 1);
+          mergeResult = { colors: a.colors, tier: newTier };
+        }
+        // Смешанные с одинаковым составом — не сливаются
+      } else {
+        // Разные цвета — объединяем
+        const merged = a.colors.slice();
+        for (let k = 0; k < b.colors.length; k++) {
+          if (merged.indexOf(b.colors[k]) === -1) merged.push(b.colors[k]);
+        }
+        // Слияние только если состав расширился
+        if (merged.length > a.colors.length || merged.length > b.colors.length) {
+          mergeResult = { colors: merged, tier: 1 };
+        }
+      }
+
+      if (mergeResult) {
+        // ─── Слияние ───
         a.x = (a.x + b.x) / 2;
         a.y = (a.y + b.y) / 2;
         a.vx = (a.vx + b.vx) / 2;
         a.vy = (a.vy + b.vy) / 2;
-        a.level = newLevel;
-        a.r = MG_ASSEMBLE.particleRadius + (newLevel - 1) * MG_ASSEMBLE.levelBonus;
-
-        // Уровень 3 = ядро, фиксируем
-        if (newLevel >= MG_ASSEMBLE.levelToCore) {
-          a.fixed = true;
-          a.vx = 0;
-          a.vy = 0;
-          // Первое ядро определяет планету
-          if (!MG.result) {
-            MG.result = a.type;
-            MG.finishAt = performance.now();
-          }
-        }
+        a.colors = mergeResult.colors;
+        a.tier = mergeResult.tier;
+        a.r = MG_ASSEMBLE.baseRadius + (a.tier - 1) * MG_ASSEMBLE.tierStep;
 
         MG.fieldParticles.splice(j, 1);
         j--;
+
+        // Проверка финала
+        if (a.colors.length === 1 && a.tier >= 3) {
+          // Одноцветная звезда — планета того цвета
+          a.fixed = true;
+          a.vx = 0; a.vy = 0;
+          if (!MG.result) {
+            MG.result = ASSEMBLE_TYPES[a.colors[0]].planet;
+            MG.resultLabel = ASSEMBLE_TYPES[a.colors[0]].name;
+            MG.finishAt = performance.now();
+          }
+        } else if (a.colors.length >= 4) {
+          // 4 цвета — землеподобная
+          a.fixed = true;
+          a.vx = 0; a.vy = 0;
+          if (!MG.result) {
+            MG.result = 'superEarth';
+            MG.resultLabel = 'землеподобная';
+            MG.finishAt = performance.now();
+          }
+        }
       } else {
-        // ★ Отскок (разные типы или разные уровни)
-        const overlap = minD - d;
+        // ─── Отскок (разные tier или одинаковые смешанные) ───
         if (d > 0.001) {
           const nx = dx / d;
           const ny = dy / d;
+          const overlap = minD - d;
           a.x += nx * overlap * 0.5;
           a.y += ny * overlap * 0.5;
           b.x -= nx * overlap * 0.5;
           b.y -= ny * overlap * 0.5;
 
-          // Обмен скоростями с потерей энергии
           const avx = a.vx, avy = a.vy;
-          a.vx = b.vx * 0.85;
-          a.vy = b.vy * 0.85;
-          b.vx = avx * 0.85;
-          b.vy = avy * 0.85;
+          a.vx = b.vx * 0.7;
+          a.vy = b.vy * 0.7;
+          b.vx = avx * 0.7;
+          b.vy = avy * 0.7;
         }
       }
     }
   }
 
-  // Прогресс — доля собранного ядра
-  if (MG.result) {
-    MG.progress = 1;
-  } else {
-    // Прогресс по времени
-    MG.progress = Math.min(0.95, elapsed / MG_ASSEMBLE.duration);
-  }
+  // Прогресс
+  MG.progress = MG.result ? 1 : Math.min(0.95, elapsed / MG_ASSEMBLE.duration);
 
-  // ─── Финал ───
+  // Финал
   if (MG.finishAt && performance.now() - MG.finishAt > MG_ASSEMBLE.finishDelay) {
     finishAssemble();
     return;
   }
-  if (elapsed >= MG_ASSEMBLE.duration) {
-    finishAssemble();
-  }
+  if (elapsed >= MG_ASSEMBLE.duration) finishAssemble();
 }
 
 function finishAssemble() {
@@ -537,10 +565,12 @@ function drawAssemble(ctx, cx, cy, t) {
   ctx.font = 'bold 16px -apple-system, sans-serif';
   ctx.fillStyle = '#e8e2ff';
   ctx.fillText('Собери планету', cx, cy - 240);
-  ctx.font = '13px -apple-system, sans-serif';
+  ctx.font = '12px -apple-system, sans-serif';
   ctx.fillStyle = '#a89ce0';
-  ctx.fillText('Сталкивай одинаковые частицы — они сливаются',
-               cx, cy - 218);
+  ctx.fillText('Столкни одинаковые → большая. Ещё раз → звезда.',
+               cx, cy - 220);
+  ctx.fillText('Разные цвета смешиваются — 4 цвета = Земля.',
+               cx, cy - 204);
   ctx.restore();
 
   // Прогресс
@@ -554,27 +584,25 @@ function drawAssemble(ctx, cx, cy, t) {
 
   ctx.textAlign = 'center';
   ctx.font = '11px -apple-system, sans-serif';
-  ctx.fillStyle = '#8b7fd4';
-
   if (MG.result) {
-    // Ядро собрано — показываем результат
     const pt = PLANET_TYPES[MG.result] || PLANET_TYPES.rocky;
     ctx.fillStyle = '#5ee0a0';
     ctx.font = 'bold 13px -apple-system, sans-serif';
     ctx.fillText('★ ЯДРО СОБРАНО: ' + pt.name, cx, by + 22);
   } else {
-    ctx.fillText('Ядро не собрано — ' + left.toFixed(1) + 'с · получишь землеподобную',
+    ctx.fillStyle = '#8b7fd4';
+    ctx.fillText('Ядро не собрано — ' + left.toFixed(1) + 'с · получишь суперземлю',
                  cx, by + 22);
   }
   ctx.restore();
 
-  // Легенда цветов
+  // Легенда
   const legendY = cy + 260;
   const legendItems = [
-    { type: 'ice',   label: 'лёд' },
-    { type: 'lava',  label: 'лава' },
-    { type: 'stone', label: 'камень' },
-    { type: 'gas',   label: 'газ' },
+    { key: 'ice',   label: 'лёд' },
+    { key: 'lava',  label: 'лава' },
+    { key: 'stone', label: 'камень' },
+    { key: 'gas',   label: 'газ' },
   ];
   const legendW = 60;
   const totalW = legendItems.length * legendW;
@@ -583,19 +611,17 @@ function drawAssemble(ctx, cx, cy, t) {
   ctx.save();
   for (let i = 0; i < legendItems.length; i++) {
     const item = legendItems[i];
-    const conf = ASSEMBLE_TYPES[item.type];
+    const conf = ASSEMBLE_TYPES[item.key];
     const lx = startX + i * legendW;
 
-    // Кружок
     const g = ctx.createRadialGradient(lx, legendY, 0, lx, legendY, 8);
     g.addColorStop(0, conf.color);
-    g.addColorStop(1, conf.glow);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g;
     ctx.beginPath();
     ctx.arc(lx, legendY, 6, 0, Math.PI * 2);
     ctx.fill();
 
-    // Подпись
     ctx.fillStyle = '#a89ce0';
     ctx.font = '9px -apple-system, sans-serif';
     ctx.textAlign = 'center';
@@ -604,54 +630,9 @@ function drawAssemble(ctx, cx, cy, t) {
   ctx.restore();
 
   // Частицы
-  ctx.save();
   for (let i = 0; i < MG.fieldParticles.length; i++) {
-    const p = MG.fieldParticles[i];
-    const conf = ASSEMBLE_TYPES[p.type];
-    const sx = cx + p.x;
-    const sy = cy + p.y;
-
-    // Свечение
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    const pulse = 1 + 0.06 * Math.sin(t * 4 + i);
-    const glowR = p.r * 2.2 * pulse;
-    const gg = ctx.createRadialGradient(sx, sy, 0, sx, sy, glowR);
-    gg.addColorStop(0, conf.glow);
-    gg.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = gg;
-    ctx.beginPath();
-    ctx.arc(sx, sy, glowR, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-
-    // Тело частицы
-    const bodyG = ctx.createRadialGradient(
-      sx - p.r * 0.3, sy - p.r * 0.3, 0, sx, sy, p.r);
-    bodyG.addColorStop(0, lightenHex(conf.color, 0.3));
-    bodyG.addColorStop(1, darkenHex(conf.color, 0.3));
-    ctx.fillStyle = bodyG;
-    ctx.beginPath();
-    ctx.arc(sx, sy, p.r, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Обводка
-    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
-    ctx.lineWidth = p.level >= 2 ? 2.5 : 1.5;
-    ctx.beginPath();
-    ctx.arc(sx, sy, p.r, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Уровень (звёздочки)
-    if (p.level >= 2) {
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold ' + (p.level * 5 + 6) + 'px -apple-system, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(p.level === 3 ? '★' : '★', sx, sy);
-    }
+    drawAssembleParticle(ctx, MG.fieldParticles[i], cx, cy, t, i);
   }
-  ctx.restore();
 
   // Подсказка
   if (!MG.dragActive && !MG.result && (MG.elapsedSec || 0) < 4) {
@@ -661,9 +642,106 @@ function drawAssemble(ctx, cx, cy, t) {
     ctx.textAlign = 'center';
     ctx.globalAlpha = 0.7 + 0.3 * Math.sin(t * 5);
     ctx.fillText('ТАЩИ ПАЛЬЦЕМ — СТАЛКИВАЙ ОДИНАКОВЫЕ',
-                 cx, cy + 300);
+                 cx, cy + 310);
     ctx.restore();
   }
+}
+
+// ─── Рисование одной частицы ────────────────────────────────────
+function drawAssembleParticle(ctx, p, cx, cy, t, idx) {
+  const sx = cx + p.x;
+  const sy = cy + p.y;
+
+  // Свечение
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const pulse = 1 + 0.06 * Math.sin(t * 4 + idx);
+  const glowR = p.r * 2 * pulse;
+  const gg = ctx.createRadialGradient(sx, sy, 0, sx, sy, glowR);
+  if (p.colors.length === 1) {
+    gg.addColorStop(0, ASSEMBLE_TYPES[p.colors[0]].glow);
+  } else {
+    gg.addColorStop(0, 'rgba(255,255,255,0.4)');
+  }
+  gg.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = gg;
+  ctx.beginPath();
+  ctx.arc(sx, sy, glowR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Тело
+  if (p.colors.length === 1) {
+    // Одноцветная — обычный шар
+    const color = ASSEMBLE_TYPES[p.colors[0]].color;
+    const g = ctx.createRadialGradient(sx - p.r * 0.3, sy - p.r * 0.3, 0,
+                                        sx, sy, p.r);
+    g.addColorStop(0, lightenHex(color, 0.35));
+    g.addColorStop(1, darkenHex(color, 0.3));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(sx, sy, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // Многоцветная — сектора
+    const n = p.colors.length;
+    for (let k = 0; k < n; k++) {
+      const a0 = (k / n) * Math.PI * 2 - Math.PI / 2;
+      const a1 = ((k + 1) / n) * Math.PI * 2 - Math.PI / 2;
+      ctx.fillStyle = ASSEMBLE_TYPES[p.colors[k]].color;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.arc(sx, sy, p.r, a0, a1);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // Мягкое внутреннее свечение
+    const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, p.r);
+    g.addColorStop(0, 'rgba(255,255,255,0.15)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(sx, sy, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Обводка
+  ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+  ctx.lineWidth = p.tier >= 3 ? 3 : (p.tier >= 2 ? 2 : 1.5);
+  ctx.beginPath();
+  ctx.arc(sx, sy, p.r, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Звезда для tier 3
+  if (p.tier >= 3) {
+    ctx.save();
+    ctx.fillStyle = '#fff';
+    ctx.shadowColor = '#fff';
+    ctx.shadowBlur = 12;
+    ctx.font = 'bold ' + Math.round(p.r * 0.9) + 'px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('★', sx, sy);
+    ctx.restore();
+  }
+}
+
+// ─── Утилиты цвета ──────────────────────────────────────────────
+function lightenHex(hex, amt) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return 'rgb(' + Math.min(255, r + amt * 255) + ',' +
+    Math.min(255, g + amt * 255) + ',' +
+    Math.min(255, b + amt * 255) + ')';
+}
+function darkenHex(hex, amt) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return 'rgb(' + Math.max(0, r - amt * 255) + ',' +
+    Math.max(0, g - amt * 255) + ',' +
+    Math.max(0, b - amt * 255) + ')';
 }
 
 // ─── Утилиты цветов для assemble ────────────────────────────────
