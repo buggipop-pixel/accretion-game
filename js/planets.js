@@ -270,14 +270,15 @@ function drawPlanets(ctx, time) {
   const starHue = S.starType ? STAR_TYPES[S.starType].color : 260;
 
   // ─── Снеговая линия ───
-  if (S.starType) {
+  // Тонкая пунктирная окружность на 2.7 а.е. Показывает границу зон.
+  // Показываем только после создания первой планеты, чтобы не мешать раннему экрану.
+  if (S.starType && S.planets.length > 0) {
     const snowPx = PHYS.snowLine;
 
-    // Кольцо
     ctx.save();
-    ctx.strokeStyle = 'rgba(126, 200, 227, 0.55)';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([10, 12]);
+    ctx.strokeStyle = 'rgba(126, 200, 227, 0.25)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([6, 10]);
     ctx.beginPath();
     for (let a = 0; a <= Math.PI * 2 + 0.01; a += 0.2) {
       const wx = Math.cos(a) * snowPx;
@@ -289,37 +290,6 @@ function drawPlanets(ctx, time) {
     ctx.closePath();
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.restore();
-
-    // Подписи зон
-    const inner = worldToScreen(-snowPx + 100, 0);
-    const outer = worldToScreen(snowPx + 100, 0);
-
-    ctx.save();
-    ctx.font = 'bold 11px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    // Внутренняя зона — камень/лава
-    const innerText = '🔥 камень / лава';
-    const innerW = ctx.measureText(innerText).width;
-    ctx.fillStyle = 'rgba(60, 30, 20, 0.9)';
-    ctx.fillRect(inner.x - innerW/2 - 6, inner.y - 10, innerW + 12, 20);
-    ctx.strokeStyle = 'rgba(255, 100, 60, 0.6)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(inner.x - innerW/2 - 6, inner.y - 10, innerW + 12, 20);
-    ctx.fillStyle = '#ff8866';
-    ctx.fillText(innerText, inner.x, inner.y);
-
-    // Внешняя зона — лёд/газ
-    const outerText = '❄ лёд / газ';
-    const outerW = ctx.measureText(outerText).width;
-    ctx.fillStyle = 'rgba(20, 35, 55, 0.9)';
-    ctx.fillRect(outer.x - outerW/2 - 6, outer.y - 10, outerW + 12, 20);
-    ctx.strokeStyle = 'rgba(126, 200, 227, 0.6)';
-    ctx.strokeRect(outer.x - outerW/2 - 6, outer.y - 10, outerW + 12, 20);
-    ctx.fillStyle = '#7ec8e3';
-    ctx.fillText(outerText, outer.x, outer.y);
     ctx.restore();
   }
 
