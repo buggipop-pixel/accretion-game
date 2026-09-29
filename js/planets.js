@@ -4,7 +4,38 @@
 
 const VIEW_COS = 0.5;
 
-// ─── Добавление планеты ─────────────────────────────────────────
+// ─── Позиция планеты на эллиптической орбите ────────────────────
+// В одиночной системе e=0 → обычная круговая орбита.
+// В двойной/тройной — эллипс с прецессией перицентра.
+// Формула: r(θ) = a·(1−e²) / (1 + e·cos θ),  θ — истинная аномалия.
+function getPlanetWorldPos(p, timeSec) {
+  const st = SYSTEM_TYPES[S.systemType || 'single'];
+  const e = st.eccentricity || 0;
+  const a = p.baseOrbitR || 100;
+
+  // Текущая истинная аномалия
+  const theta = (p.angle || 0) + timeSec * (p.speed || 0.15);
+
+  // Радиус на эллипсе
+  let r;
+  if (e < 0.001) {
+    r = a;
+  } else {
+    r = a * (1 - e * e) / (1 + e * Math.cos(theta));
+  }
+
+  // Угол с учётом прецессии
+  const finalAngle = theta + (p.precession || 0);
+
+  return {
+    x: Math.cos(finalAngle) * r,
+    y: Math.sin(finalAngle) * r * VIEW_COS,
+    r: r,
+  };
+}
+window.getPlanetWorldPos = getPlanetWorldPos;
+
+// ─── Добавление новой планеты ───────────────────────────────────
 function addPlanet(type) {
   if (S.planets.length >= 8) return false;
   const idx = S.planets.length;
@@ -13,7 +44,7 @@ function addPlanet(type) {
     type: type,
     angle: Math.random() * Math.PI * 2,
     speed: 0.15 / Math.sqrt(idx + 1),
-    baseOrbitR: 90 + idx * 50,
+    baseOrbitR: 90 + idx * 50,  // ★ Шаг 50 px — планеты не пересекаются
     orbitR: 90 + idx * 50,
     driftPhase: Math.random() * Math.PI * 2,
     rotation: Math.random() * Math.PI * 2,
@@ -23,6 +54,8 @@ function addPlanet(type) {
     mass: planetMass(type),
     diameter: diam,
     moons: [],
+    precession: 0,
+    trueAnomaly: 0,
   });
   return true;
 }
@@ -38,14 +71,19 @@ function planetDiameter(type) {
 }
 
 // ─── Обновление планет ──────────────────────────────────────────
+// Прецессия, миграция, дрейф, случайные толчки
 function updatePlanets(dt) {
   if (!S.systemType) return;
   const now = Date.now();
+  const timeSec = now / 1000;
 
   if (typeof initGas === 'function' && GAS.initTime === null) initGas();
 
+  const st = SYSTEM_TYPES[S.systemType] || SYSTEM_TYPES.single;
+
   for (let i = 0; i < S.planets.length; i++) {
     const p = S.planets[i];
+
     if (p.forming) {
       if (now >= p.formUntil) {
         p.forming = false;
@@ -54,16 +92,35 @@ function updatePlanets(dt) {
       continue;
     }
 
-    // Миграция I типа
+    // Прецессия перицентра — медленный поворот ориентации орбиты
+    p.precession = (p.precession || 0) + st.precession * dt;
+
+    // Миграция I типа (пока есть газ)
     if (typeof migrationRate === 'function') {
       const dr = migrationRate(p);
       if (dr !== 0) p.baseOrbitR = Math.max(55, p.baseOrbitR + dr * dt);
     }
 
-    p.orbitR = p.baseOrbitR * (1 + 0.12 * Math.sin(now * 0.00002 + p.driftPhase));
+    // Дрейф орбиты от возмущений (в двойных/тройных системах)
+    if (st.orbitDriftRate > 0) {
+      const drift = Math.sin(timeSec * 0.00005 + (p.seed || 0) * 0.001) *
+                    st.orbitDriftRate * dt;
+      p.baseOrbitR += drift;
+    }
+
+    // Случайные гравитационные толчки (в тройных — часто, в двойных — редко)
+    if (st.chaosticPulse > 0 && Math.random() < st.chaosticPulse * dt) {
+      p.baseOrbitR += (Math.random() - 0.5) * 25;
+      p.driftPhase += Math.random() * Math.PI;
+    }
+
+    // Ограничения радиуса
+    p.baseOrbitR = Math.max(55, Math.min(450, p.baseOrbitR));
+    p.orbitR = p.baseOrbitR;
     p.rotation += dt * 0.5;
   }
 
+  // Очистка завершённых взрывов
   for (let i = S.explosions.length - 1; i >= 0; i--) {
     if (now > S.explosions[i].endAt) S.explosions.splice(i, 1);
   }
@@ -71,7 +128,7 @@ function updatePlanets(dt) {
   checkCollisions();
 }
 
-// ─── Столкновения ───────────────────────────────────────────────
+// ─── Столкновения планет ────────────────────────────────────────
 function checkCollisions() {
   const st = SYSTEM_TYPES[S.systemType];
   if (!st.collisionPerPlanet) return;
@@ -86,29 +143,35 @@ function checkCollisions() {
   const chance = st.collisionPerPlanet * active.length;
   if (Math.random() > chance) return;
 
-  const sorted = active.slice().sort(function(a, b) { return a.orbitR - b.orbitR; });
+  const sorted = active.slice().sort(function(a, b) {
+    return a.baseOrbitR - b.baseOrbitR;
+  });
+
   for (let i = 0; i < sorted.length - 1; i++) {
-    const decision = shouldMerge(sorted[i], sorted[i + 1]);
-    if (decision === 'merge') { collidePlanets(sorted[i], sorted[i + 1], 'merge'); return; }
-    if (decision === 'bounce') { collidePlanets(sorted[i], sorted[i + 1], 'bounce'); return; }
+    const a = sorted[i], b = sorted[i + 1];
+    const decision = shouldMerge(a, b);
+    if (decision === 'merge') { collidePlanets(a, b, 'merge'); return; }
+    if (decision === 'bounce') { collidePlanets(a, b, 'bounce'); return; }
   }
 }
 
+// ─── Слияние, отскок или разрушение ─────────────────────────────
 function collidePlanets(a, b, decision) {
   const aPt = PLANET_TYPES[a.type];
   const bPt = PLANET_TYPES[b.type];
 
-  const angleA = a.angle, angleB = b.angle;
-  const wxA = Math.cos(angleA) * a.orbitR;
-  const wyA = Math.sin(angleA) * a.orbitR * VIEW_COS;
-  const wxB = Math.cos(angleB) * b.orbitR;
-  const wyB = Math.sin(angleB) * b.orbitR * VIEW_COS;
-  const wmx = (wxA + wxB) / 2, wmy = (wyA + wyB) / 2;
+  // Реальные мировые координаты через эллиптическую функцию
+  const nowSec = Date.now() / 1000;
+  const posA = getPlanetWorldPos(a, nowSec);
+  const posB = getPlanetWorldPos(b, nowSec);
+  const wmx = (posA.x + posB.x) / 2;
+  const wmy = (posA.y + posB.y) / 2;
   const bigMass = a.mass + b.mass;
   const roll = Math.random();
 
+  // ─── Отскок ───
   if (decision === 'bounce') {
-    const avgR = (a.orbitR + b.orbitR) / 2;
+    const avgR = (a.baseOrbitR + b.baseOrbitR) / 2;
     a.baseOrbitR = Math.max(60, avgR - 20);
     b.baseOrbitR = avgR + 20;
     const dustLoss = Math.floor(S.dust * 0.08);
@@ -122,13 +185,14 @@ function collidePlanets(a, b, decision) {
     return;
   }
 
+  // ─── Разрушение ───
   if (roll < 0.35) {
-    // Разрушение
     const refund = Math.floor((aPt.rate + bPt.rate) * 600);
     S.dust += refund;
     S.dustTotal += refund;
     S.planets = S.planets.filter(function(p) { return p !== a && p !== b; });
 
+    // Шанс появления луны
     if (Math.random() < 0.3 && S.planets.length > 0) {
       const lucky = S.planets[Math.floor(Math.random() * S.planets.length)];
       lucky.moons.push({
@@ -148,14 +212,19 @@ function collidePlanets(a, b, decision) {
     });
     toast('💥 Столкновение', '+' + fmt(refund) + ' пыли');
   } else {
-    // Слияние
+    // ─── Слияние с формированием ───
     const newMass = a.mass + b.mass;
     let newType = aPt.rate > bPt.rate ? a.type : b.type;
-    const rPix = (a.orbitR + b.orbitR) / 2;
+    const rPix = (a.baseOrbitR + b.baseOrbitR) / 2;
     const rAe = rPix / PHYS.refRadius;
     const zone = zoneAt(rAe);
-    if (zone === 'rocky' && (newType === 'gasGiant' || newType === 'iceGiant')) newType = 'rocky';
-    else if (zone === 'ice' && newType === 'rocky') newType = 'iceGiant';
+
+    // Корректировка типа по снеговой линии
+    if (zone === 'rocky' && (newType === 'gasGiant' || newType === 'iceGiant')) {
+      newType = 'rocky';
+    } else if (zone === 'ice' && newType === 'rocky') {
+      newType = 'iceGiant';
+    }
 
     S.planets = S.planets.filter(function(p) { return p !== a && p !== b; });
     const idx = S.planets.length;
@@ -171,6 +240,8 @@ function collidePlanets(a, b, decision) {
       mass: newMass,
       diameter: Math.pow(newMass, 1/3) * 1.1,
       moons: [],
+      precession: 0,
+      trueAnomaly: 0,
     });
 
     const sp = worldToScreen(wmx, wmy);
@@ -188,7 +259,7 @@ function drawPlanets(ctx, time) {
   const z = S.zoom || 1;
   const starHue = S.starType ? STAR_TYPES[S.starType].color : 260;
 
-  // Снеговая линия
+  // ─── Снеговая линия ───
   if (S.starType) {
     const snowPx = PHYS.snowLine;
     ctx.save();
@@ -206,19 +277,19 @@ function drawPlanets(ctx, time) {
     ctx.closePath();
     ctx.stroke();
     ctx.setLineDash([]);
+
+    // Подпись с фоном
     const lblPos = worldToScreen(snowPx, 0);
     ctx.font = 'bold 11px -apple-system, sans-serif';
     const labelText = '❄ Снеговая линия · 2.7 а.е.';
     const textW = ctx.measureText(labelText).width;
     const bgX = lblPos.x + 8;
     const bgY = lblPos.y - 22;
-    // Фон
     ctx.fillStyle = 'rgba(15, 25, 45, 0.9)';
     ctx.fillRect(bgX - 6, bgY - 8, textW + 12, 20);
     ctx.strokeStyle = 'rgba(126, 200, 227, 0.6)';
     ctx.lineWidth = 1;
     ctx.strokeRect(bgX - 6, bgY - 8, textW + 12, 20);
-    // Текст
     ctx.fillStyle = '#7ec8e3';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
@@ -229,19 +300,37 @@ function drawPlanets(ctx, time) {
 
   if (S.planets.length === 0) return;
 
-  // Орбиты
+  // ─── Орбиты — эллипсы с учётом эксцентриситета и прецессии ───
+  const sysConf = SYSTEM_TYPES[S.systemType || 'single'];
+  const eccentricity = sysConf.eccentricity || 0;
+
   ctx.save();
   for (let i = 0; i < S.planets.length; i++) {
     const p = S.planets[i];
     if (p.forming) continue;
-    ctx.strokeStyle = 'hsla(' + starHue + ', 50%, 60%, 0.10)';
+
+    ctx.strokeStyle = 'hsla(' + starHue + ', 50%, 60%, ' +
+                      (eccentricity > 0.1 ? 0.18 : 0.10) + ')';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let a = 0; a <= Math.PI * 2 + 0.01; a += 0.2) {
-      const wx = Math.cos(a) * p.orbitR;
-      const wy = Math.sin(a) * p.orbitR * VIEW_COS;
+
+    const a = p.baseOrbitR;
+    const prec = p.precession || 0;
+    const steps = 48;
+    for (let k = 0; k <= steps; k++) {
+      const theta = (k / steps) * Math.PI * 2;
+      let r;
+      if (eccentricity < 0.001) {
+        r = a;
+      } else {
+        r = a * (1 - eccentricity * eccentricity) /
+            (1 + eccentricity * Math.cos(theta));
+      }
+      const finalAngle = theta + prec;
+      const wx = Math.cos(finalAngle) * r;
+      const wy = Math.sin(finalAngle) * r * VIEW_COS;
       const sp = worldToScreen(wx, wy);
-      if (a === 0) ctx.moveTo(sp.x, sp.y);
+      if (k === 0) ctx.moveTo(sp.x, sp.y);
       else ctx.lineTo(sp.x, sp.y);
     }
     ctx.closePath();
@@ -249,13 +338,10 @@ function drawPlanets(ctx, time) {
   }
   ctx.restore();
 
-  // Сортировка по глубине
+  // ─── Позиции планет через getPlanetWorldPos ───
   const sorted = S.planets.map(function(p) {
-    const angle = p.angle + t * p.speed;
-    const sinA = Math.sin(angle);
-    const wx = Math.cos(angle) * p.orbitR;
-    const wy = sinA * p.orbitR * VIEW_COS;
-    return { p: p, wx: wx, wy: wy, depth: sinA };
+    const pos = getPlanetWorldPos(p, t);
+    return { p: p, wx: pos.x, wy: pos.y, depth: pos.y / 100 };
   }).sort(function(a, b) { return a.depth - b.depth; });
 
   for (let i = 0; i < sorted.length; i++) {
@@ -274,6 +360,7 @@ function drawPlanets(ctx, time) {
     const baseSize = 5 * p.diameter * scale;
     drawTexturedPlanet(ctx, sp.x, sp.y, baseSize, p, alpha);
 
+    // Луны
     for (let m = 0; m < p.moons.length; m++) {
       const moon = p.moons[m];
       const mAngle = moon.angle + t * moon.speed;
@@ -301,41 +388,41 @@ function drawTexturedPlanet(ctx, x, y, size, p, alpha) {
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   ctx.globalAlpha = alpha * 0.5;
-  const glowGrad = ctx.createRadialGradient(x, y, size*0.7, x, y, size*2.8);
+  const glowGrad = ctx.createRadialGradient(x, y, size * 0.7, x, y, size * 2.8);
   glowGrad.addColorStop(0, pt.color);
   glowGrad.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = glowGrad;
   ctx.beginPath();
-  ctx.arc(x, y, size*2.8, 0, Math.PI*2);
+  ctx.arc(x, y, size * 2.8, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 
-  // Тело
+  // Тело планеты
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.beginPath();
-  ctx.arc(x, y, size, 0, Math.PI*2);
+  ctx.arc(x, y, size, 0, Math.PI * 2);
   ctx.clip();
 
   const baseGrad = ctx.createRadialGradient(
-    x - size*0.3, y - size*0.3, 0, x, y, size);
+    x - size * 0.3, y - size * 0.3, 0, x, y, size);
   baseGrad.addColorStop(0, lightenColor(pt.color, 0.4));
   baseGrad.addColorStop(0.7, pt.color);
   baseGrad.addColorStop(1, darkenColor(pt.color, 0.4));
   ctx.fillStyle = baseGrad;
-  ctx.fillRect(x-size, y-size, size*2, size*2);
+  ctx.fillRect(x - size, y - size, size * 2, size * 2);
 
   drawPlanetTexture(ctx, x, y, size, p);
 
-  // Тень
+  // Тень от звезды
   const shadowAngle = Math.atan2(y - starPos.y, x - starPos.x) - Math.PI;
-  const shx = x + Math.cos(shadowAngle)*size*1.5;
-  const shy = y + Math.sin(shadowAngle)*size*1.5;
-  const shadowGrad = ctx.createRadialGradient(shx, shy, 0, shx, shy, size*2);
+  const shx = x + Math.cos(shadowAngle) * size * 1.5;
+  const shy = y + Math.sin(shadowAngle) * size * 1.5;
+  const shadowGrad = ctx.createRadialGradient(shx, shy, 0, shx, shy, size * 2);
   shadowGrad.addColorStop(0, 'rgba(0,0,0,0.75)');
   shadowGrad.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = shadowGrad;
-  ctx.fillRect(x-size, y-size, size*2, size*2);
+  ctx.fillRect(x - size, y - size, size * 2, size * 2);
   ctx.restore();
 
   if (p.type === 'gasGiant') drawRings(ctx, x, y, size, alpha);
@@ -349,46 +436,49 @@ function drawPlanetTexture(ctx, x, y, size, p) {
 
   if (p.type === 'rocky' || p.type === 'superEarth') {
     for (let i = 0; i < 12; i++) {
-      const a = hash(seed + i*3.7) * Math.PI * 2;
-      const r = hash(seed + i*5.1) * size * 0.85;
-      const cr = 1 + hash(seed + i*7.3) * (size*0.18);
+      const a = hash(seed + i * 3.7) * Math.PI * 2;
+      const r = hash(seed + i * 5.1) * size * 0.85;
+      const cr = 1 + hash(seed + i * 7.3) * (size * 0.18);
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
       ctx.beginPath();
-      ctx.arc(x + Math.cos(a+rot*0.3)*r, y + Math.sin(a+rot*0.3)*r, cr, 0, Math.PI*2);
+      ctx.arc(x + Math.cos(a + rot * 0.3) * r,
+              y + Math.sin(a + rot * 0.3) * r, cr, 0, Math.PI * 2);
       ctx.fill();
     }
   }
 
   if (p.type === 'gasGiant' || p.type === 'iceGiant') {
     for (let i = 0; i < 6; i++) {
-      const sy = y - size + (i+0.5)*(size*2/6);
-      const sh = (size*2/6)*0.5;
-      const hs = hash(seed + i*11.3);
+      const sy = y - size + (i + 0.5) * (size * 2 / 6);
+      const sh = (size * 2 / 6) * 0.5;
+      const hs = hash(seed + i * 11.3);
       if (p.type === 'gasGiant') {
-        ctx.fillStyle = 'hsla(' + (35+hs*15) + ', 60%, ' + (50+hs*20) + '%, 0.6)';
+        ctx.fillStyle = 'hsla(' + (35 + hs * 15) + ', 60%, ' +
+                        (50 + hs * 20) + '%, 0.6)';
       } else {
-        ctx.fillStyle = 'hsla(' + (200+hs*20) + ', 70%, ' + (65+hs*15) + '%, 0.55)';
+        ctx.fillStyle = 'hsla(' + (200 + hs * 20) + ', 70%, ' +
+                        (65 + hs * 15) + '%, 0.55)';
       }
       ctx.beginPath();
-      ctx.ellipse(x + Math.sin(rot*0.5+i)*2, sy, size, sh, 0, 0, Math.PI*2);
+      ctx.ellipse(x + Math.sin(rot * 0.5 + i) * 2, sy, size, sh, 0, 0, Math.PI * 2);
       ctx.fill();
     }
   }
 
   if (p.type === 'lava') {
-    const pulse = 0.7 + 0.3*Math.sin(Date.now()*0.003 + seed);
+    const pulse = 0.7 + 0.3 * Math.sin(Date.now() * 0.003 + seed);
     ctx.globalAlpha = 0.7;
     for (let i = 0; i < 8; i++) {
-      const a = hash(seed + i*13.7) * Math.PI * 2;
-      const r = hash(seed + i*17.1) * size * 0.8;
-      const px = x + Math.cos(a+rot*0.2)*r;
-      const py = y + Math.sin(a+rot*0.2)*r;
-      const gr = ctx.createRadialGradient(px, py, 0, px, py, size*0.25);
+      const a = hash(seed + i * 13.7) * Math.PI * 2;
+      const r = hash(seed + i * 17.1) * size * 0.8;
+      const px = x + Math.cos(a + rot * 0.2) * r;
+      const py = y + Math.sin(a + rot * 0.2) * r;
+      const gr = ctx.createRadialGradient(px, py, 0, px, py, size * 0.25);
       gr.addColorStop(0, 'rgba(255,200,60,' + pulse + ')');
       gr.addColorStop(1, 'rgba(200,40,0,0)');
       ctx.fillStyle = gr;
       ctx.beginPath();
-      ctx.arc(px, py, size*0.25, 0, Math.PI*2);
+      ctx.arc(px, py, size * 0.25, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -403,11 +493,12 @@ function drawRings(ctx, x, y, size, alpha) {
   ctx.strokeStyle = 'rgba(212,167,106,0.7)';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.arc(0, 0, size*2, 0, Math.PI*2);
+  ctx.arc(0, 0, size * 2, 0, Math.PI * 2);
   ctx.stroke();
   ctx.restore();
 }
 
+// ─── Формирующаяся планета ──────────────────────────────────────
 function drawFormingPlanet(ctx, x, y, t, p, z) {
   const remain = Math.max(0, (p.formUntil - Date.now()) / 1000);
   const total = CFG.formationDuration;
@@ -416,26 +507,28 @@ function drawFormingPlanet(ctx, x, y, t, p, z) {
 
   ctx.save();
   for (let i = 0; i < 8; i++) {
-    const a = t*1.5 + i*Math.PI/4;
-    const r = baseR*(1 + Math.sin(t*3+i)*0.2);
-    const px = x + Math.cos(a)*r;
-    const py = y + Math.sin(a)*r*0.6;
+    const a = t * 1.5 + i * Math.PI / 4;
+    const r = baseR * (1 + Math.sin(t * 3 + i) * 0.2);
+    const px = x + Math.cos(a) * r;
+    const py = y + Math.sin(a) * r * 0.6;
     const g = ctx.createRadialGradient(px, py, 0, px, py, 4);
     g.addColorStop(0, 'rgba(255,220,150,0.8)');
     g.addColorStop(1, 'rgba(255,180,80,0)');
     ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.arc(px, py, 4, 0, Math.PI*2);
+    ctx.arc(px, py, 4, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.strokeStyle = 'rgba(255,220,150,0.9)';
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.arc(x, y, baseR*0.6, -Math.PI/2, -Math.PI/2 + Math.PI*2*progress);
+  ctx.arc(x, y, baseR * 0.6, -Math.PI / 2,
+          -Math.PI / 2 + Math.PI * 2 * progress);
   ctx.stroke();
   ctx.restore();
 }
 
+// ─── Взрывы ─────────────────────────────────────────────────────
 function drawExplosions(ctx) {
   const now = Date.now();
   for (let i = 0; i < S.explosions.length; i++) {
@@ -455,17 +548,17 @@ function drawExplosions(ctx) {
 
     const g = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, r);
     g.addColorStop(0, 'hsla(' + hue + ', 100%, 90%, ' + alpha + ')');
-    g.addColorStop(0.4, 'hsla(' + hue + ', 95%, 60%, ' + (alpha*0.7) + ')');
+    g.addColorStop(0.4, 'hsla(' + hue + ', 95%, 60%, ' + (alpha * 0.7) + ')');
     g.addColorStop(1, 'hsla(' + hue + ', 80%, 40%, 0)');
     ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.arc(e.x, e.y, r, 0, Math.PI*2);
+    ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.strokeStyle = 'hsla(' + hue + ', 100%, 80%, ' + (alpha*0.7) + ')';
+    ctx.strokeStyle = 'hsla(' + hue + ', 100%, 80%, ' + (alpha * 0.7) + ')';
     ctx.lineWidth = 2 * (1 - prog);
     ctx.beginPath();
-    ctx.arc(e.x, e.y, r*1.3, 0, Math.PI*2);
+    ctx.arc(e.x, e.y, r * 1.3, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
   }
@@ -487,15 +580,15 @@ function drawStar(ctx, time) {
     const a = t * 0.22;
     const wx1 = Math.cos(a) * sep;
     const wy1 = Math.sin(a) * sep * 0.4;
-    drawOneStar(ctx, wx1, wy1, st.size*0.82, t, 1.7, z);
-    drawOneStar(ctx, -wx1, -wy1, st.size*0.82, t, 3.4, z);
+    drawOneStar(ctx, wx1, wy1, st.size * 0.82, t, 1.7, z);
+    drawOneStar(ctx, -wx1, -wy1, st.size * 0.82, t, 3.4, z);
   } else {
     const sep = 55;
     for (let i = 0; i < 3; i++) {
-      const baseA = (i/3)*Math.PI*2 + t*0.15;
-      const wx = Math.cos(baseA)*sep;
-      const wy = Math.sin(baseA)*sep*0.4;
-      drawOneStar(ctx, wx, wy, st.size*0.68, t, i*1.9, z);
+      const baseA = (i / 3) * Math.PI * 2 + t * 0.15;
+      const wx = Math.cos(baseA) * sep;
+      const wy = Math.sin(baseA) * sep * 0.4;
+      drawOneStar(ctx, wx, wy, st.size * 0.68, t, i * 1.9, z);
     }
   }
 }
@@ -505,7 +598,7 @@ function drawOneStar(ctx, wx, wy, sizeMul, t, seed, z) {
   const sp = worldToScreen(wx, wy);
   const hue = st.color, sat = st.sat, light = st.light;
   const baseR = 14 * sizeMul * z;
-  const pulse = 1 + 0.06*Math.sin(t*2.4 + seed);
+  const pulse = 1 + 0.06 * Math.sin(t * 2.4 + seed);
 
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
@@ -513,34 +606,41 @@ function drawOneStar(ctx, wx, wy, sizeMul, t, seed, z) {
   const halo = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, haloR);
   halo.addColorStop(0, 'hsla(' + hue + ', 100%, 95%, 0.6)');
   halo.addColorStop(0.15, 'hsla(' + hue + ', ' + sat + '%, ' + light + '%, 0.55)');
-  halo.addColorStop(0.45, 'hsla(' + hue + ', ' + sat + '%, ' + (light-15) + '%, 0.2)');
-  halo.addColorStop(1, 'hsla(' + hue + ', ' + sat + '%, ' + (light-30) + '%, 0)');
+  halo.addColorStop(0.45, 'hsla(' + hue + ', ' + sat + '%, ' + (light - 15) + '%, 0.2)');
+  halo.addColorStop(1, 'hsla(' + hue + ', ' + sat + '%, ' + (light - 30) + '%, 0)');
   ctx.fillStyle = halo;
   ctx.beginPath();
-  ctx.arc(sp.x, sp.y, haloR, 0, Math.PI*2);
+  ctx.arc(sp.x, sp.y, haloR, 0, Math.PI * 2);
   ctx.fill();
+
   ctx.fillStyle = 'hsla(' + hue + ', 100%, 99%, 1)';
   ctx.beginPath();
-  ctx.arc(sp.x, sp.y, baseR*0.55*pulse, 0, Math.PI*2);
+  ctx.arc(sp.x, sp.y, baseR * 0.55 * pulse, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }
 
-// ─── Утилиты ────────────────────────────────────────────────────
+// ─── Утилиты цвета и хэш ────────────────────────────────────────
 function hexToRgb(hex) {
   const m = hex.match(/^#([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
-  if (!m) return { r:128, g:128, b:128 };
-  return { r:parseInt(m[1],16), g:parseInt(m[2],16), b:parseInt(m[3],16) };
+  if (!m) return { r: 128, g: 128, b: 128 };
+  return {
+    r: parseInt(m[1], 16),
+    g: parseInt(m[2], 16),
+    b: parseInt(m[3], 16),
+  };
 }
 function lightenColor(hex, amt) {
   const c = hexToRgb(hex);
-  return 'rgb(' + Math.min(255, c.r+amt*255) + ',' +
-    Math.min(255, c.g+amt*255) + ',' + Math.min(255, c.b+amt*255) + ')';
+  return 'rgb(' + Math.min(255, c.r + amt * 255) + ',' +
+    Math.min(255, c.g + amt * 255) + ',' +
+    Math.min(255, c.b + amt * 255) + ')';
 }
 function darkenColor(hex, amt) {
   const c = hexToRgb(hex);
-  return 'rgb(' + Math.max(0, c.r-amt*255) + ',' +
-    Math.max(0, c.g-amt*255) + ',' + Math.max(0, c.b-amt*255) + ')';
+  return 'rgb(' + Math.max(0, c.r - amt * 255) + ',' +
+    Math.max(0, c.g - amt * 255) + ',' +
+    Math.max(0, c.b - amt * 255) + ')';
 }
 function hash(n) {
   const s = Math.sin(n * 12.9898) * 43758.5453;
