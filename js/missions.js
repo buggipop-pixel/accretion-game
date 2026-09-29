@@ -170,15 +170,6 @@ function launchExpedition() {
 }
 
 // ─── НОВАЯ СИСТЕМА ──────────────────────────────────────────────
-function canCreateSystem() {
-  if (S.civLevel < 8) return { ok: false, reason: 'Нужен цив. 8' };
-  const eCost = newSystemEnergyCost();
-  const cCost = newSystemCivCost();
-  if (S.energy < eCost) return { ok: false, reason: 'Нужно ' + fmt(eCost) + '⚡' };
-  if (S.civLevel < cCost) return { ok: false, reason: 'Нужно ' + cCost + '🧬' };
-  return { ok: true, eCost: eCost, cCost: cCost };
-}
-
 function createNewSystem() {
   const check = canCreateSystem();
   if (!check.ok) {
@@ -189,19 +180,38 @@ function createNewSystem() {
   S.civLevel -= check.cCost;
 
   const newName = prompt('Имя новой системы:', 'Система ' + (S.systems + 1));
+  if (newName === null) {
+    // Отмена — возвращаем ресурсы
+    S.energy += check.eCost;
+    S.civLevel += check.cCost;
+    return false;
+  }
   const finalName = (newName || 'Система ' + (S.systems + 1)).trim().slice(0, 16);
 
+  // ★ Гарантируем слот 0 (placeholder для родной системы)
+  if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) {
+    S.otherSystems[0] = null;
+  }
+
+  // ★ Добавляем новую систему в конец
+  const newIdx = S.otherSystems.length;
   S.otherSystems.push({
     name: finalName,
     starType: 'G',
     systemType: 'single',
     planets: [],
   });
+
   S.systems++;
   S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
 
   if (typeof toast === 'function') {
     toast('Система основана', finalName + ' · Всего: ' + S.systems);
+  }
+
+  // ★ Переключаемся на новую систему
+  if (typeof switchToSystem === 'function') {
+    switchToSystem(newIdx);
   }
   return true;
 }
@@ -314,7 +324,7 @@ function renderMissionButtons() {
   let html = '';
 
   if (cometCheck.ok) {
-    html += '<button class="mission-btn comet" id="btnComet">' +
+    html += '<button class="mission-btn comet" data-action="comet">' +
       '<div class="mb-icon">☄️</div><div>Комета</div>' +
       '<div class="mb-cost">' + fmt(cometCheck.cost) + ' ✦</div></button>';
   } else if (cometCheck.reason !== 'Нужен ледяной гигант') {
@@ -324,7 +334,7 @@ function renderMissionButtons() {
   }
 
   if (expCheck.ok) {
-    html += '<button class="mission-btn exp" id="btnExp">' +
+    html += '<button class="mission-btn exp" data-action="exp">' +
       '<div class="mb-icon">🚀</div><div>Экспедиция</div>' +
       '<div class="mb-cost">' + fmt(expCheck.cost) + ' ⚡</div></button>';
   } else if (expCheck.reason !== 'Нужен цив. 6' &&
@@ -335,23 +345,40 @@ function renderMissionButtons() {
   }
 
   if (sysCheck.ok) {
-    html += '<button class="mission-btn sys" id="btnSys">' +
+    html += '<button class="mission-btn sys" data-action="sys">' +
       '<div class="mb-icon">🌌</div><div>Система</div>' +
       '<div class="mb-cost">' + fmt(sysCheck.eCost) + '⚡ ' +
         sysCheck.cCost + '🧬</div></button>';
   }
 
-  container.innerHTML = html;
-
-  const btnComet = document.getElementById('btnComet');
-  if (btnComet) btnComet.addEventListener('click', launchComet);
-
-  const btnExp = document.getElementById('btnExp');
-  if (btnExp) btnExp.addEventListener('click', launchExpedition);
-
-  const btnSys = document.getElementById('btnSys');
-  if (btnSys) btnSys.addEventListener('click', createNewSystem);
+  // ★ Обновляем только если структура изменилась
+  const newKey = html;
+  if (container.dataset.key !== newKey) {
+    container.innerHTML = html;
+    container.dataset.key = newKey;
+  }
 }
+
+// ★ ОДИН обработчик на контейнер — устанавливается один раз
+(function setupMissionButtonsDelegation() {
+  function attach() {
+    const container = document.getElementById('missionButtons');
+    if (!container) { setTimeout(attach, 200); return; }
+    container.addEventListener('click', function(e) {
+      const btn = e.target.closest('.mission-btn');
+      if (!btn || btn.disabled) return;
+      const action = btn.dataset.action;
+      if (action === 'comet') launchComet();
+      else if (action === 'exp') launchExpedition();
+      else if (action === 'sys') createNewSystem();
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', attach);
+  } else {
+    attach();
+  }
+})();
 
 // ─── Экспорт ────────────────────────────────────────────────────
 window.updateMissions = updateMissions;
