@@ -143,7 +143,53 @@ window.getOrbitR = getOrbitR;
 // «взаимодействующими». 2.5 = реальное гравитационное влияние,
 // а не только касание.
 const COLLISION_CAPTURE_FACTOR = 2.5;
+// ═══════════════════════════════════════════════════════════════
+//  ПАРАМЕТРЫ МИССИЙ — кометы, экспедиции, колонии
+//  Меняйте здесь, чтобы настроить длительность и стоимость
+// ═══════════════════════════════════════════════════════════════
+const MISSIONS_CFG = {
+  // ─── КОМЕТЫ ───
+  cometFlightBase: 600000,         // База полёта (мс) = 10 мин
+  cometFlightMinMult: 0.5,         // Множитель для малой кометы (5 мин)
+  cometFlightMaxMult: 1.5,         // Множитель для большой (15 мин)
+  cometRewardBase: 500000,
+  cometRewardPerPlanet: 0.3,
+  cometFailChance: 0.25,
 
+  // ─── ЭКСПЕДИЦИИ ───
+  expeditionFlightMin: 600000,     // 10 мин
+  expeditionFlightMax: 1200000,    // 20 мин
+  expeditionCostBase: 3000,        // При 1 системе
+  expeditionCostRatio: 1.5,        // Множитель за каждую систему
+  expeditionRewardBase: 1000000,
+  expeditionRewardPerPlanet: 0.4,
+  expeditionFailChance: 0.15,
+
+  // ─── КОЛОНИЯ ───
+  colonyChance: 0.03,              // 3% шанс найти систему
+  colonyEnergyCost: 50000,
+  colonyEnergyRatio: 2.0,
+  colonyCivCost: 50,
+  colonyCivRatio: 1.8,
+
+  // ─── УРОН ОТ ПРОЛЕТАЮЩИХ КОМЕТ ───
+  cometDamageChance: 0.35,         // 35% шанс разрушения при попадании
+  cometDamageRange: 2.5,           // Радиус столкновения = sumRadii × 2.5
+};
+
+// ─── ЛИМИТЫ АКТИВНОЙ ИГРЫ ───────────────────────────────────────
+// Пассив медленный (часы/дни), актив — быстрее
+const BALANCE = {
+  // Множитель клика (чем выше, тем выгоднее активная игра)
+  clickBonus: 1.0,
+  // Множитель пассивного дохода от планет
+  passiveBonus: 1.0,
+  // Дополнительный множитель за активные действия в час
+  activeBonus: 1.5,
+};
+
+window.MISSIONS_CFG = MISSIONS_CFG;
+window.BALANCE = BALANCE;
 window.CFG = CFG;
 window.STAGES = STAGES;
 window.STAR_TYPES = STAR_TYPES;
