@@ -7,7 +7,6 @@ const CFG = {
   offlineEfficiency: 0.5,
   eventInterval: 200,
   eventChance: 0.5,
-  collisionInterval: 60,
   formationDuration: 600,
   civGrowthPerPlanet: 0.02,
   civClickBoost: 0.02,
@@ -67,42 +66,50 @@ const STAR_TYPES = {
 };
 
 // ─── Типы звёздных систем ───────────────────────────────────────
-// ВАЖНО про эксцентриситет:
-//   Орбиты — эллипсы с перицентром a(1-e) и апоцентром a(1+e).
-//   Для соседних орбит a_i и a_{i+1} условие непересечения:
-//       a_{i+1}(1-e) > a_i(1+e)
-//       a_{i+1}/a_i > (1+e)/(1-e)
-//   При ratio = 1.25 и e <= 0.09 условие выполняется для всех орбит.
+// Эксцентриситет подобран так, чтобы соседние эллипсы НЕ пересекались
+// как кривые, но перицентр внутренней и апоцентр внешней могли
+// сблизиться вплоть до контакта планет.
+//
+// Условие непересечения эллипсов:
+//   a_{i+1}·(1−e)  >  a_i·(1+e)
+// При ratio=1.25:
+//   e = 0.00 → запас 25%
+//   e = 0.06 → запас 13% (безопасно)
+//   e = 0.09 → запас 8%  (безопасно, но планеты сближаются)
+//
+// collisionRate — вероятность СТОЛКНОВЕНИЯ В СЕКУНДУ,
+// когда планеты находятся в зоне гравитационного захвата
+// (distance < sumRadii × 2.5).
 const SYSTEM_TYPES = {
   single: {
     name: 'Одиночная', stars: 1, chance: 0.50, rateMult: 1.0,
-    collisionPerPlanet: 0,
+    collisionRate: 0,
     civPassiveMult: 1.0, civClickMult: 1.0,
     icon: '⭐', color: '#6b4de6',
-    desc: 'Идеально круглые орбиты, стабильное развитие.',
-    eccentricity: 0.00,      // Круги
+    desc: 'Идеально круглые орбиты, столкновений нет.',
+    eccentricity: 0.00,
     precession: 0.000002,
     orbitDriftRate: 0.0,
     chaosticPulse: 0.0,
   },
   binary: {
     name: 'Двойная', stars: 2, chance: 0.38, rateMult: 1.7,
-    collisionPerPlanet: 0.004,
+    collisionRate: 0.02,      // 2% в сек в зоне захвата
     civPassiveMult: 0.65, civClickMult: 3.0,
     icon: '✨', color: '#8b5cf6',
-    desc: 'Две звезды. Слегка вытянутые орбиты, заметный дрейф.',
-    eccentricity: 0.06,      // Безопасно при ratio=1.25
+    desc: 'Две звезды. Планеты периодически сближаются и сталкиваются.',
+    eccentricity: 0.06,
     precession: 0.00002,
     orbitDriftRate: 0.3,
     chaosticPulse: 0.0003,
   },
   trinary: {
     name: 'Кратная', stars: 3, chance: 0.12, rateMult: 2.5,
-    collisionPerPlanet: 0.010,
+    collisionRate: 0.05,      // 5% в сек — хаотичная система
     civPassiveMult: 0.40, civClickMult: 6.0,
     icon: '💫', color: '#a855f7',
-    desc: 'Три звезды. Заметно вытянутые орбиты, хаотичный дрейф.',
-    eccentricity: 0.09,      // Максимум при ratio=1.25
+    desc: 'Три звезды. Частые сближения и столкновения.',
+    eccentricity: 0.09,
     precession: 0.00004,
     orbitDriftRate: 0.5,
     chaosticPulse: 0.0008,
@@ -127,32 +134,29 @@ const PLANET_TYPES = {
 const PHYS = {
   refRadius: 100,
   refTemp: 280,
-  snowLine: 200,      // Снеговая линия между 3-й (176) и 4-й (220) орбитой
+  snowLine: 200,
   refPeriod: 8,
 };
 
 // ─── Орбитальная геометрия ──────────────────────────────────────
-// Орбиты расположены по геометрической прогрессии:
-//   a_i = baseR × ratio^i
-// Это гарантирует, что соседние орбиты не пересекаются даже
-// при ненулевом эксцентриситете.
-//
-// Проверка при ratio = 1.25 и e = 0.09:
-//   a_{i+1}/a_i = 1.25 > (1+0.09)/(1-0.09) = 1.198 ✓
-//
-// Орбиты: 90, 112, 141, 176, 220, 275, 343, 429 (8 планет)
+// a_i = baseR × ratio^i  →  90, 112, 141, 176, 220, 275, 343, 429
 const ORBIT_GEOMETRY = {
-  baseR: 90,          // Первая орбита
-  ratio: 1.25,        // Множитель между орбитами
-  minGap: 25,         // Минимальный зазор при миграции
-  maxR: 500,          // Максимальный радиус орбиты
+  baseR: 90,
+  ratio: 1.25,
+  minGap: 25,
+  maxR: 500,
 };
 
-// Возвращает радиус орбиты по индексу (0..7)
 function getOrbitR(index) {
   return ORBIT_GEOMETRY.baseR * Math.pow(ORBIT_GEOMETRY.ratio, index);
 }
 window.getOrbitR = getOrbitR;
+
+// ─── Порог гравитационного захвата ──────────────────────────────
+// Множитель физического радиуса, при котором планеты считаются
+// «взаимодействующими». 2.5 = реальное гравитационное влияние,
+// а не только касание.
+const COLLISION_CAPTURE_FACTOR = 2.5;
 
 window.CFG = CFG;
 window.STAGES = STAGES;
@@ -161,3 +165,4 @@ window.SYSTEM_TYPES = SYSTEM_TYPES;
 window.PLANET_TYPES = PLANET_TYPES;
 window.PHYS = PHYS;
 window.ORBIT_GEOMETRY = ORBIT_GEOMETRY;
+window.COLLISION_CAPTURE_FACTOR = COLLISION_CAPTURE_FACTOR;
