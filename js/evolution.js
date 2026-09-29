@@ -1,20 +1,26 @@
 // ═══════════════════════════════════════════════════════════════
 //  EVOLUTION.JS — эволюционные окна и переходы фаз
+//  Модалка galaxy удалена — системы создаются автоматически
+//  в main.js, когда пыли достаточно.
 // ═══════════════════════════════════════════════════════════════
 
 let evolutionModalOpen = false;
 
+// ─── Проверка перехода ──────────────────────────────────────────
 function checkEvolution() {
   if (evolutionModalOpen) return;
   if (S.activeMinigame) return;
   const modal = document.getElementById('modal');
   if (modal && modal.classList.contains('show')) return;
+
   if (S.stage === 'system' && S.planets.length >= 8) { openEvolution(); return; }
+
   const goal = currentGoal();
   if (goal === null) return;
   if (S.dust >= goal) openEvolution();
 }
 
+// ─── Мини-игры ──────────────────────────────────────────────────
 function tryMinigame(type, onSuccess) {
   closeEvolutionModal();
   if (typeof startMinigame === 'function') {
@@ -46,11 +52,13 @@ function closeEvolutionModal() {
   if (modal) modal.classList.remove('show');
 }
 
+// ─── Диспетчер эволюции ─────────────────────────────────────────
 function openEvolution() {
   if (evolutionModalOpen) return;
   if (S.activeMinigame) return;
   const stage = S.stage;
 
+  // ═══ ФАЗА I → II ═══
   if (stage === 'cloud') {
     setModal(buildModal('Критическая масса',
       'Облако готово к гравитационному коллапсу.',
@@ -66,6 +74,7 @@ function openEvolution() {
     return;
   }
 
+  // ═══ ФАЗА II → III ═══
   if (stage === 'condense') {
     setModal(buildModal('Протозвезда формируется',
       'Плотное ядро разогревается.',
@@ -80,6 +89,7 @@ function openEvolution() {
     return;
   }
 
+  // ═══ ФАЗА III → IV ═══
   if (stage === 'protostar') {
     setModal(buildModal('Зажги синтез',
       'Заполни шкалу и держи топливо 30 секунд.',
@@ -103,11 +113,12 @@ function openEvolution() {
     return;
   }
 
+  // ═══ ФАЗА IV → V: первая планета ═══
   if (stage === 'firstPlanet') {
     const cost = planetCost(0);
     const canAfford = S.dust >= cost;
     setModal(buildModal('Сборка первой планеты',
-      'Из обломков диска формируется планета. Стоимость: ' + fmt(cost) + ' пыли.',
+      'Собери планету из обломков. Стоимость: ' + fmt(cost) + ' пыли.',
       [{ id:'go', name:'Начать сборку',
         desc: canAfford ? 'Собери планету из частиц' : 'Не хватает ' + fmt(cost - S.dust),
         stats:'Тип планеты зависит от состава',
@@ -116,19 +127,15 @@ function openEvolution() {
           if (S.dust < cost) return;
           S.dust -= cost;
           tryMinigameFull('assemble',
-                        function() {
+            function() {
               const type = (typeof MG !== 'undefined' && MG.result) ? MG.result : 'rocky';
-              // Планета размещается на первой орбите, применяем коррекцию по зоне
               const orbitR = 90 + S.planets.length * 50;
               const corrected = (typeof correctPlanetTypeByZone === 'function')
                 ? correctPlanetTypeByZone(type, orbitR) : { type: type, reason: null };
               addPlanet(corrected.type);
               S.stage = 'system';
-              if (corrected.reason) {
-                toast('⚠ ' + corrected.reason, PLANET_TYPES[corrected.type].name);
-              } else {
-                toast(PLANET_TYPES[corrected.type].name + ' сформирована', 'Орбита 1');
-              }
+              if (corrected.reason) toast('⚠ ' + corrected.reason, PLANET_TYPES[corrected.type].name);
+              else toast(PLANET_TYPES[corrected.type].name + ' сформирована', 'Орбита 1');
             },
             function() {
               S.dust += cost;
@@ -140,6 +147,7 @@ function openEvolution() {
     return;
   }
 
+  // ═══ ФАЗА V: остальные планеты ═══
   if (stage === 'system') {
     if (S.planets.length >= 8) {
       setModal(buildModal('Система сформирована',
@@ -154,7 +162,7 @@ function openEvolution() {
             if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) {
               S.otherSystems[0] = null;
             }
-            // ★ Первая система — только обитаемая (как из экспедиции)
+            // Первая система — обитаемая (как из экспедиции)
             const newSys = generateRandomSystem({ isColony: true });
             const newIdx = S.otherSystems.length;
             S.otherSystems.push(newSys);
@@ -162,12 +170,12 @@ function openEvolution() {
             S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
             toast('Система основана',
               newSys.name + ' · ' + STAR_TYPES[newSys.starType].name);
-            // Автопереключение на новую систему
             if (typeof switchToSystem === 'function') switchToSystem(newIdx);
           }
         });
       return;
     }
+
     const cost = planetCost(S.planets.length);
     const canAfford = S.dust >= cost;
     setModal(buildModal('Сборка планеты №' + (S.planets.length + 1),
@@ -186,12 +194,9 @@ function openEvolution() {
               const corrected = (typeof correctPlanetTypeByZone === 'function')
                 ? correctPlanetTypeByZone(type, orbitR) : { type: type, reason: null };
               addPlanet(corrected.type);
-              if (corrected.reason) {
-                toast('⚠ ' + corrected.reason, PLANET_TYPES[corrected.type].name);
-              } else {
-                toast(PLANET_TYPES[corrected.type].name + ' сформирована',
-                      'Орбита ' + S.planets.length);
-              }
+              if (corrected.reason) toast('⚠ ' + corrected.reason, PLANET_TYPES[corrected.type].name);
+              else toast(PLANET_TYPES[corrected.type].name + ' сформирована',
+                         'Орбита ' + S.planets.length);
             },
             function() {
               S.dust += cost;
@@ -203,8 +208,10 @@ function openEvolution() {
     return;
   }
 
+  // Фаза galaxy — без модалки, системы создаются автоматически в main.js
+}
 
-// ─── Показ звезды ───────────────────────────────────────────────
+// ─── Показ звезды после зажигания ───────────────────────────────
 function showStarReveal(starType, quality) {
   const st = STAR_TYPES[starType];
   let qualityText = '';
@@ -332,3 +339,4 @@ function setModal(html, handlers) {
 
 window.checkEvolution = checkEvolution;
 window.openEvolution = openEvolution;
+window.closeEvolutionModal = closeEvolutionModal;
