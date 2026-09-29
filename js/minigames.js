@@ -31,10 +31,10 @@ const MG_IGNITE = {
 
 const MG_ASSEMBLE = {
   duration: 25,
-  fingerRadius: 160,
-  fingerForce: 900,
+  fingerRadius: 170,
+  fingerForce: 1000,
   baseRadius: 22,
-  minBetweenDist: 100,
+  minBetweenDist: 130,    // ★ Больше зазор при спавне
   mergeDist: 4,
   finishDelay: 1500,
   colorsPerType: 3,
@@ -72,36 +72,44 @@ function startMinigame(type, onComplete) {
     }
   } else if (type === 'ignite') {
     MG.power = 0; MG.elapsedSec = 0; MG.quality = 0;
-  } else if (type === 'assemble') {
-    // ★ Динамические размеры поля — почти весь экран
+    } else if (type === 'assemble') {
+    // ★ Поле на весь экран, шары разнесены широко
     const W = window.CANVAS_W || 400;
     const H = window.CANVAS_H || 700;
-    MG.fieldHalfW = W / 2 - 30;
-    MG.fieldHalfH = H / 2 - 130;   // отступы сверху/снизу под UI
-    MG.startDistMin = Math.min(MG.fieldHalfW, MG.fieldHalfH) * 0.5;
-    MG.startDistMax = Math.min(MG.fieldHalfW, MG.fieldHalfH) * 0.85;
+    MG.fieldHalfW = W / 2 - 25;
+    MG.fieldHalfH = H / 2 - 140;
+    // Широкий разброс: 40–95% от меньшей полуоси
+    MG.startDistMin = Math.min(MG.fieldHalfW, MG.fieldHalfH) * 0.40;
+    MG.startDistMax = Math.min(MG.fieldHalfW, MG.fieldHalfH) * 0.95;
 
-    MG.fieldParticles = [];
-    MG.result = null;
-    MG.resultLabel = null;
-    MG.elapsedSec = 0;
-    MG.finishAt = 0;
+    // Пространственная сетка: разносим по 4 квадрантам
+    MG.quadrants = [[], [], [], []];
 
-    // 12 частиц: по 3 каждого цвета
+        // 12 частиц: по 3 каждого цвета, распределены по 4 квадрантам
     const types = ['ice', 'lava', 'stone', 'gas'];
+    // Квадранты: (-1,-1), (1,-1), (-1,1), (1,1)
+    const quadrantMap = [
+      { sx: -1, sy: -1 },
+      { sx:  1, sy: -1 },
+      { sx: -1, sy:  1 },
+      { sx:  1, sy:  1 },
+    ];
+
     for (let ti = 0; ti < types.length; ti++) {
+      const quad = quadrantMap[ti];
       for (let k = 0; k < MG_ASSEMBLE.colorsPerType; k++) {
-        // Ищем безопасную позицию
         let px = 0, py = 0, placed = false;
-        for (let attempt = 0; attempt < 40 && !placed; attempt++) {
+        for (let attempt = 0; attempt < 50 && !placed; attempt++) {
           const angle = Math.random() * Math.PI * 2;
           const dist = MG.startDistMin +
             Math.random() * (MG.startDistMax - MG.startDistMin);
-          px = Math.cos(angle) * dist;
-          py = Math.sin(angle) * dist * 0.8;
-          // Ограничение в пределах поля
-          if (Math.abs(px) > MG.fieldHalfW - 30) continue;
-          if (Math.abs(py) > MG.fieldHalfH - 30) continue;
+          // Позиционируем в квадранте + разброс
+          px = quad.sx * MG.fieldHalfW * 0.55 + Math.cos(angle) * dist * 0.4;
+          py = quad.sy * MG.fieldHalfH * 0.55 + Math.sin(angle) * dist * 0.4;
+
+          // Границы поля
+          if (Math.abs(px) > MG.fieldHalfW - 35) continue;
+          if (Math.abs(py) > MG.fieldHalfH - 35) continue;
 
           placed = true;
           for (let j = 0; j < MG.fieldParticles.length; j++) {
@@ -238,6 +246,31 @@ function sameColorSet(a, b) {
 function updateAssemble(dt, elapsed, cx, cy) {
   MG.elapsedSec = elapsed;
 
+  // ★ Обновление искр
+  if (MG.sparks) {
+    for (let i = MG.sparks.length - 1; i >= 0; i--) {
+      const s = MG.sparks[i];
+      s.age += dt;
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.vx *= 0.92;
+      s.vy *= 0.92;
+      if (s.age > s.life) MG.sparks.splice(i, 1);
+    }
+  }
+
+  // ★ Трейл пальца — добавляем искру в позицию пальца
+  if (MG.dragActive && Math.random() < 0.5) {
+    if (!MG.sparks) MG.sparks = [];
+    MG.sparks.push({
+      x: MG.dragX - cx, y: MG.dragY - cy,
+      vx: (Math.random() - 0.5) * 40,
+      vy: (Math.random() - 0.5) * 40,
+      age: 0, life: 0.4,
+      trail: true,
+    });
+  }
+
   // Притяжение к пальцу
   if (MG.dragActive) {
     const fx = MG.dragX - cx, fy = MG.dragY - cy;
@@ -304,7 +337,18 @@ function updateAssemble(dt, elapsed, cx, cy) {
 
         MG.fieldParticles.splice(j, 1);
         j--;
-
+        // ★ Искры при слиянии
+        if (!MG.sparks) MG.sparks = [];
+        for (let s = 0; s < 10; s++) {
+          const sa = Math.random() * Math.PI * 2;
+          const ss = 80 + Math.random() * 120;
+          MG.sparks.push({
+            x: a.x, y: a.y,
+            vx: Math.cos(sa) * ss,
+            vy: Math.sin(sa) * ss,
+            age: 0, life: 0.6,
+          });
+        }
         const colorCount = Object.keys(a.weights).length;
         if (colorCount === 1 && a.mass >= 3) {
           a.fixed = true; a.vx = 0; a.vy = 0;
@@ -335,6 +379,22 @@ function updateAssemble(dt, elapsed, cx, cy) {
         }
       }
     }
+  }
+  // ★ Искры
+  if (MG.sparks && MG.sparks.length > 0) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < MG.sparks.length; i++) {
+      const s = MG.sparks[i];
+      const alpha = Math.max(0, 1 - s.age / s.life);
+      const size = s.trail ? 3 : 2;
+      const color = s.trail ? 'rgba(200,180,255,' : 'rgba(255,220,150,';
+      ctx.fillStyle = color + (alpha * 0.9) + ')';
+      ctx.beginPath();
+      ctx.arc(cx + s.x, cy + s.y, size * (1 + (1 - alpha) * 2), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   MG.progress = MG.result ? 1 : Math.min(0.95, elapsed / MG_ASSEMBLE.duration);
