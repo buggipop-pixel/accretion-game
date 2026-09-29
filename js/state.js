@@ -44,7 +44,7 @@ const S = {
 const SAVE_KEY = 'accretion_v16';
 let isResetting = false;
 
-// ─── Сброс ──────────────────────────────────────────────────────
+// ─── Сброс к начальным значениям ────────────────────────────────
 function resetStateValues() {
   S.stage = 'cloud';
   S.dust = 0; S.dustTotal = 0;
@@ -64,7 +64,9 @@ function resetStateValues() {
   S.vis = { collapse: 0 };
 }
 
-// ─── Переключение систем ────────────────────────────────────────
+// ─── Переключение между системами ───────────────────────────────
+// Слот 0 — placeholder или родная система
+// Слоты 1+ — основанные системы
 function switchToSystem(idx) {
   if (idx === S.activeSystemIdx) return false;
   if (idx < 0) return false;
@@ -76,6 +78,7 @@ function switchToSystem(idx) {
     planets: S.planets || [],
   };
 
+  // Возврат на родную
   if (idx === 0) {
     const home = S.otherSystems[0];
     if (!home) return false;
@@ -103,7 +106,7 @@ function switchToSystem(idx) {
   return true;
 }
 
-// ─── Сохранение ─────────────────────────────────────────────────
+// ─── Сохранение в localStorage ──────────────────────────────────
 function saveGame() {
   if (isResetting) return;
   try {
@@ -124,7 +127,7 @@ function saveGame() {
   } catch (e) { console.warn('save error', e); }
 }
 
-// ─── Загрузка ───────────────────────────────────────────────────
+// ─── Загрузка из localStorage ───────────────────────────────────
 function loadGame() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
@@ -132,6 +135,7 @@ function loadGame() {
     const data = JSON.parse(raw);
     Object.assign(S, data);
 
+    // Защита от отсутствующих полей
     if (!S.missions) S.missions = [];
     if (!S.comets) S.comets = [];
     if (!S.expeditions) S.expeditions = [];
@@ -141,6 +145,7 @@ function loadGame() {
     if (typeof S.gasDensity !== 'number') S.gasDensity = 1;
     if (!S.systemName) S.systemName = 'Родная';
 
+    // Восстановление полей планет
     for (let i = 0; i < S.planets.length; i++) {
       const p = S.planets[i];
       if (!p.baseOrbitR) p.baseOrbitR = p.orbitR || 100;
@@ -148,6 +153,10 @@ function loadGame() {
       if (typeof p.mass !== 'number') p.mass = 1.0;
       if (typeof p.diameter !== 'number') p.diameter = 1.0;
       if (!p.moons) p.moons = [];
+      // ★ Прецессия орбиты (для эллиптических орбит в двойных/тройных)
+      if (typeof p.precession !== 'number') p.precession = 0;
+      // ★ Истинная аномалия (угол положения на эллипсе)
+      if (typeof p.trueAnomaly !== 'number') p.trueAnomaly = p.angle || 0;
     }
 
     S.vis.collapse = S.starType ? 1 : (S.stage === 'condense' ? 0.3 : 0);
