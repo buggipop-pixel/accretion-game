@@ -186,39 +186,44 @@ function updatePlanets(dt) {
   checkCollisions();
 }
 
-// ─── Столкновения по фактическим позициям ──────────────────────
+// ─── Столкновения ───────────────────────────────────────────────
+// Проверка КАЖДЫЙ КАДР по фактическим позициям.
+// Планеты считаются в зоне захвата, если расстояние < sumRadii × 2.5.
+// Внутри зоны срабатывает вероятность collisionRate × dt.
 function checkCollisions() {
   const st = SYSTEM_TYPES[S.systemType];
-  if (!st.collisionPerPlanet) return;
-
-  S.collisionTimer = (S.collisionTimer || 0) + 1 / 60;
-  if (S.collisionTimer < CFG.collisionInterval) return;
-  S.collisionTimer = 0;
+  if (!st || !st.collisionRate) return;
 
   const active = S.planets.filter(function(p) { return !p.forming; });
   if (active.length < 2) return;
 
-  const chance = st.collisionPerPlanet * active.length;
-  if (Math.random() > chance) return;
-
-  // Проверяем все пары по фактическому расстоянию
   const nowSec = Date.now() / 1000;
-  const positions = active.map(function(p) {
-    return { p: p, pos: getPlanetWorldPos(p, nowSec) };
-  });
+  const dt = 1 / 60;                          // приблизительный шаг
+  const captureFactor = window.COLLISION_CAPTURE_FACTOR || 2.5;
+  const captureProb = st.collisionRate * dt;  // вероятность за кадр
 
-  for (let i = 0; i < positions.length; i++) {
-    for (let j = i + 1; j < positions.length; j++) {
-      const a = positions[i];
-      const b = positions[j];
-      const dx = a.pos.x - b.pos.x;
-      const dy = a.pos.y - b.pos.y;
+  for (let i = 0; i < active.length; i++) {
+    for (let j = i + 1; j < active.length; j++) {
+      const a = active[i];
+      const b = active[j];
+
+      const posA = getPlanetWorldPos(a, nowSec);
+      const posB = getPlanetWorldPos(b, nowSec);
+      const dx = posA.x - posB.x;
+      const dy = posA.y - posB.y;
       const d = Math.sqrt(dx * dx + dy * dy);
-      const sumRadii = (a.p.diameter + b.p.diameter) * 5;
-      if (d < sumRadii + 20) {
-        const decision = shouldMerge(a.p, b.p);
-        if (decision === 'merge') { collidePlanets(a.p, b.p, 'merge'); return; }
-        if (decision === 'bounce') { collidePlanets(a.p, b.p, 'bounce'); return; }
+
+      const sumRadii = (a.diameter + b.diameter) * 5;
+      const captureDist = sumRadii * captureFactor;
+
+      if (d < captureDist) {
+        // Планеты в зоне гравитационного взаимодействия
+        if (Math.random() < captureProb) {
+          const decision = shouldMerge(a, b);
+          if (decision === 'merge') { collidePlanets(a, b, 'merge'); return; }
+          if (decision === 'bounce') { collidePlanets(a, b, 'bounce'); return; }
+          // decision === null — слишком далеко, пропускаем
+        }
       }
     }
   }
