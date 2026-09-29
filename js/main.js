@@ -40,11 +40,22 @@ document.addEventListener('touchstart', function(e) {
 // ─── Размер canvas ──────────────────────────────────────────────
 function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, 2);
-  W = canvas.clientWidth;
-  H = canvas.clientHeight;
-  canvas.width = W * dpr;
-  canvas.height = H * dpr;
+
+  // ★ Fallback: если clientWidth/Height = 0 (мобильные),
+  //   берём window.innerWidth/innerHeight
+  let realW = canvas.clientWidth;
+  let realH = canvas.clientHeight;
+  if (!realW || realW < 10) realW = window.innerWidth;
+  if (!realH || realH < 10) realH = window.innerHeight;
+
+  W = realW;
+  H = realH;
+  canvas.width = Math.floor(W * dpr);
+  canvas.height = Math.floor(H * dpr);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
   cx = W / 2;
   cy = H / 2;
   window.CANVAS_CX = cx;
@@ -52,7 +63,17 @@ function resize() {
   window.CANVAS_W = W;
   window.CANVAS_H = H;
 }
+
 window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', function() {
+  setTimeout(resize, 150);
+  setTimeout(resize, 400);
+});
+document.addEventListener('visibilitychange', function() {
+  if (!document.hidden) {
+    setTimeout(resize, 100);
+  }
+});
 
 // ─── Фон ────────────────────────────────────────────────────────
 const bgStars = [];
@@ -599,4 +620,18 @@ if (resetEl) {
 window.addEventListener('beforeunload', saveGame);
 
 // Запуск
+// ★ Мобильный resize — несколько попыток после запуска
+setTimeout(resize, 100);
+setTimeout(resize, 300);
+setTimeout(resize, 800);
+setTimeout(resize, 1500);
+
+// Резерв — если канвас остался 0, пересоздаём всё
+setTimeout(function() {
+  if ((window.CANVAS_W || 0) < 10 || (window.CANVAS_H || 0) < 10) {
+    console.warn('Canvas size 0, retrying...');
+    resize();
+    if (typeof initParticles === 'function') initParticles();
+  }
+}, 2000);
 start();
