@@ -116,11 +116,19 @@ function openEvolution() {
           if (S.dust < cost) return;
           S.dust -= cost;
           tryMinigameFull('assemble',
-            function() {
+                        function() {
               const type = (typeof MG !== 'undefined' && MG.result) ? MG.result : 'rocky';
-              addPlanet(type);
+              // Планета размещается на первой орбите, применяем коррекцию по зоне
+              const orbitR = 90 + S.planets.length * 50;
+              const corrected = (typeof correctPlanetTypeByZone === 'function')
+                ? correctPlanetTypeByZone(type, orbitR) : { type: type, reason: null };
+              addPlanet(corrected.type);
               S.stage = 'system';
-              toast(PLANET_TYPES[type].name + ' сформирована', 'Орбита 1');
+              if (corrected.reason) {
+                toast('⚠ ' + corrected.reason, PLANET_TYPES[corrected.type].name);
+              } else {
+                toast(PLANET_TYPES[corrected.type].name + ' сформирована', 'Орбита 1');
+              }
             },
             function() {
               S.dust += cost;
@@ -164,9 +172,16 @@ function openEvolution() {
           tryMinigameFull('assemble',
             function() {
               const type = (typeof MG !== 'undefined' && MG.result) ? MG.result : 'rocky';
-              addPlanet(type);
-              toast(PLANET_TYPES[type].name + ' сформирована',
-                    'Орбита ' + S.planets.length);
+              const orbitR = 90 + S.planets.length * 50;
+              const corrected = (typeof correctPlanetTypeByZone === 'function')
+                ? correctPlanetTypeByZone(type, orbitR) : { type: type, reason: null };
+              addPlanet(corrected.type);
+              if (corrected.reason) {
+                toast('⚠ ' + corrected.reason, PLANET_TYPES[corrected.type].name);
+              } else {
+                toast(PLANET_TYPES[corrected.type].name + ' сформирована',
+                      'Орбита ' + S.planets.length);
+              }
             },
             function() {
               S.dust += cost;
