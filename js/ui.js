@@ -219,7 +219,36 @@ function initUI() {
 
   setInterval(updateSystemSwitcher, 2000);
 }
+// ─── Закрытие модалки кликом снаружи или крестиком ─────────────
+// Решает проблему «мёртвого» окна, когда кнопка disabled.
+(function setupModalClose() {
+  function attach() {
+    const modal = document.getElementById('modal');
+    if (!modal) { setTimeout(attach, 200); return; }
+    if (modal.dataset.closeAttached === '1') return;
+    modal.dataset.closeAttached = '1';
 
+    // Клик по затемнённому фону (не по карточке) — закрывает
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) {
+        // Меняем флаг через evolution.js
+        if (typeof closeEvolutionModal === 'function') closeEvolutionModal();
+        else modal.classList.remove('show');
+      }
+    });
+
+    // Esc тоже закрывает
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && modal.classList.contains('show')) {
+        if (typeof closeEvolutionModal === 'function') closeEvolutionModal();
+        else modal.classList.remove('show');
+      }
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', attach);
+  } else { attach(); }
+})();
 window.fmt = fmt;
 window.fmtTime = fmtTime;
 window.toast = toast;
