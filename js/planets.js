@@ -1,13 +1,14 @@
 // ═══════════════════════════════════════════════════════════════
 //  PLANETS.JS — планеты, орбиты, слияния, снеговая линия
+//  Орбиты расположены по геометрической прогрессии, поэтому
+//  соседние эллипсы не пересекаются даже в двойных и тройных
+//  системах. Столкновения проверяются по фактическим позициям.
 // ═══════════════════════════════════════════════════════════════
 
 const VIEW_COS = 0.5;
 
-// ─── Позиция планеты на эллиптической орбите ────────────────────
-// В одиночной системе e=0 → обычная круговая орбита.
-// В двойной/тройной — эллипс с прецессией перицентра.
-// Формула: r(θ) = a·(1−e²) / (1 + e·cos θ),  θ — истинная аномалия.
+// ─── Позиция планеты на орбите ──────────────────────────────────
+// Одиночная система (e=0) — круги. Двойная/тройная — эллипсы.
 function getPlanetWorldPos(p, timeSec) {
   const st = SYSTEM_TYPES[S.systemType || 'single'];
   const e = st.eccentricity || 0;
@@ -25,52 +26,73 @@ function getPlanetWorldPos(p, timeSec) {
 }
 window.getPlanetWorldPos = getPlanetWorldPos;
 
-// ─── Снеговая линия ─────────────────────────────────────────────
-// Внутри линии (r < 2.7 а.е.) — только камень/лава/суперземля.
-// Снаружи — только лёд/газ.
-// Возвращает { type, reason } — reason не null, если тип был скорректирован.
+// ─── Снеговая линия: коррекция типа ─────────────────────────────
 function correctPlanetTypeByZone(type, orbitR) {
   const rAe = orbitR / PHYS.refRadius;
   const insideSnow = rAe < 2.7;
 
   if (insideSnow) {
-    // Внутри снеговой линии — жарко, лёд/газ невозможны
-    if (type === 'iceGiant') {
-      return { type: 'rocky', reason: 'Лёд растаял у звезды → каменистая' };
-    }
-    if (type === 'gasGiant') {
-      return { type: 'rocky', reason: 'Газ сдут звёздным ветром → каменистая' };
-    }
+    if (type === 'iceGiant') return { type: 'rocky', reason: 'Лёд растаял' };
+    if (type === 'gasGiant') return { type: 'rocky', reason: 'Газ сдут' };
   } else {
-    // Снаружи — холодно, камень без атмосферы = лёд
-    if (type === 'rocky') {
-      return { type: 'iceGiant', reason: 'Вода замёрзла → ледяной гигант' };
-    }
-    if (type === 'superEarth') {
-      return { type: 'iceGiant', reason: 'Материки замёрзли → ледяной гигант' };
-    }
-    if (type === 'lava') {
-      return { type: 'iceGiant', reason: 'Лава остыла → ледяной гигант' };
-    }
+    if (type === 'rocky') return { type: 'iceGiant', reason: 'Вода замёрзла' };
+    if (type === 'superEarth') return { type: 'iceGiant', reason: 'Материки замёрзли' };
+    if (type === 'lava') return { type: 'iceGiant', reason: 'Лава остыла' };
   }
   return { type: type, reason: null };
 }
 window.correctPlanetTypeByZone = correctPlanetTypeByZone;
 
-// ─── Добавление новой планеты ───────────────────────────────────
+// ─── Поиск свободной орбиты ─────────────────────────────────────
+// Использует геометрическую прогрессию и проверяет minGap.
+function findFreeOrbit(preferR) {
+  const minGap = ORBIT_GEOMETRY.minGap;
+  const occupied = [];
+  for (let i = 0; i < S.planets.length; i++) {
+    if (!S.planets[i].forming) occupied.push(S.planets[i].baseOrbitR);
+  }
+  occupied.sort(function(a, b) { return a - b; });
+
+  // Стандартные позиции орбит
+  const candidates = [];
+  for (let i = 0; i < 8; i++) candidates.push(getOrbitR(i));
+
+  // Сортируем по удалённости от предпочтительного радиуса
+  if (preferR !== undefined) {
+    candidates.sort(function(a, b) {
+      return Math.abs(a - preferR) - Math.abs(b - preferR);
+    });
+  }
+
+  for (let ci = 0; ci < candidates.length; ci++) {
+    const r = candidates[ci];
+    let ok = true;
+    for (let oi = 0; oi < occupied.length; oi++) {
+      if (Math.abs(occupied[oi] - r) < minGap) { ok = false; break; }
+    }
+    if (ok) return r;
+  }
+  return null;
+}
+window.findFreeOrbit = findFreeOrbit;
+
+// ─── Добавление планеты ─────────────────────────────────────────
 function addPlanet(type) {
   if (S.planets.length >= 8) return false;
   const idx = S.planets.length;
-  const orbitR = 90 + idx * 50;
-  const zoneResult = correctPlanetTypeByZone(type, orbitR);
+
+  const baseR = findFreeOrbit(getOrbitR(idx));
+  if (baseR === null) return false;
+
+  const zoneResult = correctPlanetTypeByZone(type, baseR);
   const finalType = zoneResult.type;
 
   S.planets.push({
     type: finalType,
     angle: Math.random() * Math.PI * 2,
-    speed: 0.15 / Math.sqrt(idx + 1),
-    baseOrbitR: orbitR,
-    orbitR: orbitR,
+    speed: 0.15 / Math.sqrt(baseR / 90),
+    baseOrbitR: baseR,
+    orbitR: baseR,
     driftPhase: Math.random() * Math.PI * 2,
     rotation: Math.random() * Math.PI * 2,
     seed: Math.random() * 1e6,
@@ -89,7 +111,6 @@ function planetMass(type) {
   const m = { rocky:1.0, superEarth:2.5, iceGiant:4.0, gasGiant:8.0, lava:1.5 };
   return m[type] || 1.0;
 }
-
 function planetDiameter(type) {
   const d = { rocky:1.0, superEarth:1.3, iceGiant:1.5, gasGiant:1.8, lava:0.9 };
   return d[type] || 1.0;
@@ -104,7 +125,9 @@ function updatePlanets(dt) {
   if (typeof initGas === 'function' && GAS.initTime === null) initGas();
 
   const st = SYSTEM_TYPES[S.systemType] || SYSTEM_TYPES.single;
+  const geom = ORBIT_GEOMETRY;
 
+  // 1) Прецессия, миграция, дрейф, толчки
   for (let i = 0; i < S.planets.length; i++) {
     const p = S.planets[i];
     if (p.forming) {
@@ -115,41 +138,55 @@ function updatePlanets(dt) {
       continue;
     }
 
-    // Прецессия перицентра
     p.precession = (p.precession || 0) + st.precession * dt;
 
-    // Миграция I типа (пока есть газ)
     if (typeof migrationRate === 'function') {
       const dr = migrationRate(p);
-      if (dr !== 0) p.baseOrbitR = Math.max(55, p.baseOrbitR + dr * dt);
+      if (dr !== 0) p.baseOrbitR += dr * dt;
     }
 
-    // Дрейф орбиты
     if (st.orbitDriftRate > 0) {
       const drift = Math.sin(timeSec * 0.00005 + (p.seed || 0) * 0.001) *
                     st.orbitDriftRate * dt;
       p.baseOrbitR += drift;
     }
 
-    // Случайные толчки (двойные/тройные)
     if (st.chaosticPulse > 0 && Math.random() < st.chaosticPulse * dt) {
-      p.baseOrbitR += (Math.random() - 0.5) * 25;
+      p.baseOrbitR += (Math.random() - 0.5) * 10;
       p.driftPhase += Math.random() * Math.PI;
     }
 
-    p.baseOrbitR = Math.max(55, Math.min(450, p.baseOrbitR));
-    p.orbitR = p.baseOrbitR;
-    p.rotation += dt * 0.5;
+    p.baseOrbitR = Math.max(geom.baseR - 10, Math.min(geom.maxR, p.baseOrbitR));
   }
 
+  // 2) Разводим планеты: между ними всегда >= minGap
+  const active = S.planets.filter(function(p) { return !p.forming; })
+    .sort(function(a, b) { return a.baseOrbitR - b.baseOrbitR; });
+
+  for (let i = 1; i < active.length; i++) {
+    const prev = active[i - 1];
+    const cur = active[i];
+    if (cur.baseOrbitR - prev.baseOrbitR < geom.minGap) {
+      cur.baseOrbitR = prev.baseOrbitR + geom.minGap;
+    }
+  }
+
+  // 3) Синхронизация orbitR
+  for (let i = 0; i < S.planets.length; i++) {
+    S.planets[i].orbitR = S.planets[i].baseOrbitR;
+    S.planets[i].rotation += dt * 0.5;
+  }
+
+  // 4) Очистка взрывов
   for (let i = S.explosions.length - 1; i >= 0; i--) {
     if (now > S.explosions[i].endAt) S.explosions.splice(i, 1);
   }
 
+  // 5) Столкновения
   checkCollisions();
 }
 
-// ─── Столкновения ───────────────────────────────────────────────
+// ─── Столкновения по фактическим позициям ──────────────────────
 function checkCollisions() {
   const st = SYSTEM_TYPES[S.systemType];
   if (!st.collisionPerPlanet) return;
@@ -164,15 +201,26 @@ function checkCollisions() {
   const chance = st.collisionPerPlanet * active.length;
   if (Math.random() > chance) return;
 
-  const sorted = active.slice().sort(function(a, b) {
-    return a.baseOrbitR - b.baseOrbitR;
+  // Проверяем все пары по фактическому расстоянию
+  const nowSec = Date.now() / 1000;
+  const positions = active.map(function(p) {
+    return { p: p, pos: getPlanetWorldPos(p, nowSec) };
   });
 
-  for (let i = 0; i < sorted.length - 1; i++) {
-    const a = sorted[i], b = sorted[i + 1];
-    const decision = shouldMerge(a, b);
-    if (decision === 'merge') { collidePlanets(a, b, 'merge'); return; }
-    if (decision === 'bounce') { collidePlanets(a, b, 'bounce'); return; }
+  for (let i = 0; i < positions.length; i++) {
+    for (let j = i + 1; j < positions.length; j++) {
+      const a = positions[i];
+      const b = positions[j];
+      const dx = a.pos.x - b.pos.x;
+      const dy = a.pos.y - b.pos.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      const sumRadii = (a.p.diameter + b.p.diameter) * 5;
+      if (d < sumRadii + 20) {
+        const decision = shouldMerge(a.p, b.p);
+        if (decision === 'merge') { collidePlanets(a.p, b.p, 'merge'); return; }
+        if (decision === 'bounce') { collidePlanets(a.p, b.p, 'bounce'); return; }
+      }
+    }
   }
 }
 
@@ -190,8 +238,8 @@ function collidePlanets(a, b, decision) {
 
   if (decision === 'bounce') {
     const avgR = (a.baseOrbitR + b.baseOrbitR) / 2;
-    a.baseOrbitR = Math.max(60, avgR - 20);
-    b.baseOrbitR = avgR + 20;
+    a.baseOrbitR = Math.max(ORBIT_GEOMETRY.baseR, avgR - ORBIT_GEOMETRY.minGap);
+    b.baseOrbitR = avgR + ORBIT_GEOMETRY.minGap;
     const dustLoss = Math.floor(S.dust * 0.08);
     S.dust = Math.max(0, S.dust - dustLoss);
     const sp = worldToScreen(wmx, wmy);
@@ -232,17 +280,19 @@ function collidePlanets(a, b, decision) {
     // Слияние
     const newMass = a.mass + b.mass;
     const rPix = (a.baseOrbitR + b.baseOrbitR) / 2;
-    // Снеговая линия корректирует тип после слияния
     const finalType = correctPlanetTypeByZone(
       aPt.rate > bPt.rate ? a.type : b.type, rPix).type;
 
     S.planets = S.planets.filter(function(p) { return p !== a && p !== b; });
-    const idx = S.planets.length;
+
+    const freeR = findFreeOrbit(rPix);
+    const useR = freeR !== null ? freeR : rPix;
+
     S.planets.push({
       type: finalType,
       angle: Math.random() * Math.PI * 2,
-      speed: 0.15 / Math.sqrt(idx + 1),
-      baseOrbitR: rPix, orbitR: rPix,
+      speed: 0.15 / Math.sqrt(useR / 90),
+      baseOrbitR: useR, orbitR: useR,
       driftPhase: Math.random() * Math.PI * 2,
       rotation: 0, seed: Math.random() * 1e6,
       forming: true,
@@ -263,18 +313,15 @@ function collidePlanets(a, b, decision) {
   }
 }
 
-// ─── Рендеринг планет ───────────────────────────────────────────
+// ─── Рендеринг ──────────────────────────────────────────────────
 function drawPlanets(ctx, time) {
   const t = time;
   const z = S.zoom || 1;
   const starHue = S.starType ? STAR_TYPES[S.starType].color : 260;
 
-  // ─── Снеговая линия ───
-  // Тонкая пунктирная окружность на 2.7 а.е. Показывает границу зон.
-  // Показываем только после создания первой планеты, чтобы не мешать раннему экрану.
+  // Снеговая линия
   if (S.starType && S.planets.length > 0) {
     const snowPx = PHYS.snowLine;
-
     ctx.save();
     ctx.strokeStyle = 'rgba(126, 200, 227, 0.25)';
     ctx.lineWidth = 1;
@@ -295,7 +342,7 @@ function drawPlanets(ctx, time) {
 
   if (S.planets.length === 0) return;
 
-  // ─── Орбиты — эллипсы ───
+  // Орбиты — эллипсы
   const sysConf = SYSTEM_TYPES[S.systemType || 'single'];
   const eccentricity = sysConf.eccentricity || 0;
 
@@ -305,7 +352,7 @@ function drawPlanets(ctx, time) {
     if (p.forming) continue;
 
     ctx.strokeStyle = 'hsla(' + starHue + ', 50%, 60%, ' +
-                      (eccentricity > 0.1 ? 0.18 : 0.10) + ')';
+                      (eccentricity > 0.03 ? 0.20 : 0.12) + ')';
     ctx.lineWidth = 1;
     ctx.beginPath();
 
@@ -330,7 +377,7 @@ function drawPlanets(ctx, time) {
   }
   ctx.restore();
 
-  // ─── Планеты ───
+  // Планеты
   const sorted = S.planets.map(function(p) {
     const pos = getPlanetWorldPos(p, t);
     return { p: p, wx: pos.x, wy: pos.y, depth: pos.y / 100 };
@@ -352,7 +399,6 @@ function drawPlanets(ctx, time) {
     const baseSize = 5 * p.diameter * scale;
     drawTexturedPlanet(ctx, sp.x, sp.y, baseSize, p, alpha);
 
-    // Луны
     for (let m = 0; m < p.moons.length; m++) {
       const moon = p.moons[m];
       const mAngle = moon.angle + t * moon.speed;
@@ -375,7 +421,6 @@ function drawTexturedPlanet(ctx, x, y, size, p, alpha) {
   const pt = PLANET_TYPES[p.type];
   const starPos = worldToScreen(0, 0);
 
-  // Свечение
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   ctx.globalAlpha = alpha * 0.5;
@@ -388,7 +433,6 @@ function drawTexturedPlanet(ctx, x, y, size, p, alpha) {
   ctx.fill();
   ctx.restore();
 
-  // Тело
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.beginPath();
@@ -552,7 +596,6 @@ function drawExplosions(ctx) {
   }
 }
 
-// ─── Рисование звезды ───────────────────────────────────────────
 function drawStar(ctx, time) {
   if (!S.starType) return;
   const st = STAR_TYPES[S.starType];
@@ -608,7 +651,6 @@ function drawOneStar(ctx, wx, wy, sizeMul, t, seed, z) {
   ctx.restore();
 }
 
-// ─── Утилиты цвета ──────────────────────────────────────────────
 function hexToRgb(hex) {
   const m = hex.match(/^#([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
   if (!m) return { r: 128, g: 128, b: 128 };
@@ -633,3 +675,4 @@ window.addPlanet = addPlanet;
 window.updatePlanets = updatePlanets;
 window.drawPlanets = drawPlanets;
 window.drawStar = drawStar;
+window.findFreeOrbit = findFreeOrbit;
