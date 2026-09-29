@@ -440,24 +440,52 @@ function updateSystemSwitcher() {
   if (!el) return;
   if (S.totalSystemsCreated < 2) { el.style.display = 'none'; return; }
   el.style.display = 'flex';
-  el.innerHTML = '';
-  const list = [{ idx: 0, name: S.systemName }];
-  for (let i = 1; i < S.otherSystems.length; i++) {
-    if (S.otherSystems[i]) list.push({ idx: i, name: S.otherSystems[i].name });
+
+  // Собираем список систем
+  const list = [];
+  // Родная — всегда первая
+  if (S.activeSystemIdx === 0) {
+    list.push({ idx: 0, name: S.systemName });
+  } else if (S.otherSystems[0]) {
+    list.push({ idx: 0, name: S.otherSystems[0].name });
+  } else {
+    list.push({ idx: 0, name: 'Родная' });
   }
-  list.forEach(sys => {
+  // Остальные
+  for (let i = 1; i < S.otherSystems.length; i++) {
+    if (S.otherSystems[i]) {
+      list.push({ idx: i, name: S.otherSystems[i].name });
+    }
+  }
+
+  // Проверяем, изменилась ли структура
+  const key = list.map(function(s) { return s.idx + ':' + s.name; }).join('|');
+  if (el.dataset.key === key) return;
+  el.dataset.key = key;
+
+  el.innerHTML = '';
+  list.forEach(function(sys) {
     const btn = document.createElement('button');
     btn.className = 'sys-btn' + (S.activeSystemIdx === sys.idx ? ' active' : '');
     btn.textContent = sys.name;
-    btn.onclick = () => { switchToSystem(sys.idx); };
+    btn.onclick = function() { switchToSystem(sys.idx); };
     el.appendChild(btn);
   });
+
+  // Кнопка переименования
   const renameBtn = document.createElement('button');
   renameBtn.className = 'sys-btn rename';
   renameBtn.textContent = '✎';
-  renameBtn.onclick = () => {
+  renameBtn.onclick = function() {
     const newName = prompt('Новое имя системы:', S.systemName);
-    if (newName && newName.trim()) S.systemName = newName.trim().slice(0, 16);
+    if (newName && newName.trim()) {
+      S.systemName = newName.trim().slice(0, 16);
+      if (S.activeSystemIdx > 0) {
+        S.otherSystems[S.activeSystemIdx].name = S.systemName;
+      }
+      // Сбрасываем кэш
+      document.getElementById('systemSwitcher').dataset.key = '';
+    }
   };
   el.appendChild(renameBtn);
 }
