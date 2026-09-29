@@ -13,8 +13,8 @@ function addPlanet(type) {
     type: type,
     angle: Math.random() * Math.PI * 2,
     speed: 0.15 / Math.sqrt(idx + 1),
-    baseOrbitR: 90 + idx * 34,
-    orbitR: 90 + idx * 34,
+    baseOrbitR: 90 + idx * 50,
+    orbitR: 90 + idx * 50,
     driftPhase: Math.random() * Math.PI * 2,
     rotation: Math.random() * Math.PI * 2,
     seed: Math.random() * 1e6,
@@ -192,9 +192,9 @@ function drawPlanets(ctx, time) {
   if (S.starType) {
     const snowPx = PHYS.snowLine;
     ctx.save();
-    ctx.strokeStyle = 'rgba(126, 200, 227, 0.15)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([8, 12]);
+    ctx.strokeStyle = 'rgba(126, 200, 227, 0.45)';
+    ctx.lineWidth = 1.8;
+    ctx.setLineDash([10, 12]);
     ctx.beginPath();
     for (let a = 0; a <= Math.PI * 2 + 0.01; a += 0.2) {
       const wx = Math.cos(a) * snowPx;
@@ -207,10 +207,23 @@ function drawPlanets(ctx, time) {
     ctx.stroke();
     ctx.setLineDash([]);
     const lblPos = worldToScreen(snowPx, 0);
-    ctx.fillStyle = 'rgba(126, 200, 227, 0.5)';
-    ctx.font = '9px -apple-system, sans-serif';
+    ctx.font = 'bold 11px -apple-system, sans-serif';
+    const labelText = '❄ Снеговая линия · 2.7 а.е.';
+    const textW = ctx.measureText(labelText).width;
+    const bgX = lblPos.x + 8;
+    const bgY = lblPos.y - 22;
+    // Фон
+    ctx.fillStyle = 'rgba(15, 25, 45, 0.9)';
+    ctx.fillRect(bgX - 6, bgY - 8, textW + 12, 20);
+    ctx.strokeStyle = 'rgba(126, 200, 227, 0.6)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bgX - 6, bgY - 8, textW + 12, 20);
+    // Текст
+    ctx.fillStyle = '#7ec8e3';
     ctx.textAlign = 'left';
-    ctx.fillText('❄ снеговая линия', lblPos.x + 6, lblPos.y - 4);
+    ctx.textBaseline = 'middle';
+    ctx.fillText(labelText, bgX, bgY + 2);
+    ctx.textBaseline = 'alphabetic';
     ctx.restore();
   }
 
