@@ -1,8 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
 //  MISSIONS.JS — кометы, экспедиции, колонии
-//  Кнопка «Система» удалена. Новая система появляется:
-//   • автоматически при 8 планетах через эволюцию,
-//   • или через 5% шанс колонии при возврате экспедиции.
 // ═══════════════════════════════════════════════════════════════
 
 const MISS = {
@@ -10,7 +7,7 @@ const MISS = {
   lastCometAt: 0, lastExpeditionAt: 0,
 };
 
-// ─── Генератор имён систем ──────────────────────────────────────
+// ─── Генератор имён ─────────────────────────────────────────────
 const SYS_PREFIXES = ['Альфа','Бета','Гамма','Дельта','Эпсилон','Дзета','Эта',
   'Тета','Йота','Каппа','Лямбда','Мю','Ню','Кси','Омикрон','Пи','Ро','Сигма',
   'Тау','Ипсилон','Фи','Хи','Пси','Омега'];
@@ -36,9 +33,19 @@ function cometCost() {
   return Math.floor(500000 / Math.max(1, ice));
 }
 
-function expeditionEnergyCost() { return Math.floor(5000 * Math.pow(2, S.systems - 1)); }
-function colonyEnergyCost() { return Math.floor(50000 * Math.pow(2, S.systems - 1)); }
-function colonyCivCost() { return Math.floor(50 * Math.pow(1.8, S.systems - 1)); }
+function expeditionEnergyCost() {
+  const cfg = MISSIONS_CFG;
+  return Math.floor(cfg.expeditionCostBase * Math.pow(cfg.expeditionCostRatio, S.systems - 1));
+}
+
+function colonyEnergyCost() {
+  const cfg = MISSIONS_CFG;
+  return Math.floor(cfg.colonyEnergyCost * Math.pow(cfg.colonyEnergyRatio, S.systems - 1));
+}
+function colonyCivCost() {
+  const cfg = MISSIONS_CFG;
+  return Math.floor(cfg.colonyCivCost * Math.pow(cfg.colonyCivRatio, S.systems - 1));
+}
 
 // ─── КОМЕТЫ ─────────────────────────────────────────────────────
 function canLaunchComet() {
@@ -61,8 +68,9 @@ function openCometDialog() {
   const check = canLaunchComet();
   if (!check.ok) { toast('Комета недоступна', check.reason); return; }
   const maxDust = S.dust;
+  const cfg = MISSIONS_CFG;
   const sizes = [
-    { id: 'small',  name: 'Малая комета',  pct: 0.15, desc: 'Быстрая, малая награда' },
+    { id: 'small',  name: 'Малая комета',   pct: 0.15, desc: 'Быстрая, малая награда' },
     { id: 'medium', name: 'Средняя комета', pct: 0.40, desc: 'Баланс скорости и награды' },
     { id: 'large',  name: 'Большая комета', pct: 0.70, desc: 'Медленная, большая награда' },
   ];
@@ -70,11 +78,13 @@ function openCometDialog() {
   for (let i = 0; i < sizes.length; i++) {
     const s = sizes[i];
     const cost = Math.floor(maxDust * s.pct);
-    const flightSec = Math.round(60 * (0.5 + s.pct * 1.5));
+    const flightMult = cfg.cometFlightMinMult + (cfg.cometFlightMaxMult - cfg.cometFlightMinMult) * s.pct;
+    const flightMs = cfg.cometFlightBase * flightMult;
+    const flightMin = (flightMs / 60000).toFixed(1);
     const canAfford = cost >= 100000 && cost <= maxDust;
     choices.push({
       id: s.id, name: s.name, desc: s.desc,
-      stats: 'Стоимость: ' + fmt(cost) + ' ✦ · полёт ~' + flightSec + 'с',
+      stats: 'Стоимость: ' + fmt(cost) + ' ✦ · полёт ~' + flightMin + ' мин',
       color: '#3d6dd4', icon: '☄️', disabled: !canAfford,
     });
   }
@@ -94,6 +104,7 @@ function openCometDialog() {
 }
 
 function launchComet(sizePct) {
+  const cfg = MISSIONS_CFG;
   const check = canLaunchComet();
   if (!check.ok) { toast('Комета недоступна', check.reason); return false; }
   if (sizePct === undefined) sizePct = 0.4;
@@ -102,11 +113,17 @@ function launchComet(sizePct) {
   S.dust -= cost;
   MISS.lastCometAt = Date.now();
 
-  const baseFlight = 60000, baseReward = 500000;
-  const flightTime = Math.floor(baseFlight * (0.5 + sizePct * 1.5));
-  const reward = Math.floor(baseReward * (1 + S.planets.length * 0.3) *
-                            check.ice * (0.3 + sizePct * 3));
+  // ─── Время полёта: 5–15 минут ───
+  const flightMult = cfg.cometFlightMinMult +
+    (cfg.cometFlightMaxMult - cfg.cometFlightMinMult) * sizePct;
+  const flightMs = Math.floor(cfg.cometFlightBase * flightMult * (0.9 + Math.random() * 0.2));
 
+  // ─── Награда ───
+  const reward = Math.floor(cfg.cometRewardBase *
+    (1 + S.planets.length * cfg.cometRewardPerPlanet) *
+    check.ice * (0.3 + sizePct * 3));
+
+  // ─── Находим ледяной гигант для старта ───
   let icePlanet = null;
   for (let i = 0; i < S.planets.length; i++) {
     if (S.planets[i].type === 'iceGiant' && !S.planets[i].forming) {
@@ -114,6 +131,7 @@ function launchComet(sizePct) {
     }
   }
 
+  // ─── Спавним комету из позиции планеты с полётом наружу ───
   if (typeof PART !== 'undefined' && PART.passing) {
     let startX = 0, startY = 0;
     if (icePlanet && typeof getPlanetWorldPos === 'function') {
@@ -121,27 +139,33 @@ function launchComet(sizePct) {
       startX = pos.x;
       startY = pos.y;
     }
-    const dirAngle = Math.random() * Math.PI * 2;
-    const speed = 40 + sizePct * 40;
+    // Направление — радиально наружу от звезды + лёгкий разброс
+    const baseAngle = Math.atan2(startY, startX);
+    const jitter = (Math.random() - 0.5) * 0.6;
+    const finalAngle = baseAngle + jitter;
+    const speed = 50 + sizePct * 30;
+
     PART.passing.push({
       x: startX, y: startY,
-      vx: Math.cos(dirAngle) * speed,
-      vy: Math.sin(dirAngle) * speed * 0.6,
+      vx: Math.cos(finalAngle) * speed,
+      vy: Math.sin(finalAngle) * speed,
       type: 'comet',
       size: 0.4 + sizePct * 1.2,
-      tailLen: Math.round(10 + sizePct * 20),
+      tailLen: Math.round(12 + sizePct * 22),
       alpha: 1, age: 0, trail: [],
+      immune: true,   // ★ Не наносит урон своей системе
+      missionId: 'comet_' + Math.random().toString(36).slice(2),
     });
   }
 
   MISS.comets.push({
     id: Math.random().toString(36).slice(2),
-    startAt: Date.now(), flightTime: flightTime,
-    reward: reward, fail: Math.random() < 0.25, size: sizePct,
+    startAt: Date.now(), flightTime: flightMs,
+    reward: reward, fail: Math.random() < cfg.cometFailChance, size: sizePct,
   });
   toast('☄️ Комета запущена',
     'Размер: ' + Math.round(sizePct * 100) + '% · возврат через ' +
-    fmtTime(flightTime / 1000));
+    fmtTime(flightMs / 1000));
   return true;
 }
 
@@ -167,40 +191,63 @@ function canLaunchExpedition() {
 }
 
 function launchExpedition() {
+  const cfg = MISSIONS_CFG;
   const check = canLaunchExpedition();
   if (!check.ok) { toast('Экспедиция недоступна', check.reason); return false; }
   S.energy -= check.cost;
   MISS.lastExpeditionAt = Date.now();
-  const flightTime = 120000 + Math.random() * 180000;
-  const reward = Math.floor(1000000 * (1 + S.planets.length * 0.4) * S.systems);
 
+  // ─── Время полёта: 10–20 минут ───
+  const flightMs = Math.floor(
+    cfg.expeditionFlightMin +
+    Math.random() * (cfg.expeditionFlightMax - cfg.expeditionFlightMin));
+
+  const reward = Math.floor(cfg.expeditionRewardBase *
+    (1 + S.planets.length * cfg.expeditionRewardPerPlanet) * S.systems);
+
+  // ─── Находим планету с жизнью для старта ───
+  let civPlanet = null;
+  for (let i = 0; i < S.planets.length; i++) {
+    if (PLANET_TYPES[S.planets[i].type].civ && !S.planets[i].forming) {
+      civPlanet = S.planets[i]; break;
+    }
+  }
+
+  // ─── Спавним корабль с полётом наружу ───
   if (typeof PART !== 'undefined' && PART.passing) {
-    const W = window.CANVAS_W || 400, H = window.CANVAS_H || 700;
-    const z = S.zoom || 1;
-    const halfW = W / (2 * z), halfH = H / (2 * z);
-    const side = Math.floor(Math.random() * 4);
-    let vx, vy, x, y;
-    const speed = 50 + Math.random() * 40;
-    if (side === 0) { x = (Math.random()*2-1)*halfW; y = -halfH-40; vx = (Math.random()-0.5)*20; vy = speed; }
-    else if (side === 1) { x = halfW+40; y = (Math.random()*2-1)*halfH; vx = -speed; vy = (Math.random()-0.5)*20; }
-    else if (side === 2) { x = (Math.random()*2-1)*halfW; y = halfH+40; vx = (Math.random()-0.5)*20; vy = -speed; }
-    else { x = -halfW-40; y = (Math.random()*2-1)*halfH; vx = speed; vy = (Math.random()-0.5)*20; }
+    let startX = 0, startY = 0;
+    if (civPlanet && typeof getPlanetWorldPos === 'function') {
+      const pos = getPlanetWorldPos(civPlanet, performance.now() / 1000);
+      startX = pos.x;
+      startY = pos.y;
+    }
+    const baseAngle = Math.atan2(startY, startX);
+    const jitter = (Math.random() - 0.5) * 0.6;
+    const finalAngle = baseAngle + jitter;
+    const speed = 45 + Math.random() * 15;
+
     PART.passing.push({
-      x: x, y: y, vx: vx, vy: vy,
+      x: startX, y: startY,
+      vx: Math.cos(finalAngle) * speed,
+      vy: Math.sin(finalAngle) * speed,
       type: 'ship',
-      size: 0.4 + Math.random() * 0.4,
-      tailLen: 10,
+      size: 0.5,
+      tailLen: 12,
       alpha: 1, age: 0, trail: [],
+      immune: true,
+      missionId: 'exp_' + Math.random().toString(36).slice(2),
     });
   }
 
   MISS.expeditions.push({
     id: Math.random().toString(36).slice(2),
-    startAt: Date.now(), flightTime: flightTime,
-    reward: reward, fail: Math.random() < 0.15,
-    hasColony: Math.random() < 0.05,
+    startAt: Date.now(), flightTime: flightMs,
+    reward: reward, fail: Math.random() < cfg.expeditionFailChance,
+    hasColony: Math.random() < cfg.colonyChance,
   });
-  toast('🚀 Экспедиция запущена', 'Возврат через ' + fmtTime(flightTime / 1000));
+  toast('🚀 Экспедиция запущена',
+    'Возврат через ' + fmtTime(flightMs / 1000) +
+    ' · цена ' + fmt(check.cost) + '⚡');
   return true;
 }
 
@@ -269,8 +316,6 @@ function updateMissions() {
 }
 
 // ─── КНОПКИ МИССИЙ ──────────────────────────────────────────────
-// Кнопки: только Комета и Экспедиция.
-// Никаких «Система» — системы приходят автоматически.
 function renderMissionButtons() {
   const container = document.getElementById('missionButtons');
   if (!container) return;
@@ -305,7 +350,7 @@ function renderMissionButtons() {
   }
 }
 
-// Делегирование кликов — устанавливается один раз
+// ─── Делегирование кликов ───────────────────────────────────────
 (function setupDelegation() {
   function attach() {
     const container = document.getElementById('missionButtons');
@@ -324,54 +369,7 @@ function renderMissionButtons() {
     document.addEventListener('DOMContentLoaded', attach);
   } else { attach(); }
 })();
-// ═══════════════════════════════════════════════════════════════
-//  ПАРАМЕТРЫ МИССИЙ — кометы, экспедиции, колонии
-//  Меняйте здесь, чтобы настроить длительность и стоимость
-// ═══════════════════════════════════════════════════════════════
-const MISSIONS_CFG = {
-  // ─── КОМЕТЫ ───
-  cometFlightBase: 600000,         // База полёта (мс) = 10 мин
-  cometFlightMinMult: 0.5,         // Множитель для малой кометы (5 мин)
-  cometFlightMaxMult: 1.5,         // Множитель для большой (15 мин)
-  cometRewardBase: 500000,
-  cometRewardPerPlanet: 0.3,
-  cometFailChance: 0.25,
 
-  // ─── ЭКСПЕДИЦИИ ───
-  expeditionFlightMin: 600000,     // 10 мин
-  expeditionFlightMax: 1200000,    // 20 мин
-  expeditionCostBase: 3000,        // При 1 системе
-  expeditionCostRatio: 1.5,        // Множитель за каждую систему
-  expeditionRewardBase: 1000000,
-  expeditionRewardPerPlanet: 0.4,
-  expeditionFailChance: 0.15,
-
-  // ─── КОЛОНИЯ ───
-  colonyChance: 0.03,              // 3% шанс найти систему
-  colonyEnergyCost: 50000,
-  colonyEnergyRatio: 2.0,
-  colonyCivCost: 50,
-  colonyCivRatio: 1.8,
-
-  // ─── УРОН ОТ ПРОЛЕТАЮЩИХ КОМЕТ ───
-  cometDamageChance: 0.35,         // 35% шанс разрушения при попадании
-  cometDamageRange: 2.5,           // Радиус столкновения = sumRadii × 2.5
-};
-
-// ─── ЛИМИТЫ АКТИВНОЙ ИГРЫ ───────────────────────────────────────
-// Пассив медленный (часы/дни), актив — быстрее
-const BALANCE = {
-  // Множитель клика (чем выше, тем выгоднее активная игра)
-  clickBonus: 1.0,
-  // Множитель пассивного дохода от планет
-  passiveBonus: 1.0,
-  // Дополнительный множитель за активные действия в час
-  activeBonus: 1.5,
-};
-
-// ─── Экспорт ────────────────────────────────────────────────────
-window.MISSIONS_CFG = MISSIONS_CFG;
-window.BALANCE = BALANCE;
 window.updateMissions = updateMissions;
 window.renderMissionButtons = renderMissionButtons;
 window.canLaunchComet = canLaunchComet;
