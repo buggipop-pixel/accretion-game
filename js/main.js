@@ -381,7 +381,7 @@ function updateUI() {
 
   const rateEl = document.getElementById('dustRate');
   if (rateEl && typeof dustPerSec === 'function') {
-    rateEl.textContent = '+' + fmt(dustPerSec() * 3600) + ' / ч';
+    rateEl.textContent = '+' + fmt(dustPerSec()) + ' / сек';
   }
 
   // Индикатор газа
