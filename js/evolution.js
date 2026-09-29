@@ -114,131 +114,39 @@ function openEvolution() {
     return;
   }
 
-  // ═══ ФАЗА IV → V ═══
+   // ═══ ФАЗА IV → V: первая планета ═══
   if (stage === 'firstPlanet') {
     const cost = planetCost(0);
-    const choices = Object.keys(PLANET_TYPES).map(function(k) {
-      const pt = PLANET_TYPES[k];
-      const hasCiv = S.starType && STAR_TYPES[S.starType].civ;
-      const canCiv = !pt.civ || hasCiv;
-      const canAfford = S.dust >= cost;
-      return {
-        id: k, name: pt.name, desc: pt.desc,
-        stats: '+' + pt.rate + '/с · ' +
-               (canAfford ? 'Цена ' + fmt(cost) : 'Нужно ' + fmt(cost - S.dust)),
-        color: pt.color, icon: '🪐',
-        disabled: !canAfford || !canCiv,
-      };
-    });
-    setModal(
-      buildModal('Первая планета',
-        'Выбери первую планету. Цена: ' + fmt(cost) + '.', choices),
-      buildHandlers(choices, function(id) {
-        if (S.dust < cost) return;
-        S.dust -= cost;
-        tryMinigame('accretion', function() {
-          addPlanet(id);
-          S.stage = 'system';
-          toast(PLANET_TYPES[id].name + ' сформирована', 'Орбита 1');
-        });
-      })
-    );
-    return;
-  }
-
-  // ═══ ФАЗА V ═══
-  if (stage === 'system') {
-    if (S.planets.length >= 8) {
-      setModal(
-        buildModal('Система сформирована',
-          'Все 8 планет на орбитах. Пора расширяться.',
-          [{ id: 'expand', name: 'Основать новую систему',
-             desc: 'Отправить экспедицию к соседней звезде',
-             stats: '+50% к глобальному доходу',
-             color: '#6b4de6', icon: '🌌' }]),
-        { expand: function() {
-            S.stage = 'galaxy';
-            S.systems = Math.max(S.systems, 2);
-            S.totalSystemsCreated = Math.max(S.totalSystemsCreated || 1, 2);
-            closeEvolutionModal();
-            toast('Первая колония', 'Галактика расширяется');
-          }
-        }
-      );
-      return;
-    }
-    const cost = planetCost(S.planets.length);
-    const choices = Object.keys(PLANET_TYPES).map(function(k) {
-      const pt = PLANET_TYPES[k];
-      const hasCiv = S.starType && STAR_TYPES[S.starType].civ;
-      const canCiv = !pt.civ || hasCiv;
-      const canAfford = S.dust >= cost;
-      return {
-        id: k, name: pt.name, desc: pt.desc,
-        stats: '+' + pt.rate + '/с · ' +
-               (canAfford ? fmt(cost) : 'Нужно ' + fmt(cost)),
-        color: pt.color, icon: '🪐',
-        disabled: !canAfford || !canCiv,
-      };
-    });
-    setModal(
-      buildModal('Новая планета',
-        'Планета №' + (S.planets.length + 1) + '. Цена: ' + fmt(cost) + '.', choices),
-      buildHandlers(choices, function(id) {
-        if (S.dust < cost) return;
-        S.dust -= cost;
-        addPlanet(id);
-        closeEvolutionModal();
-        toast(PLANET_TYPES[id].name + ' сформирована', 'Орбита ' + S.planets.length);
-      })
-    );
-    return;
-  }
-
-  // ═══ ФАЗА VI ═══
-  if (stage === 'galaxy') {
-    const cost = Math.floor(50e9 * Math.pow(4, S.systems - 1));
     const canAfford = S.dust >= cost;
+
     setModal(
-      buildModal('Новая система',
-        'Стоимость системы №' + (S.systems + 1) + ': ' + fmt(cost) + ' пыли.',
-        [{ id: 'build', name: 'Основать систему',
-           desc: canAfford ? 'Заложить фундамент' : 'Не хватает ' + fmt(cost - S.dust),
-           stats: '+50% к доходу',
-           color: '#8b5cf6', icon: '🌌',
+      buildModal('Сборка первой планеты',
+        'Из обломков диска формируется планета. Стоимость: ' + fmt(cost) + ' пыли.',
+        [{ id: 'go', name: 'Начать сборку',
+           desc: canAfford ? 'Собери планету из частиц' : 'Не хватает ' + fmt(cost - S.dust),
+           stats: 'Тип планеты зависит от состава',
+           color: '#6b4de6', icon: '🪐',
            disabled: !canAfford }]),
-      { build: function() {
+      { go: function() {
           if (S.dust < cost) return;
-          const newName = prompt('Имя новой системы:', 'Система ' + (S.systems + 1));
-          if (newName === null) return;
           S.dust -= cost;
-          const finalName = (newName || 'Система ' + (S.systems + 1)).trim().slice(0, 16);
-
-          if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) {
-            S.otherSystems[0] = null;
-          }
-
-          const newIdx = S.otherSystems.length;
-          S.otherSystems.push({
-            name: finalName,
-            starType: 'G',
-            systemType: 'single',
-            planets: [],
-          });
-          S.systems++;
-          S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
-          closeEvolutionModal();
-          toast('Система основана', finalName + ' · Всего: ' + S.systems);
-
-          if (typeof switchToSystem === 'function') {
-            switchToSystem(newIdx);
-          }
+          tryMinigameFull('assemble',
+            function() {
+              const type = (typeof MG !== 'undefined' && MG.result) ? MG.result : 'rocky';
+              addPlanet(type);
+              S.stage = 'system';
+              toast(PLANET_TYPES[type].name + ' сформирована', 'Орбита 1');
+            },
+            function() {
+              S.dust += cost;
+              toast('Сборка не удалась', 'Возврат ' + fmt(cost) + ' пыли');
+            }
+          );
         }
       }
     );
     return;
   }
-}
 
 // ─── Показ звезды ───────────────────────────────────────────────
 function showStarReveal(starType, quality) {
