@@ -9,22 +9,37 @@ function systemMult() { return 1 + Math.max(0, S.systems - 1) * 0.5; }
 function gammaMult() { return Date.now() < S.gammaDebuff ? 0.4 : 1; }
 
 // ─── Доход от планет ────────────────────────────────────────────
+// Бонус Сафронова: чем массивнее планета, тем быстрее растёт.
+// После слияния планета получает усиленный бонус — компенсация
+// за потерянный слот.
 function planetRate() {
   let sum = 0;
   for (let i = 0; i < S.planets.length; i++) {
     const p = S.planets[i];
     if (p.forming) continue;
+
     let base = PLANET_TYPES[p.type].rate;
 
-    // Формула Сафронова: чем больше планета, тем быстрее растёт
+    // Сафронов: множитель от массы (не от diameter)
+    // mass=1 → ×1.0, mass=2 → ×1.4, mass=4 → ×1.8, mass=8 → ×2.2
     if (typeof safronovAccretion === 'function') {
-      base *= (1 + safronovAccretion(p) * 10);
+      const acc = safronovAccretion(p);
+      base *= (1 + acc * 10);
     }
+
+    // ★ Бонус слияния: каждая единица массы сверх 1 даёт +15% к rate
+    // Это компенсирует потерю слота: 1 планета массы 4 приносит
+    // как 1.45 обычных планет.
+    if (p.mass > 1) {
+      base *= (1 + Math.log(p.mass) * 0.35);
+    }
+
     // Температурный множитель
     if (typeof tempAt === 'function') {
       const rAe = (p.orbitR || 100) / PHYS.refRadius;
       base *= 0.8 + Math.min(1, tempAt(rAe) / 400) * 0.4;
     }
+
     sum += base;
   }
   return sum;
