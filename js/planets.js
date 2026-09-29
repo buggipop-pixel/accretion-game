@@ -1,14 +1,10 @@
 // ═══════════════════════════════════════════════════════════════
 //  PLANETS.JS — планеты, орбиты, слияния, снеговая линия
-//  Орбиты расположены по геометрической прогрессии, поэтому
-//  соседние эллипсы не пересекаются даже в двойных и тройных
-//  системах. Столкновения проверяются по фактическим позициям.
 // ═══════════════════════════════════════════════════════════════
 
 const VIEW_COS = 0.5;
 
 // ─── Позиция планеты на орбите ──────────────────────────────────
-// Одиночная система (e=0) — круги. Двойная/тройная — эллипсы.
 function getPlanetWorldPos(p, timeSec) {
   const st = SYSTEM_TYPES[S.systemType || 'single'];
   const e = st.eccentricity || 0;
@@ -30,7 +26,6 @@ window.getPlanetWorldPos = getPlanetWorldPos;
 function correctPlanetTypeByZone(type, orbitR) {
   const rAe = orbitR / PHYS.refRadius;
   const insideSnow = rAe < 2.7;
-
   if (insideSnow) {
     if (type === 'iceGiant') return { type: 'rocky', reason: 'Лёд растаял' };
     if (type === 'gasGiant') return { type: 'rocky', reason: 'Газ сдут' };
@@ -44,7 +39,6 @@ function correctPlanetTypeByZone(type, orbitR) {
 window.correctPlanetTypeByZone = correctPlanetTypeByZone;
 
 // ─── Поиск свободной орбиты ─────────────────────────────────────
-// Использует геометрическую прогрессию и проверяет minGap.
 function findFreeOrbit(preferR) {
   const minGap = ORBIT_GEOMETRY.minGap;
   const occupied = [];
@@ -53,11 +47,9 @@ function findFreeOrbit(preferR) {
   }
   occupied.sort(function(a, b) { return a - b; });
 
-  // Стандартные позиции орбит
   const candidates = [];
   for (let i = 0; i < 8; i++) candidates.push(getOrbitR(i));
 
-  // Сортируем по удалённости от предпочтительного радиуса
   if (preferR !== undefined) {
     candidates.sort(function(a, b) {
       return Math.abs(a - preferR) - Math.abs(b - preferR);
@@ -80,7 +72,6 @@ window.findFreeOrbit = findFreeOrbit;
 function addPlanet(type) {
   if (S.planets.length >= 8) return false;
   const idx = S.planets.length;
-
   const baseR = findFreeOrbit(getOrbitR(idx));
   if (baseR === null) return false;
 
@@ -137,7 +128,6 @@ function updatePlanets(dt) {
       }
       continue;
     }
-
     p.precession = (p.precession || 0) + st.precession * dt;
 
     if (typeof migrationRate === 'function') {
@@ -186,10 +176,47 @@ function updatePlanets(dt) {
   checkCollisions();
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  СТОЛКНОВЕНИЯ — проверка каждый кадр по фактическим позициям
+// ═══════════════════════════════════════════════════════════════
+function checkCollisions() {
+  const st = SYSTEM_TYPES[S.systemType];
+  if (!st || !st.collisionRate) return;
+
+  const active = S.planets.filter(function(p) { return !p.forming; });
+  if (active.length < 2) return;
+
+  const nowSec = Date.now() / 1000;
+  const dt = 1 / 60;
+  const captureFactor = window.COLLISION_CAPTURE_FACTOR || 2.5;
+  const captureProb = st.collisionRate * dt;
+
+  for (let i = 0; i < active.length; i++) {
+    for (let j = i + 1; j < active.length; j++) {
+      const a = active[i];
+      const b = active[j];
+
+      const posA = getPlanetWorldPos(a, nowSec);
+      const posB = getPlanetWorldPos(b, nowSec);
+      const dx = posA.x - posB.x;
+      const dy = posA.y - posB.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+
+      const sumRadii = (a.diameter + b.diameter) * 5;
+      const captureDist = sumRadii * captureFactor;
+
+      if (d < captureDist) {
+        if (Math.random() < captureProb) {
+          const decision = shouldMerge(a, b);
+          if (decision === 'merge') { collidePlanets(a, b, 'merge'); return; }
+          if (decision === 'bounce') { collidePlanets(a, b, 'bounce'); return; }
+        }
+      }
+    }
+  }
+}
+
 // ─── Столкновение планет ────────────────────────────────────────
-// Refund привязан к стоимости планеты (а не к её rate), чтобы
-// на поздних фазах возмещение было справедливым.
-// Слияние даёт временный бонус ×1.5 к rate — чтобы игрок не терял доход.
 function collidePlanets(a, b, decision) {
   const aPt = PLANET_TYPES[a.type];
   const bPt = PLANET_TYPES[b.type];
@@ -202,12 +229,10 @@ function collidePlanets(a, b, decision) {
   const bigMass = a.mass + b.mass;
   const roll = Math.random();
 
-  // ─── Отскок ───
   if (decision === 'bounce') {
     const avgR = (a.baseOrbitR + b.baseOrbitR) / 2;
     a.baseOrbitR = Math.max(ORBIT_GEOMETRY.baseR, avgR - ORBIT_GEOMETRY.minGap);
     b.baseOrbitR = avgR + ORBIT_GEOMETRY.minGap;
-    // Потеря — фиксированная доля пыли, но не больше 5% от дохода за минуту
     const maxLoss = dustPerSec() * 60 * 0.05;
     const dustLoss = Math.floor(Math.min(S.dust * 0.08, maxLoss));
     S.dust = Math.max(0, S.dust - dustLoss);
@@ -220,103 +245,13 @@ function collidePlanets(a, b, decision) {
     return;
   }
 
-  // ─── Разрушение ───
   if (roll < 0.35) {
-    // Refund: 40% от стоимости двух последних планет
+    // Разрушение
     const n = S.planets.length;
     const refundA = typeof planetCost === 'function' ? planetCost(n - 1) : 500000;
     const refundB = typeof planetCost === 'function' ? planetCost(n - 2) : 500000;
     const refund = Math.floor((refundA + refundB) * 0.4);
 
-    S.dust += refund;
-    S.dustTotal += refund;
-    S.planets = S.planets.filter(function(p) { return p !== a && p !== b; });
-
-    if (Math.random() < 0.3 && S.planets.length > 0) {
-      const lucky = S.planets[Math.floor(Math.random() * S.planets.length)];
-      lucky.moons.push({
-        size: 0.4 + Math.random() * 0.5,
-        angle: Math.random() * Math.PI * 2,
-        speed: 2 + Math.random() * 1.5,
-        dist: 2.2 + Math.random() * 0.5,
-      });
-      toast('🌙 Луна', 'Осколок стал спутником');
-    }
-
-    const sp = worldToScreen(wmx, wmy);
-    S.explosions.push({
-      x: sp.x, y: sp.y, type: 'destroy',
-      startAt: Date.now(), endAt: Date.now() + 1500,
-      size: 30 + bigMass * 3,
-    });
-    toast('💥 Столкновение', '+' + fmt(refund) + ' пыли');
-  } else {
-    // ─── Слияние ───
-    const newMass = a.mass + b.mass;
-    const rPix = (a.baseOrbitR + b.baseOrbitR) / 2;
-    const finalType = correctPlanetTypeByZone(
-      aPt.rate > bPt.rate ? a.type : b.type, rPix).type;
-
-    S.planets = S.planets.filter(function(p) { return p !== a && p !== b; });
-
-    const freeR = findFreeOrbit(rPix);
-    const useR = freeR !== null ? freeR : rPix;
-
-    S.planets.push({
-      type: finalType,
-      angle: Math.random() * Math.PI * 2,
-      speed: 0.15 / Math.sqrt(useR / 90),
-      baseOrbitR: useR, orbitR: useR,
-      driftPhase: Math.random() * Math.PI * 2,
-      rotation: 0, seed: Math.random() * 1e6,
-      forming: true,
-      formUntil: Date.now() + CFG.formationDuration * 1000,
-      mass: newMass,
-      diameter: Math.pow(newMass, 1/3) * 1.1,
-      moons: [],
-      precession: 0,
-      trueAnomaly: 0,
-    });
-
-    const sp = worldToScreen(wmx, wmy);
-    S.explosions.push({
-      x: sp.x, y: sp.y, type: 'merge',
-      startAt: Date.now(), endAt: Date.now() + 1000, size: 40,
-    });
-    toast('🪐 Слияние', PLANET_TYPES[finalType].name);
-  }
-}
-
-function collidePlanets(a, b, decision) {
-  const aPt = PLANET_TYPES[a.type];
-  const bPt = PLANET_TYPES[b.type];
-
-  const nowSec = Date.now() / 1000;
-  const posA = getPlanetWorldPos(a, nowSec);
-  const posB = getPlanetWorldPos(b, nowSec);
-  const wmx = (posA.x + posB.x) / 2;
-  const wmy = (posA.y + posB.y) / 2;
-  const bigMass = a.mass + b.mass;
-  const roll = Math.random();
-
-  if (decision === 'bounce') {
-    const avgR = (a.baseOrbitR + b.baseOrbitR) / 2;
-    a.baseOrbitR = Math.max(ORBIT_GEOMETRY.baseR, avgR - ORBIT_GEOMETRY.minGap);
-    b.baseOrbitR = avgR + ORBIT_GEOMETRY.minGap;
-    const dustLoss = Math.floor(S.dust * 0.08);
-    S.dust = Math.max(0, S.dust - dustLoss);
-    const sp = worldToScreen(wmx, wmy);
-    S.explosions.push({
-      x: sp.x, y: sp.y, type: 'moon',
-      startAt: Date.now(), endAt: Date.now() + 600, size: 20,
-    });
-    toast('💫 Отскок', '−' + fmt(dustLoss) + ' пыли от удара');
-    return;
-  }
-
-  if (roll < 0.35) {
-    // Разрушение
-    const refund = Math.floor((aPt.rate + bPt.rate) * 600);
     S.dust += refund;
     S.dustTotal += refund;
     S.planets = S.planets.filter(function(p) { return p !== a && p !== b; });
@@ -347,7 +282,6 @@ function collidePlanets(a, b, decision) {
       aPt.rate > bPt.rate ? a.type : b.type, rPix).type;
 
     S.planets = S.planets.filter(function(p) { return p !== a && p !== b; });
-
     const freeR = findFreeOrbit(rPix);
     const useR = freeR !== null ? freeR : rPix;
 
@@ -376,13 +310,12 @@ function collidePlanets(a, b, decision) {
   }
 }
 
-// ─── Рендеринг ──────────────────────────────────────────────────
+// ─── Рендеринг планет ───────────────────────────────────────────
 function drawPlanets(ctx, time) {
   const t = time;
   const z = S.zoom || 1;
   const starHue = S.starType ? STAR_TYPES[S.starType].color : 260;
 
-  // Снеговая линия
   if (S.starType && S.planets.length > 0) {
     const snowPx = PHYS.snowLine;
     ctx.save();
@@ -405,7 +338,6 @@ function drawPlanets(ctx, time) {
 
   if (S.planets.length === 0) return;
 
-  // Орбиты — эллипсы
   const sysConf = SYSTEM_TYPES[S.systemType || 'single'];
   const eccentricity = sysConf.eccentricity || 0;
 
@@ -440,7 +372,6 @@ function drawPlanets(ctx, time) {
   }
   ctx.restore();
 
-  // Планеты
   const sorted = S.planets.map(function(p) {
     const pos = getPlanetWorldPos(p, t);
     return { p: p, wx: pos.x, wy: pos.y, depth: pos.y / 100 };
@@ -738,4 +669,5 @@ window.addPlanet = addPlanet;
 window.updatePlanets = updatePlanets;
 window.drawPlanets = drawPlanets;
 window.drawStar = drawStar;
+window.checkCollisions = checkCollisions;
 window.findFreeOrbit = findFreeOrbit;
