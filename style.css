@@ -386,6 +386,7 @@ html, body {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.3px;
 }
+/* Кнопки миссий */
 .mission-buttons {
   display: flex;
   gap: 8px;
@@ -406,11 +407,11 @@ html, body {
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  transition: transform 0.1s, background 0.2s;
 }
 .mission-btn:active:not(:disabled) { transform: scale(0.96); }
 .mission-btn.comet { background: linear-gradient(135deg, #2a3b8e, #3d6dd4); border: none; }
 .mission-btn.exp { background: linear-gradient(135deg, #1a6b4a, #2eaa77); border: none; }
+.mission-btn.sys { background: linear-gradient(135deg, #6b4de6, #8b5cf6); border: none; }
 .mission-btn.disabled { opacity: 0.5; cursor: not-allowed; }
 .mb-icon { font-size: 18px; }
 .mb-cost { font-size: 9px; opacity: 0.8; font-variant-numeric: tabular-nums; }
