@@ -373,3 +373,4 @@ function setModalRaw(html, handlers) {
 
 window.checkEvolution = checkEvolution;
 window.openEvolution = openEvolution;
+}
