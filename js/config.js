@@ -187,7 +187,120 @@ const BALANCE = {
   // Дополнительный множитель за активные действия в час
   activeBonus: 1.5,
 };
+// ═══════════════════════════════════════════════════════════════
+//  ГЕНЕРАЦИЯ СЛУЧАЙНЫХ СИСТЕМ
+//  Веса звёзд основаны на реальной IMF (Salpeter).
+//  Красные карлики доминируют — 60%. Голубые редки — 5%.
+// ═══════════════════════════════════════════════════════════════
 
+const STAR_WEIGHTS = {
+  M: 60,   // Красный карлик — обычная звезда
+  K: 15,   // Оранжевый — частый
+  G: 10,   // Жёлтый (Солнце) — редкий
+  A: 10,   // Белая — редкая
+  B: 5,    // Голубая — очень редкая
+};
+
+// Какие типы планет могут быть у звезды
+// Порядок от центра к краю
+const STAR_PLANET_POOL = {
+  M: ['lava', 'rocky', 'iceGiant', 'gasGiant'],       // Нет жизни
+  K: ['lava', 'rocky', 'superEarth', 'iceGiant', 'gasGiant'],
+  G: ['rocky', 'superEarth', 'gasGiant', 'iceGiant'], // Полный набор
+  A: ['lava', 'rocky', 'gasGiant'],                   // Активная звезда
+  B: ['lava', 'gasGiant', 'iceGiant'],                // Экстремальные условия
+};
+
+// Возвращает случайный класс звезды по весам IMF
+function rollStarType() {
+  const total = Object.values(STAR_WEIGHTS).reduce(function(s, v) { return s + v; }, 0);
+  let r = Math.random() * total;
+  for (const key in STAR_WEIGHTS) {
+    r -= STAR_WEIGHTS[key];
+    if (r <= 0) return key;
+  }
+  return 'M';
+}
+
+// Возвращает случайный тип системы по шансам
+function rollSystemType() {
+  const r = Math.random();
+  if (r < 0.50) return 'single';
+  if (r < 0.88) return 'binary';
+  return 'trinary';
+}
+
+// Создаёт случайную систему.
+// opts.isColony = true → ограничения: только G/K, только планеты с жизнью.
+function generateRandomSystem(opts) {
+  opts = opts || {};
+  const isColony = opts.isColony === true;
+
+  let starType;
+  if (isColony) {
+    // Колония всегда на обитаемой звезде
+    starType = Math.random() < 0.6 ? 'G' : 'K';
+  } else {
+    starType = rollStarType();
+  }
+
+  const systemType = rollSystemType();
+
+  // Количество планет: 3–8
+  const planetCount = 3 + Math.floor(Math.random() * 6);
+
+  // Доступные типы планет
+  const pool = STAR_PLANET_POOL[starType].slice();
+
+  // Генерируем планеты
+  const planets = [];
+  for (let i = 0; i < planetCount; i++) {
+    // Смещение к краю пула: внутренние — горячие, внешние — холодные
+    let idx;
+    if (i < planetCount / 2) {
+      // Первая половина — из начала пула (горячие)
+      idx = Math.floor(Math.random() * Math.ceil(pool.length / 2));
+    } else {
+      // Вторая половина — из конца пула (холодные)
+      idx = Math.floor(pool.length / 2 + Math.random() * Math.ceil(pool.length / 2));
+      if (idx >= pool.length) idx = pool.length - 1;
+    }
+    const type = pool[idx];
+
+    const orbitR = ORBIT_GEOMETRY.baseR *
+                   Math.pow(ORBIT_GEOMETRY.ratio, i);
+
+    planets.push({
+      type: type,
+      angle: Math.random() * Math.PI * 2,
+      speed: 0.15 / Math.sqrt(orbitR / 90),
+      baseOrbitR: orbitR,
+      orbitR: orbitR,
+      driftPhase: Math.random() * Math.PI * 2,
+      rotation: Math.random() * Math.PI * 2,
+      seed: Math.random() * 1e6,
+      forming: false,
+      formUntil: 0,
+      mass: planetMass(type),
+      diameter: planetDiameter(type),
+      moons: [],
+      precession: 0,
+      trueAnomaly: 0,
+    });
+  }
+
+  return {
+    name: generateSystemName(),
+    starType: starType,
+    systemType: systemType,
+    planets: planets,
+  };
+}
+
+window.STAR_WEIGHTS = STAR_WEIGHTS;
+window.rollStarType = rollStarType;
+window.rollSystemType = rollSystemType;
+window.generateRandomSystem = generateRandomSystem;
 window.MISSIONS_CFG = MISSIONS_CFG;
 window.BALANCE = BALANCE;
 window.CFG = CFG;
