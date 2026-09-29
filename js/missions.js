@@ -271,9 +271,26 @@ function offerColony() {
   if (typeof setModal === 'function') {
     const handlers = {
       colonize: function() {
-        S.energy -= eCost; S.civLevel -= cCost;
-        S.systems++; S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
-        toast('Колония основана', 'Всего систем: ' + S.systems);
+        S.energy -= eCost;
+        S.civLevel -= cCost;
+
+        // Слот 0 — placeholder для родной
+        if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) {
+          S.otherSystems[0] = null;
+        }
+
+        // ★ Колония всегда даёт ОБИТАЕМУЮ систему (G/K + жизнь)
+        const newSys = generateRandomSystem({ isColony: true });
+        const newIdx = S.otherSystems.length;
+        S.otherSystems.push(newSys);
+        S.systems++;
+        S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
+        toast('Колония основана',
+          newSys.name + ' · ' + STAR_TYPES[newSys.starType].name);
+
+        // Автопереключение
+        if (typeof switchToSystem === 'function') switchToSystem(newIdx);
+
         if (typeof closeEvolutionModal === 'function') closeEvolutionModal();
       },
       skip: function() {
