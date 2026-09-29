@@ -256,11 +256,32 @@ function loop(now) {
   if (eGain > 0) S.energy += eGain;
 
   // Основные тики
+  // Основные тики
   tickCiv(dt);
   updateParticles(dt, time);
   updatePlanets(dt);
   if (typeof updateMissions === 'function') updateMissions(dt, time);
   checkEvolution();
+
+  // ★ Авто-создание новой системы в фазе galaxy
+  if (S.stage === 'galaxy') {
+    const cost = Math.floor(50e9 * Math.pow(4, S.systems - 1));
+    if (S.dust >= cost && S.systems < 20) {
+      S.dust -= cost;
+      if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) {
+        S.otherSystems[0] = null;
+      }
+      const newSys = generateRandomSystem({ isColony: false });
+      const newIdx = S.otherSystems.length;
+      S.otherSystems.push(newSys);
+      S.systems++;
+      S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
+      toast('Система основана',
+        newSys.name + ' · ' + STAR_TYPES[newSys.starType].name);
+      // Автопереключение
+      if (typeof switchToSystem === 'function') switchToSystem(newIdx);
+    }
+  }
 
   // Отрисовка
   drawBackground(time);
