@@ -1,7 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  EVOLUTION.JS — эволюционные окна и переходы фаз
-//  Модалка galaxy удалена — системы создаются автоматически
-//  в main.js, когда пыли достаточно.
+//  Фаза galaxy без модалки — системы создаются в main.js
 // ═══════════════════════════════════════════════════════════════
 
 let evolutionModalOpen = false;
@@ -51,6 +50,48 @@ function closeEvolutionModal() {
   const modal = document.getElementById('modal');
   if (modal) modal.classList.remove('show');
 }
+
+// ─── Подсказка: какие типы планет доступны ──────────────────────
+// Возвращает { label, hint, types } — что можно собрать в системе
+function getOrbitHint() {
+  const star = S.starType || 'G';
+
+  // Все типы, разрешённые для этой звезды
+  const allTypes = (typeof getAllowedTypesForSystem === 'function')
+    ? getAllowedTypesForSystem(star) : ['rocky', 'gasGiant', 'iceGiant'];
+
+  // Какие орбиты свободны
+  const freeTypes = [];
+  for (let i = 0; i < 8; i++) {
+    const orbitR = (typeof getOrbitR === 'function') ? getOrbitR(i) : 90 + i * 50;
+    // Проверка занятости орбиты
+    let occupied = false;
+    for (let pi = 0; pi < S.planets.length; pi++) {
+      if (Math.abs(S.planets[pi].baseOrbitR - orbitR) < 25) { occupied = true; break; }
+    }
+    if (occupied) continue;
+
+    // Какие типы разрешены на этой орбите
+    const allowed = (typeof getAllowedTypesAtOrbit === 'function')
+      ? getAllowedTypesAtOrbit(star, i) : allTypes;
+    for (let ai = 0; ai < allowed.length; ai++) {
+      if (freeTypes.indexOf(allowed[ai]) === -1) freeTypes.push(allowed[ai]);
+    }
+  }
+
+  const names = freeTypes.map(function(t) {
+    return PLANET_TYPES[t] ? PLANET_TYPES[t].name : t;
+  });
+
+  return {
+    label: 'Свободные орбиты',
+    hint: names.length > 0
+      ? 'Доступно: ' + names.join(', ')
+      : 'Все орбиты заполнены',
+    types: freeTypes,
+  };
+}
+window.getOrbitHint = getOrbitHint;
 
 // ─── Диспетчер эволюции ─────────────────────────────────────────
 function openEvolution() {
@@ -117,11 +158,13 @@ function openEvolution() {
   if (stage === 'firstPlanet') {
     const cost = planetCost(0);
     const canAfford = S.dust >= cost;
+    const zone = getOrbitHint();
+
     setModal(buildModal('Сборка первой планеты',
-      'Собери планету из обломков. Стоимость: ' + fmt(cost) + ' пыли.',
+      'Орбита 1 · Стоимость: ' + fmt(cost) + ' пыли.',
       [{ id:'go', name:'Начать сборку',
         desc: canAfford ? 'Собери планету из частиц' : 'Не хватает ' + fmt(cost - S.dust),
-        stats:'Тип планеты зависит от состава',
+        stats: zone.hint,
         color:'#6b4de6', icon:'🪐', disabled: !canAfford }]),
       { go: function() {
           if (S.dust < cost) return;
@@ -129,13 +172,10 @@ function openEvolution() {
           tryMinigameFull('assemble',
             function() {
               const type = (typeof MG !== 'undefined' && MG.result) ? MG.result : 'rocky';
-              const orbitR = 90 + S.planets.length * 50;
-              const corrected = (typeof correctPlanetTypeByZone === 'function')
-                ? correctPlanetTypeByZone(type, orbitR) : { type: type, reason: null };
-              addPlanet(corrected.type);
+              const ok = addPlanet(type);
               S.stage = 'system';
-              if (corrected.reason) toast('⚠ ' + corrected.reason, PLANET_TYPES[corrected.type].name);
-              else toast(PLANET_TYPES[corrected.type].name + ' сформирована', 'Орбита 1');
+              if (!ok) toast('⚠ Не удалось разместить', PLANET_TYPES[type].name);
+              else toast(PLANET_TYPES[type].name + ' сформирована', 'Орбита 1');
             },
             function() {
               S.dust += cost;
@@ -162,7 +202,6 @@ function openEvolution() {
             if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) {
               S.otherSystems[0] = null;
             }
-            // Первая система — обитаемая (как из экспедиции)
             const newSys = generateRandomSystem({ isColony: true });
             const newIdx = S.otherSystems.length;
             S.otherSystems.push(newSys);
@@ -178,11 +217,13 @@ function openEvolution() {
 
     const cost = planetCost(S.planets.length);
     const canAfford = S.dust >= cost;
+    const zone = getOrbitHint();
+
     setModal(buildModal('Сборка планеты №' + (S.planets.length + 1),
-      'Стоимость входа: ' + fmt(cost) + ' пыли.',
+      'Орбита ' + (S.planets.length + 1) + ' · Стоимость: ' + fmt(cost) + ' пыли.',
       [{ id:'go', name:'Начать сборку',
         desc: canAfford ? 'Собери планету из частиц' : 'Не хватает ' + fmt(cost - S.dust),
-        stats:'Тип планеты зависит от состава',
+        stats: zone.hint,
         color:'#6b4de6', icon:'🪐', disabled: !canAfford }]),
       { go: function() {
           if (S.dust < cost) return;
@@ -190,12 +231,9 @@ function openEvolution() {
           tryMinigameFull('assemble',
             function() {
               const type = (typeof MG !== 'undefined' && MG.result) ? MG.result : 'rocky';
-              const orbitR = 90 + S.planets.length * 50;
-              const corrected = (typeof correctPlanetTypeByZone === 'function')
-                ? correctPlanetTypeByZone(type, orbitR) : { type: type, reason: null };
-              addPlanet(corrected.type);
-              if (corrected.reason) toast('⚠ ' + corrected.reason, PLANET_TYPES[corrected.type].name);
-              else toast(PLANET_TYPES[corrected.type].name + ' сформирована',
+              const ok = addPlanet(type);
+              if (!ok) toast('⚠ Не удалось разместить', PLANET_TYPES[type].name);
+              else toast(PLANET_TYPES[type].name + ' сформирована',
                          'Орбита ' + S.planets.length);
             },
             function() {
@@ -207,8 +245,6 @@ function openEvolution() {
       });
     return;
   }
-
-  // Фаза galaxy — без модалки, системы создаются автоматически в main.js
 }
 
 // ─── Показ звезды после зажигания ───────────────────────────────
@@ -336,6 +372,33 @@ function setModal(html, handlers) {
     });
   }
 }
+
+// ─── Закрытие модалки кликом снаружи ────────────────────────────
+(function setupModalClose() {
+  function attach() {
+    const modal = document.getElementById('modal');
+    if (!modal) { setTimeout(attach, 200); return; }
+    if (modal.dataset.closeAttached === '1') return;
+    modal.dataset.closeAttached = '1';
+
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) {
+        if (typeof closeEvolutionModal === 'function') closeEvolutionModal();
+        else modal.classList.remove('show');
+      }
+    });
+
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && modal.classList.contains('show')) {
+        if (typeof closeEvolutionModal === 'function') closeEvolutionModal();
+        else modal.classList.remove('show');
+      }
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', attach);
+  } else { attach(); }
+})();
 
 window.checkEvolution = checkEvolution;
 window.openEvolution = openEvolution;
