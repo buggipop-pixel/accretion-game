@@ -68,43 +68,49 @@ function findFreeOrbit(preferR) {
 }
 window.findFreeOrbit = findFreeOrbit;
 
-// ─── Добавление планеты ─────────────────────────────────────────
+// ─── Добавление планеты на подходящую орбиту ────────────────────
+// Ищет первую свободную орбиту, где разрешён этот тип планеты.
+// Если нет — возвращает false, планета не создаётся.
 function addPlanet(type) {
   if (S.planets.length >= 8) return false;
-  const idx = S.planets.length;
-  const baseR = findFreeOrbit(getOrbitR(idx));
-  if (baseR === null) return false;
+  const star = S.starType || 'G';
 
-  const zoneResult = correctPlanetTypeByZone(type, baseR);
-  const finalType = zoneResult.type;
+  // Все орбиты, где разрешён этот тип
+  const allowedOrbits = getAllowedOrbitsForType(star, type);
+  if (allowedOrbits.length === 0) return false;
 
-  S.planets.push({
-    type: finalType,
-    angle: Math.random() * Math.PI * 2,
-    speed: 0.15 / Math.sqrt(baseR / 90),
-    baseOrbitR: baseR,
-    orbitR: baseR,
-    driftPhase: Math.random() * Math.PI * 2,
-    rotation: Math.random() * Math.PI * 2,
-    seed: Math.random() * 1e6,
-    forming: false,
-    formUntil: 0,
-    mass: planetMass(finalType),
-    diameter: planetDiameter(finalType),
-    moons: [],
-    precession: 0,
-    trueAnomaly: 0,
-  });
-  return true;
-}
+  // Ищем первую свободную из разрешённых
+  for (let oi = 0; oi < allowedOrbits.length; oi++) {
+    const idx = allowedOrbits[oi];
+    const orbitR = getOrbitR(idx);
 
-function planetMass(type) {
-  const m = { rocky:1.0, superEarth:2.5, iceGiant:4.0, gasGiant:8.0, lava:1.5 };
-  return m[type] || 1.0;
-}
-function planetDiameter(type) {
-  const d = { rocky:1.0, superEarth:1.3, iceGiant:1.5, gasGiant:1.8, lava:0.9 };
-  return d[type] || 1.0;
+    // Проверяем, свободна ли орбита
+    let free = true;
+    for (let pi = 0; pi < S.planets.length; pi++) {
+      if (Math.abs(S.planets[pi].baseOrbitR - orbitR) < ORBIT_GEOMETRY.minGap) {
+        free = false; break;
+      }
+    }
+    if (!free) continue;
+
+    // Орбита свободна — создаём планету
+    S.planets.push({
+      type: type,
+      angle: Math.random() * Math.PI * 2,
+      speed: 0.15 / Math.sqrt(orbitR / 90),
+      baseOrbitR: orbitR, orbitR: orbitR,
+      driftPhase: Math.random() * Math.PI * 2,
+      rotation: Math.random() * Math.PI * 2,
+      seed: Math.random() * 1e6,
+      forming: false, formUntil: 0,
+      mass: planetMass(type),
+      diameter: planetDiameter(type),
+      moons: [],
+      precession: 0, trueAnomaly: 0,
+    });
+    return true;
+  }
+  return false;
 }
 
 // ─── Обновление планет ──────────────────────────────────────────
