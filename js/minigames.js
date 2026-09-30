@@ -584,17 +584,27 @@ function drawIgnite(ctx, cx, cy, t) {
 function drawAssemble(ctx, cx, cy, t) {
   const left = Math.max(0, MG_ASSEMBLE.duration - (MG.elapsedSec || 0));
 
-  // Заголовок
+   // ─── Заголовок с подсказкой типов ───
+  let hintText = '4 одинаковых → планета · 4 разных → Земля';
+  if (typeof getAllowedTypesForSystem === 'function' && S.starType) {
+    const types = getAllowedTypesForSystem(S.starType);
+    const names = types.map(function(t) {
+      return PLANET_TYPES[t] ? PLANET_TYPES[t].name : t;
+    });
+    if (names.length > 0) {
+      hintText = 'Доступно: ' + names.join(' · ');
+    }
+  }
+
   ctx.save();
   ctx.textAlign = 'center';
   ctx.font = 'bold 16px -apple-system, sans-serif';
   ctx.fillStyle = '#e8e2ff';
   ctx.fillText('Собери планету', cx, cy - MG.fieldHalfH - 30);
-  ctx.font = '11px -apple-system, sans-serif';
-  ctx.fillStyle = '#a89ce0';
-  ctx.fillText('2 одинаковых → tier 2 · 2 tier 2 → планета · 4 цвета = Земля',
-               cx, cy - MG.fieldHalfH - 12);
-  ctx.restore();
+
+  ctx.font = 'bold 12px -apple-system, sans-serif';
+  ctx.fillStyle = '#7ec8e3';
+  ctx.fillText(hintText, cx, cy - MG.fieldHalfH - 10);
 
   // Прогресс
   const barW = 260, barH = 6;
