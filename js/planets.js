@@ -22,51 +22,7 @@ function getPlanetWorldPos(p, timeSec) {
 }
 window.getPlanetWorldPos = getPlanetWorldPos;
 
-// ─── Снеговая линия: коррекция типа ─────────────────────────────
-function correctPlanetTypeByZone(type, orbitR) {
-  const rAe = orbitR / PHYS.refRadius;
-  const insideSnow = rAe < 2.7;
-  if (insideSnow) {
-    if (type === 'iceGiant') return { type: 'rocky', reason: 'Лёд растаял' };
-    if (type === 'gasGiant') return { type: 'rocky', reason: 'Газ сдут' };
-  } else {
-    if (type === 'rocky') return { type: 'iceGiant', reason: 'Вода замёрзла' };
-    if (type === 'superEarth') return { type: 'iceGiant', reason: 'Материки замёрзли' };
-    if (type === 'lava') return { type: 'iceGiant', reason: 'Лава остыла' };
-  }
-  return { type: type, reason: null };
-}
-window.correctPlanetTypeByZone = correctPlanetTypeByZone;
 
-// ─── Поиск свободной орбиты ─────────────────────────────────────
-function findFreeOrbit(preferR) {
-  const minGap = ORBIT_GEOMETRY.minGap;
-  const occupied = [];
-  for (let i = 0; i < S.planets.length; i++) {
-    if (!S.planets[i].forming) occupied.push(S.planets[i].baseOrbitR);
-  }
-  occupied.sort(function(a, b) { return a - b; });
-
-  const candidates = [];
-  for (let i = 0; i < 8; i++) candidates.push(getOrbitR(i));
-
-  if (preferR !== undefined) {
-    candidates.sort(function(a, b) {
-      return Math.abs(a - preferR) - Math.abs(b - preferR);
-    });
-  }
-
-  for (let ci = 0; ci < candidates.length; ci++) {
-    const r = candidates[ci];
-    let ok = true;
-    for (let oi = 0; oi < occupied.length; oi++) {
-      if (Math.abs(occupied[oi] - r) < minGap) { ok = false; break; }
-    }
-    if (ok) return r;
-  }
-  return null;
-}
-window.findFreeOrbit = findFreeOrbit;
 
 // ─── Добавление планеты на подходящую орбиту ────────────────────
 // Ищет первую свободную орбиту, где разрешён этот тип планеты.
@@ -284,13 +240,27 @@ function collidePlanets(a, b, decision) {
     // Слияние
     const newMass = a.mass + b.mass;
     const rPix = (a.baseOrbitR + b.baseOrbitR) / 2;
-    const finalType = correctPlanetTypeByZone(
-      aPt.rate > bPt.rate ? a.type : b.type, rPix).type;
+        // Победитель по rate
+    const survivorType = aPt.rate > bPt.rate ? a.type : b.type;
 
     S.planets = S.planets.filter(function(p) { return p !== a && p !== b; });
-    const freeR = findFreeOrbit(rPix);
-    const useR = freeR !== null ? freeR : rPix;
 
+    // Ищем свободную орбиту для этого типа
+    const star = S.starType || 'G';
+    const allowed = getAllowedOrbitsForType(star, survivorType);
+    let useR = rPix;
+    for (let oi = 0; oi < allowed.length; oi++) {
+      const oIdx = allowed[oi];
+      const oR = getOrbitR(oIdx);
+      let free = true;
+      for (let pi = 0; pi < S.planets.length; pi++) {
+        if (Math.abs(S.planets[pi].baseOrbitR - oR) < ORBIT_GEOMETRY.minGap) {
+          free = false; break;
+        }
+      }
+      if (free) { useR = oR; break; }
+    }
+    const finalType = survivorType;
     S.planets.push({
       type: finalType,
       angle: Math.random() * Math.PI * 2,
@@ -323,7 +293,8 @@ function drawPlanets(ctx, time) {
   const starHue = S.starType ? STAR_TYPES[S.starType].color : 260;
 
   if (S.starType && S.planets.length > 0) {
-    const snowPx = PHYS.snowLine;
+    // Снеговая линия для G на 4-й орбите (220 px)
+    const snowPx = getOrbitR(4);
     ctx.save();
     ctx.strokeStyle = 'rgba(126, 200, 227, 0.25)';
     ctx.lineWidth = 1;
@@ -676,4 +647,3 @@ window.updatePlanets = updatePlanets;
 window.drawPlanets = drawPlanets;
 window.drawStar = drawStar;
 window.checkCollisions = checkCollisions;
-window.findFreeOrbit = findFreeOrbit;
