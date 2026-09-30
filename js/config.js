@@ -46,7 +46,7 @@ const STAGES = {
   },
 };
 
-// ─── Спектральные классы звёзд ──────────────────────────────────
+// ─── Спектральные классы ────────────────────────────────────────
 const STAR_TYPES = {
   M: { name: 'Красный карлик', color: 8, sat: 92, light: 60,
        rateMult: 6, civ: false, size: 0.65,
@@ -73,59 +73,52 @@ const SYSTEM_TYPES = {
     civPassiveMult: 1.0, civClickMult: 1.0,
     icon: '⭐', color: '#6b4de6',
     desc: 'Идеально круглые орбиты, столкновений нет.',
-    eccentricity: 0.00,
-    precession: 0.000002,
-    orbitDriftRate: 0.0,
-    chaosticPulse: 0.0,
+    eccentricity: 0.00, precession: 0.000002,
+    orbitDriftRate: 0.0, chaosticPulse: 0.0,
   },
   binary: {
     name: 'Двойная', stars: 2, chance: 0.38, rateMult: 1.7,
-    collisionRate: 0.015,      // Раз в ~20 минут на пару
+    collisionRate: 0.015,
     civPassiveMult: 0.65, civClickMult: 3.0,
     icon: '✨', color: '#8b5cf6',
-    desc: 'Две звезды. Редкие сближения планет.',
-    eccentricity: 0.06,
-    precession: 0.00002,
-    orbitDriftRate: 0.3,
-    chaosticPulse: 0.0003,
+    desc: 'Две звезды. Слегка вытянутые орбиты.',
+    eccentricity: 0.06, precession: 0.00002,
+    orbitDriftRate: 0.3, chaosticPulse: 0.0003,
   },
   trinary: {
     name: 'Кратная', stars: 3, chance: 0.12, rateMult: 2.5,
-    collisionRate: 0.025,      // Раз в ~10 минут, не смертельно
+    collisionRate: 0.025,
     civPassiveMult: 0.40, civClickMult: 6.0,
     icon: '💫', color: '#a855f7',
-    desc: 'Три звезды. Частые сближения, риск столкновений.',
-    eccentricity: 0.09,
-    precession: 0.00004,
-    orbitDriftRate: 0.5,
-    chaosticPulse: 0.0008,
+    desc: 'Три звезды. Заметно вытянутые орбиты.',
+    eccentricity: 0.09, precession: 0.00004,
+    orbitDriftRate: 0.5, chaosticPulse: 0.0008,
   },
 };
 
 // ─── Типы планет ────────────────────────────────────────────────
 const PLANET_TYPES = {
+  lava:       { name: 'Лава-планета',   color: '#ff4a22', civ: false,
+                rate: 1400, size: 0.9, desc: 'Раскалённый мир.' },
   rocky:      { name: 'Каменная',       color: '#8a7159', civ: true,
                 rate: 250, size: 1.0, desc: 'Землеподобный мир.' },
   superEarth: { name: 'Суперземля',     color: '#5a9c6e', civ: true,
                 rate: 500, size: 1.3, desc: 'Массивнее Земли.' },
-  iceGiant:   { name: 'Ледяной гигант', color: '#7ec8e3', civ: false,
-                rate: 700, size: 1.5, desc: 'Источник комет.' },
   gasGiant:   { name: 'Газовый гигант', color: '#d4a76a', civ: false,
                 rate: 900, size: 1.8, desc: 'Гравитационный щит.' },
-  lava:       { name: 'Лава-планета',   color: '#ff4a22', civ: false,
-                rate: 1400, size: 0.9, desc: 'Раскалённый мир.' },
+  iceGiant:   { name: 'Ледяной гигант', color: '#7ec8e3', civ: false,
+                rate: 700, size: 1.5, desc: 'Источник комет.' },
 };
 
 // ─── Физические константы ───────────────────────────────────────
 const PHYS = {
   refRadius: 100,
   refTemp: 280,
-  snowLine: 200,
   refPeriod: 8,
 };
 
 // ─── Орбитальная геометрия ──────────────────────────────────────
-// a_i = baseR × ratio^i  →  90, 112, 141, 176, 220, 275, 343, 429
+// a_i = baseR × ratio^i → 90, 112, 141, 176, 220, 275, 343, 429
 const ORBIT_GEOMETRY = {
   baseR: 90,
   ratio: 1.25,
@@ -138,80 +131,121 @@ function getOrbitR(index) {
 }
 window.getOrbitR = getOrbitR;
 
-// ─── Порог гравитационного захвата ──────────────────────────────
-// Множитель физического радиуса, при котором планеты считаются
-// «взаимодействующими». 2.5 = реальное гравитационное влияние,
-// а не только касание.
-const COLLISION_CAPTURE_FACTOR = 2.5;
 // ═══════════════════════════════════════════════════════════════
-//  ПАРАМЕТРЫ МИССИЙ — кометы, экспедиции, колонии
-//  Меняйте здесь, чтобы настроить длительность и стоимость
-// ═══════════════════════════════════════════════════════════════
-const MISSIONS_CFG = {
-  // ─── КОМЕТЫ ───
-  cometFlightBase: 600000,         // База полёта (мс) = 10 мин
-  cometFlightMinMult: 0.5,         // Множитель для малой кометы (5 мин)
-  cometFlightMaxMult: 1.5,         // Множитель для большой (15 мин)
-  cometRewardBase: 500000,
-  cometRewardPerPlanet: 0.3,
-  cometFailChance: 0.25,
-
-  // ─── ЭКСПЕДИЦИИ ───
-  expeditionFlightMin: 600000,     // 10 мин
-  expeditionFlightMax: 1200000,    // 20 мин
-  expeditionCostBase: 3000,        // При 1 системе
-  expeditionCostRatio: 1.5,        // Множитель за каждую систему
-  expeditionRewardBase: 1000000,
-  expeditionRewardPerPlanet: 0.4,
-  expeditionFailChance: 0.15,
-
-  // ─── КОЛОНИЯ ───
-  colonyChance: 0.03,              // 3% шанс найти систему
-  colonyEnergyCost: 50000,
-  colonyEnergyRatio: 2.0,
-  colonyCivCost: 50,
-  colonyCivRatio: 1.8,
-
-  // ─── УРОН ОТ ПРОЛЕТАЮЩИХ КОМЕТ ───
-  cometDamageChance: 0.35,         // 35% шанс разрушения при попадании
-  cometDamageRange: 2.5,           // Радиус столкновения = sumRadii × 2.5
-};
-
-// ─── ЛИМИТЫ АКТИВНОЙ ИГРЫ ───────────────────────────────────────
-// Пассив медленный (часы/дни), актив — быстрее
-const BALANCE = {
-  // Множитель клика (чем выше, тем выгоднее активная игра)
-  clickBonus: 1.0,
-  // Множитель пассивного дохода от планет
-  passiveBonus: 1.0,
-  // Дополнительный множитель за активные действия в час
-  activeBonus: 1.5,
-};
-// ═══════════════════════════════════════════════════════════════
-//  ГЕНЕРАЦИЯ СЛУЧАЙНЫХ СИСТЕМ
-//  Веса звёзд основаны на реальной IMF (Salpeter).
-//  Красные карлики доминируют — 60%. Голубые редки — 5%.
+//  МАТРИЦА РАСПРЕДЕЛЕНИЯ ПЛАНЕТ ПО ОРБИТАМ
+//
+//  Каждая планета формируется на определённой орбите в зависимости
+//  от температуры (расстояние от звезды × её светимость).
+//
+//  Зона 0–2 (горячо):     лава, камень, земля
+//  Зона 3–6 (умеренно):   камень, земля, газ
+//  Зона 7+ (холодно):     газ, лёд
+//
+//  Чем холоднее звезда, тем ниже индекс орбиты в зоне:
+//    M (холодная)  — сдвиг −1 (зоны к звезде)
+//    K             — сдвиг −0.5
+//    G (эталон)    — сдвиг 0
+//    A (горячая)   — сдвиг +0.5
+//    B (очень)     — сдвиг +1
 // ═══════════════════════════════════════════════════════════════
 
-const STAR_WEIGHTS = {
-  M: 60,   // Красный карлик — обычная звезда
-  K: 15,   // Оранжевый — частый
-  G: 10,   // Жёлтый (Солнце) — редкий
-  A: 10,   // Белая — редкая
-  B: 5,    // Голубая — очень редкая
+// Какие типы планет разрешены на каждой орбите (индекс 0–7).
+// Ключ — класс звезды, значение — массив из 8 массивов.
+const ORBIT_PLANET_MATRIX = {
+  // Красный карлик — холодный, зона жизни у самой звезды, но жизнь невозможна
+  M: [
+    ['rocky'],                 // 0: 90 px
+    ['rocky'],                 // 1: 112 px
+    ['rocky'],                 // 2: 141 px
+    ['rocky', 'gasGiant'],     // 3: 176 px
+    ['gasGiant'],              // 4: 220 px
+    ['gasGiant'],              // 5: 275 px
+    ['iceGiant'],              // 6: 343 px
+    ['iceGiant'],              // 7: 429 px
+  ],
+  // Оранжевый карлик — умеренный, жизнь возможна
+  K: [
+    ['lava'],                  // 0
+    ['rocky'],                 // 1
+    ['rocky', 'superEarth'],   // 2
+    ['rocky', 'superEarth'],   // 3
+    ['rocky', 'superEarth'],   // 4
+    ['gasGiant'],              // 5
+    ['gasGiant'],              // 6
+    ['iceGiant'],              // 7
+  ],
+  // Жёлтый карлик — эталон (Солнце)
+  G: [
+    ['lava'],                  // 0
+    ['rocky'],                 // 1
+    ['rocky'],                 // 2
+    ['rocky', 'superEarth'],   // 3
+    ['superEarth'],            // 4
+    ['gasGiant'],              // 5
+    ['gasGiant'],              // 6
+    ['iceGiant'],              // 7
+  ],
+  // Белая звезда — горячая, жизни нет
+  A: [
+    ['lava'],                  // 0
+    ['lava'],                  // 1
+    ['lava', 'rocky'],         // 2
+    ['rocky'],                 // 3
+    ['gasGiant'],              // 4
+    ['gasGiant'],              // 5
+    ['gasGiant'],              // 6
+    ['iceGiant'],              // 7
+  ],
+  // Голубая звезда — экстремальная, даже лава далеко
+  B: [
+    ['lava'],                  // 0
+    ['lava'],                  // 1
+    ['lava'],                  // 2
+    ['lava'],                  // 3
+    ['gasGiant'],              // 4
+    ['gasGiant'],              // 5
+    ['gasGiant'],              // 6
+    ['iceGiant'],              // 7
+  ],
 };
 
-// Какие типы планет могут быть у звезды
-// Порядок от центра к краю
-const STAR_PLANET_POOL = {
-  M: ['lava', 'rocky', 'iceGiant', 'gasGiant'],       // Нет жизни
-  K: ['lava', 'rocky', 'superEarth', 'iceGiant', 'gasGiant'],
-  G: ['rocky', 'superEarth', 'gasGiant', 'iceGiant'], // Полный набор
-  A: ['lava', 'rocky', 'gasGiant'],                   // Активная звезда
-  B: ['lava', 'gasGiant', 'iceGiant'],                // Экстремальные условия
-};
+// Возвращает список типов, разрешённых на орбите idx для текущей звезды
+function getAllowedTypesAtOrbit(starType, orbitIdx) {
+  const matrix = ORBIT_PLANET_MATRIX[starType] || ORBIT_PLANET_MATRIX.G;
+  if (orbitIdx < 0 || orbitIdx >= matrix.length) return [];
+  return matrix[orbitIdx].slice();
+}
+window.getAllowedTypesAtOrbit = getAllowedTypesAtOrbit;
 
-// Возвращает случайный класс звезды по весам IMF
+// Возвращает все типы, разрешённые в системе (объединение по всем орбитам)
+function getAllowedTypesForSystem(starType) {
+  const matrix = ORBIT_PLANET_MATRIX[starType] || ORBIT_PLANET_MATRIX.G;
+  const set = {};
+  for (let i = 0; i < matrix.length; i++) {
+    for (let j = 0; j < matrix[i].length; j++) {
+      set[matrix[i][j]] = true;
+    }
+  }
+  return Object.keys(set);
+}
+window.getAllowedTypesForSystem = getAllowedTypesForSystem;
+
+// Возвращает все орбиты, на которых разрешён этот тип
+function getAllowedOrbitsForType(starType, planetType) {
+  const matrix = ORBIT_PLANET_MATRIX[starType] || ORBIT_PLANET_MATRIX.G;
+  const orbits = [];
+  for (let i = 0; i < matrix.length; i++) {
+    if (matrix[i].indexOf(planetType) !== -1) orbits.push(i);
+  }
+  return orbits;
+}
+window.getAllowedOrbitsForType = getAllowedOrbitsForType;
+
+// ═══════════════════════════════════════════════════════════════
+//  ГЕНЕРАЦИЯ СЛУЧАЙНЫХ СИСТЕМ (Salpeter IMF)
+// ═══════════════════════════════════════════════════════════════
+const STAR_WEIGHTS = { M: 60, K: 15, G: 10, A: 10, B: 5 };
+
 function rollStarType() {
   const total = Object.values(STAR_WEIGHTS).reduce(function(s, v) { return s + v; }, 0);
   let r = Math.random() * total;
@@ -222,7 +256,6 @@ function rollStarType() {
   return 'M';
 }
 
-// Возвращает случайный тип системы по шансам
 function rollSystemType() {
   const r = Math.random();
   if (r < 0.50) return 'single';
@@ -230,62 +263,54 @@ function rollSystemType() {
   return 'trinary';
 }
 
-// Создаёт случайную систему.
-// opts.isColony = true → ограничения: только G/K, только планеты с жизнью.
+// Создаёт случайную систему с планетами, размещёнными по матрице.
+// opts.isColony = true → только обитаемые звёзды (G/K), планеты с жизнью.
 function generateRandomSystem(opts) {
   opts = opts || {};
   const isColony = opts.isColony === true;
 
   let starType;
   if (isColony) {
-    // Колония всегда на обитаемой звезде
     starType = Math.random() < 0.6 ? 'G' : 'K';
   } else {
     starType = rollStarType();
   }
-
   const systemType = rollSystemType();
 
-  // Количество планет: 3–8
-  const planetCount = 3 + Math.floor(Math.random() * 6);
-
-  // Доступные типы планет
-  const pool = STAR_PLANET_POOL[starType].slice();
-
-  // Генерируем планеты
+  // Проходим по всем 8 орбитам
   const planets = [];
-  for (let i = 0; i < planetCount; i++) {
-    // Смещение к краю пула: внутренние — горячие, внешние — холодные
-    let idx;
-    if (i < planetCount / 2) {
-      // Первая половина — из начала пула (горячие)
-      idx = Math.floor(Math.random() * Math.ceil(pool.length / 2));
-    } else {
-      // Вторая половина — из конца пула (холодные)
-      idx = Math.floor(pool.length / 2 + Math.random() * Math.ceil(pool.length / 2));
-      if (idx >= pool.length) idx = pool.length - 1;
-    }
-    const type = pool[idx];
+  for (let i = 0; i < 8; i++) {
+    const allowed = getAllowedTypesAtOrbit(starType, i);
 
-    const orbitR = ORBIT_GEOMETRY.baseR *
-                   Math.pow(ORBIT_GEOMETRY.ratio, i);
+    // Для колонии оставляем только обитаемые планеты
+    let pool = allowed;
+    if (isColony) {
+      pool = allowed.filter(function(t) {
+        return PLANET_TYPES[t] && PLANET_TYPES[t].civ;
+      });
+      if (pool.length === 0) continue;
+    }
+
+    if (pool.length === 0) continue;
+    // 65% шанс создать планету на орбите
+    if (Math.random() > 0.65) continue;
+
+    const type = pool[Math.floor(Math.random() * pool.length)];
+    const orbitR = getOrbitR(i);
 
     planets.push({
       type: type,
       angle: Math.random() * Math.PI * 2,
       speed: 0.15 / Math.sqrt(orbitR / 90),
-      baseOrbitR: orbitR,
-      orbitR: orbitR,
+      baseOrbitR: orbitR, orbitR: orbitR,
       driftPhase: Math.random() * Math.PI * 2,
       rotation: Math.random() * Math.PI * 2,
       seed: Math.random() * 1e6,
-      forming: false,
-      formUntil: 0,
+      forming: false, formUntil: 0,
       mass: planetMass(type),
       diameter: planetDiameter(type),
       moons: [],
-      precession: 0,
-      trueAnomaly: 0,
+      precession: 0, trueAnomaly: 0,
     });
   }
 
@@ -297,12 +322,33 @@ function generateRandomSystem(opts) {
   };
 }
 
-window.STAR_WEIGHTS = STAR_WEIGHTS;
-window.rollStarType = rollStarType;
-window.rollSystemType = rollSystemType;
-window.generateRandomSystem = generateRandomSystem;
-window.MISSIONS_CFG = MISSIONS_CFG;
-window.BALANCE = BALANCE;
+function planetMass(type) {
+  const m = { rocky:1.0, superEarth:2.5, iceGiant:4.0, gasGiant:8.0, lava:1.5 };
+  return m[type] || 1.0;
+}
+function planetDiameter(type) {
+  const d = { rocky:1.0, superEarth:1.3, iceGiant:1.5, gasGiant:1.8, lava:0.9 };
+  return d[type] || 1.0;
+}
+
+// ─── Генератор имён ─────────────────────────────────────────────
+const SYS_PREFIXES = ['Альфа','Бета','Гамма','Дельта','Эпсилон','Дзета','Эта',
+  'Тета','Йота','Каппа','Лямбда','Мю','Ню','Кси','Омикрон','Пи','Ро','Сигма',
+  'Тау','Ипсилон','Фи','Хи','Пси','Омега'];
+const SYS_NAMES = ['Кентавра','Центавра','Ориона','Лебедя','Лира','Дракона',
+  'Феникса','Кита','Гидры','Пегаса','Кассиопеи','Персея','Андромеды',
+  'Волопаса','Геркулеса','Змееносца','Ворона','Орла','Павлина','Журавля',
+  'Тукана','Единорога'];
+const SYS_SUFFIXES = ['',' I',' II',' III',' IV',' V',' A',' B'];
+
+function generateSystemName() {
+  const prefix = SYS_PREFIXES[Math.floor(Math.random() * SYS_PREFIXES.length)];
+  const name = SYS_NAMES[Math.floor(Math.random() * SYS_NAMES.length)];
+  const suffix = SYS_SUFFIXES[Math.floor(Math.random() * SYS_SUFFIXES.length)];
+  return prefix + ' ' + name + suffix;
+}
+window.generateSystemName = generateSystemName;
+
 window.CFG = CFG;
 window.STAGES = STAGES;
 window.STAR_TYPES = STAR_TYPES;
@@ -310,4 +356,9 @@ window.SYSTEM_TYPES = SYSTEM_TYPES;
 window.PLANET_TYPES = PLANET_TYPES;
 window.PHYS = PHYS;
 window.ORBIT_GEOMETRY = ORBIT_GEOMETRY;
-window.COLLISION_CAPTURE_FACTOR = COLLISION_CAPTURE_FACTOR;
+window.STAR_WEIGHTS = STAR_WEIGHTS;
+window.rollStarType = rollStarType;
+window.rollSystemType = rollSystemType;
+window.generateRandomSystem = generateRandomSystem;
+window.planetMass = planetMass;
+window.planetDiameter = planetDiameter;
