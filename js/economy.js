@@ -7,34 +7,25 @@ function starMult() { return S.starType ? STAR_TYPES[S.starType].rateMult : 1; }
 function systemTypeMult() { return S.systemType ? SYSTEM_TYPES[S.systemType].rateMult : 1; }
 function systemMult() { return 1 + Math.max(0, S.systems - 1) * 0.5; }
 function gammaMult() { return Date.now() < S.gammaDebuff ? 0.4 : 1; }
+function galaxyMult() { return S.galaxyMultiplier || 1; }
 
 // ─── Доход от планет ────────────────────────────────────────────
-// Бонус Сафронова: чем массивнее планета, тем быстрее растёт.
-// После слияния планета получает усиленный бонус — компенсация
-// за потерянный слот.
 function planetRate() {
   let sum = 0;
   for (let i = 0; i < S.planets.length; i++) {
     const p = S.planets[i];
     if (p.forming) continue;
 
+    // Вторжения блокируют доход планеты
+    if (typeof isPlanetInvaded === 'function' && isPlanetInvaded(p)) continue;
+
     let base = PLANET_TYPES[p.type].rate;
 
-    // Сафронов: множитель от массы (не от diameter)
-    // mass=1 → ×1.0, mass=2 → ×1.4, mass=4 → ×1.8, mass=8 → ×2.2
     if (typeof safronovAccretion === 'function') {
-      const acc = safronovAccretion(p);
-      base *= (1 + acc * 10);
+      base *= (1 + safronovAccretion(p) * 10);
     }
+    if (p.mass > 1) base *= (1 + Math.log(p.mass) * 0.35);
 
-    // ★ Бонус слияния: каждая единица массы сверх 1 даёт +15% к rate
-    // Это компенсирует потерю слота: 1 планета массы 4 приносит
-    // как 1.45 обычных планет.
-    if (p.mass > 1) {
-      base *= (1 + Math.log(p.mass) * 0.35);
-    }
-
-    // Температурный множитель
     if (typeof tempAt === 'function') {
       const rAe = (p.orbitR || 100) / PHYS.refRadius;
       base *= 0.8 + Math.min(1, tempAt(rAe) / 400) * 0.4;
@@ -45,19 +36,35 @@ function planetRate() {
   return sum;
 }
 
-// ─── Общий доход ────────────────────────────────────────────────
+// ─── Металлы ────────────────────────────────────────────────────
+function metalsPerSec() {
+  let sum = 0;
+  for (let i = 0; i < S.planets.length; i++) {
+    const p = S.planets[i];
+    if (p.forming) continue;
+    if (typeof isPlanetInvaded === 'function' && isPlanetInvaded(p)) continue;
+    const pt = PLANET_TYPES[p.type];
+    if (pt.bonus && pt.bonus.type === 'metals') {
+      sum += pt.bonus.metalsPerSec || 0;
+    }
+  }
+  return sum;
+}
+
+// ─── Доход в секунду ────────────────────────────────────────────
 function dustPerSec() {
   const st = STAGES[S.stage];
   if (!st) return 0;
+  // Вторжения НЕ уменьшают доход — они грабят накопленную пыль.
   return (st.baseRate + planetRate()) * starMult() *
-         systemTypeMult() * systemMult() * gammaMult();
+         systemTypeMult() * systemMult() * gammaMult() * galaxyMult();
 }
 
 function clickGain() {
   const st = STAGES[S.stage];
   if (!st) return 0;
   return st.clickRate * starMult() * systemTypeMult() *
-         systemMult() * gammaMult();
+         systemMult() * gammaMult() * galaxyMult();
 }
 
 // ─── Цивилизация ────────────────────────────────────────────────
@@ -126,18 +133,35 @@ function tickCiv(dt) {
   const c = civPlanetCount();
   if (c === 0) return;
   const sysType = S.systemType || 'single';
-  S.civLevel += CFG.civGrowthPerPlanet * c *
-                SYSTEM_TYPES[sysType].civPassiveMult * dt;
+  let mult = SYSTEM_TYPES[sysType].civPassiveMult;
+
+  // Земля ускоряет рост цивилизации
+  for (let i = 0; i < S.planets.length; i++) {
+    const p = S.planets[i];
+    if (p.forming) continue;
+    const pt = PLANET_TYPES[p.type];
+    if (pt.bonus && pt.bonus.type === 'civ') {
+      mult *= (pt.bonus.civMult || 1);
+    }
+  }
+
+  S.civLevel += CFG.civGrowthPerPlanet * c * mult * dt;
   if (S.starType) {
     const max = STAR_TYPES[S.starType].maxCiv || 10;
     if (S.civLevel > max) S.civLevel = max;
   }
 }
 
+// ─── Экспорт ────────────────────────────────────────────────────
 window.starMult = starMult;
+window.systemTypeMult = systemTypeMult;
+window.systemMult = systemMult;
+window.gammaMult = gammaMult;
+window.galaxyMult = galaxyMult;
+window.planetRate = planetRate;
+window.metalsPerSec = metalsPerSec;
 window.dustPerSec = dustPerSec;
 window.clickGain = clickGain;
-window.planetRate = planetRate;
 window.civPlanetCount = civPlanetCount;
 window.energyPerSec = energyPerSec;
 window.planetCost = planetCost;
