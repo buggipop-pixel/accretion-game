@@ -1,14 +1,13 @@
 // ═══════════════════════════════════════════════════════════════
 //  INVASIONS.JS — вторжения враждебных флотов
 //
-//  ФАЗА 1: 45 минут — корабли грабят пыль из общего запаса.
-//          Скорость: dustPerSec × 4 × количество_кораблей в секунду.
-//  ФАЗА 2: 15 минут — планета теряет HP (100 → 0).
-//  ФИНАЛ: 60 минут — планета уничтожена. Если была обитаемой —
-//         теряется civ и энергия пропорционально доле (1/N).
+//  ФАЗА 1 (0–45 мин): корабли грабят пыль из запаса.
+//  ФАЗА 2 (45–60 мин): планета теряет HP.
+//  ФИНАЛ (60 мин): планета уничтожена.
+//  Если обитаемая — теряется civ и энергия (доля от общего числа).
 //
-//  Игрок кликает ТОЧНО по кораблю (радиус 20 px) — корабль убит.
-//  Когда все корабли убиты — атака снята.
+//  Клик ТОЧНО по кораблю (радиус 20 px) убивает его.
+//  Когда все корабли убиты — вторжение снято.
 // ═══════════════════════════════════════════════════════════════
 
 // ─── Проверка: планета под вторжением ───────────────────────────
@@ -21,7 +20,6 @@ function isPlanetInvaded(planet) {
 }
 window.isPlanetInvaded = isPlanetInvaded;
 
-// ─── Общий счётчик вторжений ────────────────────────────────────
 function hasActiveInvasions() {
   return S.invasions && S.invasions.length > 0;
 }
@@ -32,13 +30,11 @@ function spawnInvasion() {
   const active = S.planets.filter(function(p) { return !p.forming; });
   if (active.length === 0) return;
 
-  // Ищем планету без активного вторжения
   const candidates = active.filter(function(p) { return !isPlanetInvaded(p); });
   if (candidates.length === 0) return;
 
   const victim = candidates[Math.floor(Math.random() * candidates.length)];
 
-  // Количество кораблей: 3 при малом числе планет, до 5 при большом
   const shipCount = Math.min(
     INVASION_CFG.shipsMax,
     INVASION_CFG.shipsBase + Math.floor(S.planets.length / 3)
@@ -48,8 +44,8 @@ function spawnInvasion() {
   for (let i = 0; i < shipCount; i++) {
     ships.push({
       angle: (i / shipCount) * Math.PI * 2 + Math.random() * 0.5,
-      dist: 1.8 + Math.random() * 0.6,    // в долях от диаметра планеты
-      speed: 0.8 + Math.random() * 0.6,   // скорость вращения
+      dist: 1.8 + Math.random() * 0.6,
+      speed: 0.8 + Math.random() * 0.6,
       destroyed: false,
     });
   }
@@ -69,12 +65,12 @@ function spawnInvasion() {
   toast('⚔️ Вторжение!', PLANET_TYPES[victim.type].name + ' атакована');
 }
 
-// ─── Проверка новых вторжений и обновление существующих ─────────
+// ─── Тик вторжений ──────────────────────────────────────────────
 function tickInvasions(dt) {
   if (!S.invasions) S.invasions = [];
   const now = Date.now();
 
-  // Проверка новых вторжений (только начиная с фазы V)
+  // Новые вторжения (только с фазы V)
   if (S.stage === 'system' || S.stage === 'galaxy') {
     if (S.planets.length >= 2) {
       if (!S.lastInvasionCheck) S.lastInvasionCheck = now;
@@ -88,11 +84,10 @@ function tickInvasions(dt) {
     }
   }
 
-  // Обновление существующих вторжений
+  // Обновление существующих
   for (let i = S.invasions.length - 1; i >= 0; i--) {
     const inv = S.invasions[i];
 
-    // Проверяем, жива ли планета
     let victim = null;
     for (let j = 0; j < S.planets.length; j++) {
       if (S.planets[j].seed === inv.planetSeed) { victim = S.planets[j]; break; }
@@ -104,15 +99,13 @@ function tickInvasions(dt) {
     for (let s = 0; s < inv.ships.length; s++) {
       if (!inv.ships[s].destroyed) aliveShips++;
     }
-
-    // Если все корабли мертвы — вторжение отбито
     if (aliveShips === 0) {
       toast('✓ Вторжение отбито', PLANET_TYPES[victim.type].name + ' свободна');
       S.invasions.splice(i, 1);
       continue;
     }
 
-    // ─── ФАЗА 1: грабёж ───
+    // ФАЗА 1: грабёж
     if (now < inv.robberyEndsAt && S.dust > 0) {
       const drain = dustPerSec() * INVASION_CFG.robberyMultiplier * aliveShips * dt;
       const actualDrain = Math.min(S.dust, drain);
@@ -120,7 +113,7 @@ function tickInvasions(dt) {
       inv.stolen = (inv.stolen || 0) + actualDrain;
     }
 
-    // ─── ФАЗА 2: уничтожение планеты ───
+    // ФАЗА 2: уничтожение
     const robbingDone = now >= inv.robberyEndsAt || S.dust <= 0;
     if (robbingDone) {
       const hpDrainPerSec = INVASION_CFG.planetMaxHP /
@@ -134,7 +127,7 @@ function tickInvasions(dt) {
       }
     }
 
-    // Вращение кораблей вокруг планеты
+    // Вращение кораблей
     for (let s = 0; s < inv.ships.length; s++) {
       const ship = inv.ships[s];
       if (ship.destroyed) continue;
@@ -149,13 +142,13 @@ function destroyPlanetByInvasion(victim) {
   const pt = PLANET_TYPES[victim.type];
   const wasCiv = pt.civ;
 
-  // Считаем, сколько всего обитаемых планет в системе
+  // Считаем обитаемые планеты в системе
   let civPlanets = 0;
   for (let i = 0; i < S.planets.length; i++) {
     if (PLANET_TYPES[S.planets[i].type].civ && !S.planets[i].forming) civPlanets++;
   }
 
-  // Взрыв до удаления
+  // Взрыв
   const nowSec = performance.now() / 1000;
   const pos = (typeof getPlanetWorldPos === 'function')
     ? getPlanetWorldPos(victim, nowSec) : { x: 0, y: 0 };
@@ -170,7 +163,7 @@ function destroyPlanetByInvasion(victim) {
   // Удаляем планету
   S.planets = S.planets.filter(function(p) { return p !== victim; });
 
-  // Потеря цив и энергии — только если планета была обитаемой
+  // Потеря цив и энергии
   if (wasCiv && civPlanets > 0) {
     const share = 1 / civPlanets;
     const civLoss = S.civLevel * share * 0.5;
@@ -187,7 +180,6 @@ function destroyPlanetByInvasion(victim) {
 window.destroyPlanetByInvasion = destroyPlanetByInvasion;
 
 // ─── Клик по кораблю ────────────────────────────────────────────
-// Возвращает true, если клик попал в корабль (и он убит).
 function tryHitInvasionShip(screenX, screenY) {
   if (!S.invasions || S.invasions.length === 0) return false;
 
@@ -198,7 +190,6 @@ function tryHitInvasionShip(screenX, screenY) {
   for (let i = S.invasions.length - 1; i >= 0; i--) {
     const inv = S.invasions[i];
 
-    // Ищем планету-жертву
     let victim = null;
     for (let j = 0; j < S.planets.length; j++) {
       if (S.planets[j].seed === inv.planetSeed) { victim = S.planets[j]; break; }
@@ -208,7 +199,6 @@ function tryHitInvasionShip(screenX, screenY) {
     const pos = (typeof getPlanetWorldPos === 'function')
       ? getPlanetWorldPos(victim, nowSec) : { x: 0, y: 0 };
 
-    // Радиус орбиты корабля в мировых координатах
     const shipOrbitWorld = victim.diameter * 25;
 
     for (let si = inv.ships.length - 1; si >= 0; si--) {
@@ -229,7 +219,6 @@ function tryHitInvasionShip(screenX, screenY) {
           startAt: Date.now(), endAt: Date.now() + 500, size: 18,
         });
 
-        // Проверяем, остались ли живые
         let alive = false;
         for (let k = 0; k < inv.ships.length; k++) {
           if (!inv.ships[k].destroyed) { alive = true; break; }
@@ -246,7 +235,7 @@ function tryHitInvasionShip(screenX, screenY) {
 }
 window.tryHitInvasionShip = tryHitInvasionShip;
 
-// ─── Отрисовка вторжений ────────────────────────────────────────
+// ─── Отрисовка ──────────────────────────────────────────────────
 function drawInvasions(ctx, time) {
   if (!S.invasions || S.invasions.length === 0) return;
 
@@ -268,7 +257,7 @@ function drawInvasions(ctx, time) {
     const centerSp = (typeof worldToScreen === 'function')
       ? worldToScreen(pos.x, pos.y) : { x: 0, y: 0 };
 
-    // ─── Красный ореол вокруг планеты (атакована) ───
+    // Красный ореол
     const pulse = 1 + 0.15 * Math.sin(time * 4);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
@@ -285,7 +274,7 @@ function drawInvasions(ctx, time) {
     ctx.fill();
     ctx.restore();
 
-    // ─── Корабли ───
+    // Корабли
     const shipOrbitWorld = victim.diameter * 25;
 
     for (let si = 0; si < inv.ships.length; si++) {
@@ -297,7 +286,6 @@ function drawInvasions(ctx, time) {
       const sp = (typeof worldToScreen === 'function')
         ? worldToScreen(wx, wy) : { x: 0, y: 0 };
 
-      // Красное свечение
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       const g = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, 16 * z);
@@ -310,7 +298,6 @@ function drawInvasions(ctx, time) {
       ctx.fill();
       ctx.restore();
 
-      // Треугольный корабль (нос по направлению движения)
       ctx.save();
       const s = 7 * z;
       const angle = ship.angle + Math.PI / 2;
@@ -329,17 +316,15 @@ function drawInvasions(ctx, time) {
       ctx.fill();
       ctx.stroke();
 
-      // Иконка угрозы
       ctx.fillStyle = '#fff';
       ctx.font = 'bold ' + Math.round(6 * z) + 'px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('☠', 0, 0);
-
       ctx.restore();
     }
 
-    // ─── Прогресс-бар с оставшимся временем ───
+    // Прогресс-бар
     const elapsed = now - inv.spawnedAt;
     const total = INVASION_CFG.totalDuration;
     const remainMs = Math.max(0, total - elapsed);
@@ -357,7 +342,6 @@ function drawInvasions(ctx, time) {
     const barX = centerSp.x - barW / 2;
     const progress = elapsed / total;
 
-    // Фон бара
     ctx.save();
     ctx.fillStyle = 'rgba(15, 5, 5, 0.85)';
     ctx.fillRect(barX - 2, barY - 14 * z, barW + 4, 22 * z);
@@ -365,11 +349,9 @@ function drawInvasions(ctx, time) {
     ctx.lineWidth = 1;
     ctx.strokeRect(barX - 2, barY - 14 * z, barW + 4, 22 * z);
 
-    // Заполненный прогресс
     ctx.fillStyle = phaseColor;
     ctx.fillRect(barX, barY - 10 * z, barW * progress, barH);
 
-    // Текст фазы
     ctx.fillStyle = phaseColor;
     ctx.font = 'bold ' + Math.round(7 * z) + 'px -apple-system, sans-serif';
     ctx.textAlign = 'center';
