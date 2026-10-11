@@ -117,6 +117,11 @@ canvas.addEventListener('pointerdown', function(e) {
 
   // Fullscreen только на первом тапе (без влияния на ввод)
   if (!fullscreenRequested) requestFullscreen();
+  // ★ Клик по кораблю вторжения — в приоритете
+  if (typeof tryHitInvasionShip === 'function') {
+    const pos = getPointerPos(e);
+    if (tryHitInvasionShip(pos.x, pos.y)) return;
+  }
 
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -261,6 +266,7 @@ function loop(now) {
   updateParticles(dt, time);
   updatePlanets(dt);
   if (typeof updateMissions === 'function') updateMissions(dt, time);
+  if (typeof tickInvasions === 'function') tickInvasions(dt);
   checkEvolution();
 
   // ★ Авто-создание новой системы в фазе galaxy
@@ -292,6 +298,7 @@ function loop(now) {
     drawStar(ctx, time);
     drawPlanets(ctx, time);
   }
+    if (typeof drawInvasions === 'function') drawInvasions(ctx, time);
 
   // Сохранение и UI
   if (now - lastSave > 4000) { saveGame(); lastSave = now; }
