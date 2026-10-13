@@ -315,5 +315,116 @@ step('панель квестов собирается', () => {
     : 'пусто';
 });
 
+// ─── Баланс хранилища: каждый уровень дороже ───
+step('стоимость апгрейдов растёт по уровням', () => {
+  const caps = [1, 2, 3, 4, 5, 6].map(l => sandbox.STORAGE_CFG.getDustFlatCap(l));
+  const costs = [1, 2, 3, 4, 5, 6].map(l => sandbox.STORAGE_CFG.getUpgradeCost('dust', l));
+  const shares = costs.map((c, i) => (c / caps[i]).toFixed(2));
+  const ok = costs.every((c, i) => c <= caps[i]) &&
+             shares.every((s, i) => i === 0 || Number(s) > Number(shares[i - 1]));
+  return 'доля капа: ' + shares.join(' → ') + (ok ? ' ✓ строго сложнее' : ' ✗ не монотонно');
+});
+step('апгрейды энергии/цивилизации влезают в кап пыли', () => {
+  const out = [];
+  let ok = true;
+  for (let l = 1; l <= 6; l++) {
+    const maxDustCap = sandbox.STORAGE_CFG.getDustFlatCap(7);
+    const e = sandbox.STORAGE_CFG.getUpgradeCost('energy', l);
+    const c = sandbox.STORAGE_CFG.getUpgradeCost('civ', l);
+    if (e > maxDustCap || c > maxDustCap) ok = false;
+    out.push('ур.' + l + ': ⚡' + e.toExponential(1) + ' 🧬' + c.toExponential(1));
+  }
+  return out.join(' | ') + (ok ? ' ✓' : ' ✗');
+});
+
+// ─── Мини-игра assemble: раскладка и слияния ───
+step('шары стоят на месте и не сливаются сами', () => {
+  sandbox.startMinigame('assemble', () => {});
+  const before = sandbox.MG.fieldParticles.length;
+  let minDist = Infinity;
+  const ps = sandbox.MG.fieldParticles;
+  for (let i = 0; i < ps.length; i++) {
+    for (let j = i + 1; j < ps.length; j++) {
+      minDist = Math.min(minDist, Math.hypot(ps[i].x - ps[j].x, ps[i].y - ps[j].y));
+    }
+    if (ps[i].vx !== 0 || ps[i].vy !== 0) return '✗ у шара ненулевая скорость';
+  }
+  for (let i = 0; i < 180; i++) sandbox.updateMinigame(0.016, i * 0.016);
+  const after = sandbox.MG.fieldParticles.length;
+  sandbox.endMinigame(false);
+  return before + ' шаров, мин. дистанция ' + minDist.toFixed(0) + ' → через 180 кадров ' +
+         after + (before === after ? ' ✓ не сливаются' : ' ✗ слились сами');
+});
+step('Земля: путь 1 — четыре одиночных разных цвета', () => {
+  sandbox.startMinigame('assemble', () => {});
+  sandbox.MG.fieldParticles = ['ice', 'lava', 'stone', 'gas'].map((c, i) => ({
+    x: 0, y: 0, vx: 0, vy: 0, r: 18, colors: [c], mass: 1, fixed: false,
+  }));
+  for (let i = 0; i < 6; i++) sandbox.updateMinigame(0.016, i * 0.016);
+  const res = sandbox.MG.result;
+  sandbox.endMinigame(false);
+  return 'result=' + res + (res === 'superEarth' ? ' ✓ Земля' : ' ✗');
+});
+step('Земля: путь 2 — два двойных шара (красный+синий, жёлтый+зелёный)', () => {
+  sandbox.startMinigame('assemble', () => {});
+  sandbox.MG.fieldParticles = [
+    { x: -20, y: 0, vx: 0, vy: 0, r: 24, colors: ['lava', 'ice'], mass: 2, fixed: false },
+    { x: 20, y: 0, vx: 0, vy: 0, r: 24, colors: ['gas', 'stone'], mass: 2, fixed: false },
+  ];
+  sandbox.updateMinigame(0.016, 1);
+  const res = sandbox.MG.result;
+  const colors = sandbox.MG.fieldParticles[0] ? sandbox.MG.fieldParticles[0].colors.join('+') : '-';
+  sandbox.endMinigame(false);
+  return 'result=' + res + ' (цвета: ' + colors + ')' + (res === 'superEarth' ? ' ✓ Земля' : ' ✗');
+});
+step('Лава-планета: 4 одинаковых шара', () => {
+  sandbox.startMinigame('assemble', () => {});
+  sandbox.MG.fieldParticles = [0, 1, 2, 3].map(() => ({
+    x: 0, y: 0, vx: 0, vy: 0, r: 18, colors: ['lava'], mass: 1, fixed: false,
+  }));
+  for (let i = 0; i < 6; i++) sandbox.updateMinigame(0.016, i * 0.016);
+  const res = sandbox.MG.result;
+  sandbox.endMinigame(false);
+  return 'result=' + res + (res === 'lava' ? ' ✓' : ' ✗');
+});
+
+// ─── Частицы: заполняют весь экран ───
+step('пыль заполняет всю видимую область', () => {
+  sandbox.window.CANVAS_W = 520;
+  sandbox.window.CANVAS_H = 1290;
+  sandbox.window.CANVAS_CX = 260;
+  sandbox.window.CANVAS_CY = 645;
+  S.zoom = 1;
+  S.zoom = 1;
+  sandbox.initParticles();
+  const p = sandbox.PART.particles;
+  const half = 1290 / 2;
+  let maxY = 0, midY = 0;
+  p.forEach(pt => {
+    maxY = Math.max(maxY, Math.abs(pt.y));
+    if (Math.abs(pt.y) < half * 0.4) midY++;
+  });
+  return p.length + ' частиц, макс |y| = ' + Math.round(maxY) + ' (половина экрана ' +
+         Math.round(half) + '), в центральной зоне ' +
+         Math.round(midY / p.length * 100) + '%' +
+         (maxY > half * 0.9 ? ' ✓ заполняет экран' : ' ✗ всё сжато к центру');
+});
+step('новая частица появляется за краем экрана', () => {
+  sandbox.window.CANVAS_H = 1290;
+  S.zoom = 1;
+  const e = sandbox.makeEdgeParticle();
+  const onEdge = Math.abs(Math.abs(e.y) - 645) < 45 || Math.abs(Math.abs(e.x) - 260) < 45;
+  return 'x=' + Math.round(e.x) + ' y=' + Math.round(e.y) + (onEdge ? ' ✓ на краю' : ' ✗');
+});
+
+step('в мини-игре кнопка «Эволюция» скрыта', () => {
+  const btn = sandbox.document.getElementById('evolveBtn');
+  btn.classList.add('show');
+  sandbox.startMinigame('mass', () => {});
+  const hidden = !btn.classList.contains('show');
+  sandbox.endMinigame(false);
+  return hidden ? 'скрыта ✓' : 'осталась видимой ✗';
+});
+
 console.log('\n' + (failed ? '❌ ЕСТЬ ОШИБКИ' : '✅ Все проверки прошли'));
 process.exit(failed ? 1 : 0);

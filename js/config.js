@@ -29,6 +29,12 @@ const STORAGE_CFG = {
   maxLevel: 7,
   // Кап в часах для пыли (уровни 1-7)
   dustHours: [1, 2, 4, 8, 16, 24, 48],
+  // Доля капа уровня, которую нужно накопить на апгрейд (уровни 1→2 ... 6→7).
+  // Доля растёт → каждый следующий апгрейд купить сложнее.
+  dustCostShare: [0.5, 0.6, 0.7, 0.8, 0.9, 0.95],
+  // Энергия и цивилизация дороже пыли (те же доли капа, но с множителем)
+  energyCostMult: 8,
+  civCostMult: 12,
   // Множитель капа для энергии (×2 на уровень): 1, 2, 4, 8, 16, 32, 64
   // Множитель капа для цивилизации (×1.5 на уровень): 1, 1.5, 2.25, 3.375, 5.0625, 7.59375, 11.39
   // Стоимость перехода на уровень (level): level 1->2 (idx 0), 2->3 (idx 1), etc.
@@ -65,11 +71,15 @@ const STORAGE_CFG = {
     return Math.pow(1.5, lvl - 1);
   },
   getUpgradeCost(res, level) {
-    if (level >= 7) return Infinity;
-    const baseDustCost = 50000 * Math.pow(10, level - 1);
-    if (res === 'dust') return baseDustCost;
-    if (res === 'energy') return baseDustCost * 8;
-    if (res === 'civ') return baseDustCost * 12;
+    if (level >= STORAGE_CFG.maxLevel) return Infinity;
+    const lvl = Math.min(Math.max(1, level || 1), 7);
+    // Стоимость = доля капа текущего уровня, поэтому апгрейд всегда достижим,
+    // но с каждым уровнем требует заполнить хранилище сильнее.
+    const share = this.dustCostShare[lvl - 1] || 0.9;
+    const dustCost = this.getDustFlatCap(lvl) * share;
+    if (res === 'dust') return Math.floor(dustCost);
+    if (res === 'energy') return Math.floor(dustCost * (this.energyCostMult || 8));
+    if (res === 'civ') return Math.floor(dustCost * (this.civCostMult || 12));
     return Infinity;
   }
 };

@@ -83,10 +83,17 @@ function screenToWorld(sx, sy) {
 }
 
 // ─── Создание частиц ────────────────────────────────────────────
-function makeWorldParticle() {
+// Размер видимой области в мировых координатах (с учётом зума)
+function visibleHalfSize() {
   const W = window.CANVAS_W || 400, H = window.CANVAS_H || 700;
   const z = S.zoom || 1;
-  const halfW = W / (2 * z), halfH = H / (2 * z);
+  return { halfW: W / (2 * z), halfH: H / (2 * z) };
+}
+
+// Частица в любом месте видимой области (с запасом за краями)
+function makeWorldParticle() {
+  const vis = visibleHalfSize();
+  const halfW = vis.halfW * 1.15, halfH = vis.halfH * 1.15;
   return {
     x: (Math.random() * 2 - 1) * halfW,
     y: (Math.random() * 2 - 1) * halfH,
@@ -101,20 +108,35 @@ function makeWorldParticle() {
   };
 }
 
+// Частица появляется ЗА краем экрана и влетает внутрь —
+// так пыль заполняет весь экран при любом зуме, без пустых зон.
 function makeEdgeParticle() {
-  const arm = Math.random() < 0.5 ? 0 : 1;
-  const r = 170 + Math.random() * 60;
-  const baseAngle = arm * Math.PI + r * 0.04;
-  const angle = baseAngle + (Math.random() - 0.5) * 1.8;
+  const vis = visibleHalfSize();
+  const pad = 40;
+  const side = Math.floor(Math.random() * 4);
+  let x, y;
+  if (side === 0) {          // сверху
+    x = (Math.random() * 2 - 1) * vis.halfW;
+    y = -(vis.halfH + pad);
+  } else if (side === 1) {   // снизу
+    x = (Math.random() * 2 - 1) * vis.halfW;
+    y = vis.halfH + pad;
+  } else if (side === 2) {   // слева
+    x = -(vis.halfW + pad);
+    y = (Math.random() * 2 - 1) * vis.halfH;
+  } else {                   // справа
+    x = vis.halfW + pad;
+    y = (Math.random() * 2 - 1) * vis.halfH;
+  }
   return {
-    x: Math.cos(angle) * r,
-    y: Math.sin(angle) * r * 0.5,
+    x: x,
+    y: y,
     r: 0.5 + Math.random() * 1.2,
     hue: Math.random() < 0.72 ? 215 + Math.random() * 50 : 15 + Math.random() * 35,
     bright: 0.4 + Math.random() * 0.5,
     twinkle: Math.random() * Math.PI * 2,
     spinVar: 0.9 + Math.random() * 0.2,
-    arm: arm,
+    arm: Math.random() < 0.5 ? 0 : 1,
     armOffset: (Math.random() - 0.5) * 0.9,
     age: 0,
   };
@@ -142,9 +164,12 @@ function updateParticles(dt, time) {
   const cfg = getPhaseConfig();
   const hasStar = !!S.starType;
 
-  // Динамическая плотность по зуму
-  const target = Math.round(PART_COUNT * Math.pow(1 / z, 1.2));
-  const clampedTarget = Math.max(250, Math.min(1500, target));
+  // Динамическая плотность: зависит от зума и площади экрана,
+  // чтобы пыль одинаково плотно заполняла любой экран
+  const areaFactor = Math.max(0.6, Math.min(2.2,
+    Math.sqrt((W * H) / 320000)));
+  const target = Math.round(PART_COUNT * areaFactor * Math.pow(1 / z, 1.5));
+  const clampedTarget = Math.max(300, Math.min(2200, target));
   while (PART.particles.length < clampedTarget) PART.particles.push(makeWorldParticle());
   while (PART.particles.length > clampedTarget + 5) PART.particles.pop();
 
@@ -167,10 +192,16 @@ function updateParticles(dt, time) {
     // Кеплеровское вращение + спираль
     const tangential = keplerTangential(dist, cfg.vRef) * p.spinVar;
     const radial = tangential * cfg.spiralB / Math.max(25, dist);
+
+    // Притяжение к центру слабеет с расстоянием: чем дальше частица
+    // от будущей звезды, тем медленнее она стягивается — поэтому у краёв
+    // экрана не образуется пустых зон.
+    const pullFalloff = 1 / (1 + dist / 350);
+
     vx += tanX * tangential;
     vy += tanY * tangential;
-    vx += dirX * (radial + cfg.radialDrift);
-    vy += dirY * (radial + cfg.radialDrift);
+    vx += dirX * (radial + cfg.radialDrift * pullFalloff);
+    vy += dirY * (radial + cfg.radialDrift * pullFalloff);
 
     // Выравнивание к рукавам
     const targetA = p.arm * Math.PI + dist * cfg.armAngleB + p.armOffset;

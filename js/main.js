@@ -59,29 +59,11 @@ window.addEventListener('orientationchange', function() {
   setTimeout(resize, 400);
 });
 
-// ─── Зум через кнопки ───────────────────────────────────────────
+// ─── Зум: только тачпад / мышь / пинч (кнопок на экране нет) ────
 function applyZoom(factor) {
   S.zoom = Math.max(0.4, Math.min(3.0, (S.zoom || 1) * factor));
-  console.log('[zoom] new =', S.zoom);
 }
 window.applyZoom = applyZoom;
-
-const zoomInBtn = document.getElementById('zoomIn');
-const zoomOutBtn = document.getElementById('zoomOut');
-if (zoomInBtn) {
-  zoomInBtn.addEventListener('click', function(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    applyZoom(1.2);
-  });
-}
-if (zoomOutBtn) {
-  zoomOutBtn.addEventListener('click', function(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    applyZoom(0.83);
-  });
-}
 
 // ─── Управление камерой: зум и панорамирование (исключительно тачпад / мышь) ───
 // Клавиатурное управление (WASD, стрелки) полностью отключено.

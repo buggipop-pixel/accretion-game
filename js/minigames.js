@@ -62,6 +62,13 @@ function startMinigame(type, onComplete) {
   MG.trail = [];
   MG.finishAt = 0;
   MG.sparks = [];
+  MG.fieldParticles = [];
+  MG.result = null;
+  MG.resultLabel = null;
+
+  // Во время мини-игры кнопка «Эволюция» не нужна
+  const evolveBtnEl = document.getElementById('evolveBtn');
+  if (evolveBtnEl) evolveBtnEl.classList.remove('show');
 
   if (type === 'mass') {
     MG.particles = [];
@@ -92,49 +99,54 @@ function startMinigame(type, onComplete) {
     MG.elapsedSec = 0;
     MG.finishAt = 0;
 
-    // 4 цвета × 4 шара = 16 шаров
-    // Каждый цвет — в своём квадранте поля
+    // 4 цвета × 4 шара = 16 шаров.
+    // Раскладка — сеткой по форме поля (широкое поле → больше столбцов),
+    // затем пары, оказавшиеся слишком близко, разводятся. Начальная скорость
+    // нулевая, поэтому шары НЕ сливаются сами — только когда игрок их столкнёт.
     const types = ['ice', 'lava', 'stone', 'gas'];
-    const quadrantMap = [
-      { sx: -1, sy: -1 },   // лёд — влево-верх
-      { sx:  1, sy: -1 },   // лава — вправо-верх
-      { sx: -1, sy:  1 },   // камень — влево-низ
-      { sx:  1, sy:  1 },   // газ — вправо-низ
-    ];
+    const total = types.length * MG_ASSEMBLE.colorsPerType;
+    const cols = MG.fieldHalfW >= MG.fieldHalfH ? 8 : 4;
+    const rows = Math.ceil(total / cols);
+    const margin = 30;
+    const cellW = Math.max(46, ((MG.fieldHalfW * 2) - margin * 2) / cols);
+    const cellH = Math.max(46, ((MG.fieldHalfH * 2) - margin * 2) / rows);
+    const gridW = cellW * cols, gridH = cellH * rows;
 
-    for (let ti = 0; ti < types.length; ti++) {
-      const quad = quadrantMap[ti];
-      for (let k = 0; k < MG_ASSEMBLE.colorsPerType; k++) {
-        let px = 0, py = 0, placed = false;
-        for (let attempt = 0; attempt < 60 && !placed; attempt++) {
-          const angle = Math.random() * Math.PI * 2;
-          const dist = MG.startDistMin +
-            Math.random() * (MG.startDistMax - MG.startDistMin);
-          px = quad.sx * MG.fieldHalfW * 0.55 + Math.cos(angle) * dist * 0.35;
-          py = quad.sy * MG.fieldHalfH * 0.55 + Math.sin(angle) * dist * 0.35;
+    for (let i = 0; i < total; i++) {
+      const col = i % cols, row = Math.floor(i / cols);
+      MG.fieldParticles.push({
+        x: -gridW / 2 + cellW * (col + 0.5),
+        y: -gridH / 2 + cellH * (row + 0.5),
+        vx: 0, vy: 0,          // ★ стоят на месте, пока игрок их не толкнёт
+        r: MG_ASSEMBLE.baseRadius,
+        colors: [types[Math.floor(i / MG_ASSEMBLE.colorsPerType)]],
+        mass: 1,               // масса = сумма tier'ов
+        fixed: false,          // финальный (планета)
+      });
+    }
 
-          if (Math.abs(px) > MG.fieldHalfW - 35) continue;
-          if (Math.abs(py) > MG.fieldHalfH - 35) continue;
-
-          placed = true;
-          for (let j = 0; j < MG.fieldParticles.length; j++) {
-            const other = MG.fieldParticles[j];
-            if (Math.hypot(other.x - px, other.y - py) < MG_ASSEMBLE.minBetweenDist) {
-              placed = false; break;
-            }
-          }
+    // Страховка: разводим пары ближе 44 px (порог слияния — 39 px)
+    for (let iter = 0; iter < 24; iter++) {
+      let moved = false;
+      for (let i = 0; i < MG.fieldParticles.length; i++) {
+        for (let j = i + 1; j < MG.fieldParticles.length; j++) {
+          const a = MG.fieldParticles[i], b = MG.fieldParticles[j];
+          let dx = b.x - a.x, dy = b.y - a.y;
+          let d = Math.hypot(dx, dy);
+          if (d >= 44) continue;
+          if (d < 0.01) { dx = 1; dy = 0; d = 1; }
+          const push = (44 - d) / 2 + 0.5;
+          a.x -= (dx / d) * push; a.y -= (dy / d) * push;
+          b.x += (dx / d) * push; b.y += (dy / d) * push;
+          moved = true;
         }
-
-        MG.fieldParticles.push({
-          x: px, y: py,
-          vx: (Math.random() - 0.5) * 40,
-          vy: (Math.random() - 0.5) * 40,
-          r: MG_ASSEMBLE.baseRadius,
-          colors: [types[ti]],   // массив цветов
-          mass: 1,               // масса = сумма tier'ов
-          fixed: false,          // финальный (планета)
-        });
       }
+      for (let i = 0; i < MG.fieldParticles.length; i++) {
+        const p = MG.fieldParticles[i];
+        p.x = Math.max(-MG.fieldHalfW + 20, Math.min(MG.fieldHalfW - 20, p.x));
+        p.y = Math.max(-MG.fieldHalfH + 20, Math.min(MG.fieldHalfH - 20, p.y));
+      }
+      if (!moved) break;
     }
   }
 
@@ -304,38 +316,33 @@ function updateAssemble(dt, elapsed, cx, cy) {
       const minD = a.r + b.r + MG_ASSEMBLE.mergeDist;
       if (d >= minD) continue;
 
-      // ─── Определяем, могут ли они слиться ───
+      // ─── Правила слияния ───
+      // 1) Один и тот же единственный цвет: массы складываются (1+1=2, 2+1=3, 3+1=4).
+      //    Четыре одинаковых шара → планета этого типа (лёд/лава/камень/газ).
+      // 2) Разные цвета: сливаются, если наборы цветов НЕ пересекаются и вместе
+      //    дают не больше 4 цветов. Поэтому Землю можно собрать двумя путями:
+      //      а) по одному шару четырёх разных цветов;
+      //      б) двумя двойными шарами (красный+синий и жёлтый+зелёный).
       const aMono = a.colors.length === 1;
       const bMono = b.colors.length === 1;
       let mergeResult = null;
 
-      if (aMono && bMono) {
-        // Оба одноцветные
-        if (a.colors[0] === b.colors[0]) {
-          // Одинаковый цвет: только равные tier'ы (масса)
-          if (a.mass === b.mass && a.mass < 4) {
-            mergeResult = { colors: [a.colors[0]], mass: a.mass + b.mass };
-          }
-        } else {
-          // Разные цвета: только оба tier 1 → 2-цветный
-          if (a.mass === 1 && b.mass === 1) {
-            const c1 = a.colors[0], c2 = b.colors[0];
-            mergeResult = { colors: [c1, c2], mass: 2 };
-          }
+      const sameColor = aMono && bMono && a.colors[0] === b.colors[0];
+      if (sameColor) {
+        mergeResult = { colors: [a.colors[0]], mass: a.mass + b.mass };
+      } else {
+        let disjoint = true;
+        for (let ci = 0; ci < a.colors.length; ci++) {
+          if (b.colors.indexOf(a.colors[ci]) !== -1) { disjoint = false; break; }
         }
-      } else if (aMono && !bMono) {
-        // mono + multi: mono должна быть tier 1, цвет новый
-        if (a.mass === 1 && b.colors.indexOf(a.colors[0]) === -1 &&
-            b.colors.length < 4) {
-          mergeResult = { colors: b.colors.concat([a.colors[0]]), mass: b.mass + 1 };
-        }
-      } else if (!aMono && bMono) {
-        if (b.mass === 1 && a.colors.indexOf(b.colors[0]) === -1 &&
-            a.colors.length < 4) {
-          mergeResult = { colors: a.colors.concat([b.colors[0]]), mass: a.mass + 1 };
+        if (disjoint && a.colors.length + b.colors.length <= 4) {
+          mergeResult = {
+            colors: a.colors.concat(b.colors),
+            mass: a.mass + b.mass,
+          };
         }
       }
-      // multi + multi — не сливаются
+
 
       if (mergeResult) {
         // ─── Слияние ───
