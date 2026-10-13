@@ -86,7 +86,16 @@ function energyPerSec() {
 
 // ─── Стоимости ──────────────────────────────────────────────────
 function planetCost(n) { return Math.floor(500000 * Math.pow(2.2, n)); }
-function systemCost(n) { return Math.floor(5e9 * Math.pow(2.5, n)); }
+
+// Цена системы привязана к текущему доходу: 30 минут дохода за систему.
+// Так цена всегда достижима и никогда не превышает кап хранилища.
+function systemCost(n) {
+  const seconds = CFG.systemCostSeconds || 1800;
+  const growth = CFG.systemCostGrowth || 1;
+  const rate = Math.max(dustPerSec(), 1);
+  const cost = rate * seconds * Math.pow(growth, n || 0);
+  return Math.max(Math.floor(CFG.systemCostMin || 0), Math.floor(cost));
+}
 
 // ─── Цель текущей фазы ──────────────────────────────────────────
 function currentGoal() {
@@ -188,12 +197,31 @@ window.currentGoal = currentGoal;
 window.applyOfflineProgress = applyOfflineProgress;
 window.handleCanvasClick = handleCanvasClick;
 window.tickCiv = tickCiv;
+// ─── Кап хранилища ресурса ──────────────────────────────────────
+// Кап = максимум из (плоский кап уровня) и (N часов текущего дохода).
+// Плоский кап вытягивает ранние фазы, когда доход ещё почти нулевой;
+// «часы дохода» не дают капу задушить игрока на поздних фазах.
 function getResourceCap(res) {
   const levels = S.storageLevels || { dust: 1, energy: 1, civ: 1 };
-  if (res === 'dust') return 50000 * Math.pow(10, levels.dust - 1) * STORAGE_CFG.getDustCapHours(levels.dust);
-  if (res === 'energy') return 100000 * Math.pow(2, levels.energy - 1);
-  if (res === 'civ') return 100 * Math.pow(1.5, levels.civ - 1);
+
+  if (res === 'dust') {
+    const hours = STORAGE_CFG.getDustCapHours(levels.dust);
+    const flat = STORAGE_CFG.getDustFlatCap(levels.dust);
+    const rateCap = dustPerSec() * 3600 * hours;
+    return Math.floor(Math.max(flat, rateCap));
+  }
+  if (res === 'energy') {
+    const hours = STORAGE_CFG.getDustCapHours(levels.energy);
+    const flat = STORAGE_CFG.getEnergyFlatCap(levels.energy);
+    const rateCap = energyPerSec() * 3600 * hours;
+    return Math.floor(Math.max(flat, rateCap));
+  }
+  if (res === 'civ') {
+    const mult = STORAGE_CFG.getCivCapMult(levels.civ);
+    const flat = STORAGE_CFG.getCivFlatCap(levels.civ);
+    const rateCap = civPerSec() * 3600 * mult;
+    return Math.floor(Math.max(flat, rateCap));
+  }
   return 1000;
 }
-window.getResourceCap = getResourceCap;
 window.getResourceCap = getResourceCap;

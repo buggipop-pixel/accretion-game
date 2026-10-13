@@ -91,11 +91,9 @@ function updateUI() {
     const goal = currentGoal();
     let ready = false;
     if (S.stage === 'system' && S.planets.length >= 8) ready = true;
-    if (goal !== null && S.dust >= goal) ready = true;
-    if (S.stage === 'galaxy') {
-      const sysCost = Math.floor(50e9 * Math.pow(4, S.systems - 1));
-      if (S.dust >= sysCost) ready = true;
-    }
+    if (goal !== null && S.dust >= goal && S.stage !== 'galaxy') ready = true;
+    // В фазе «Галактика» системы строятся автоматически — кнопка не нужна
+    if (S.stage === 'galaxy') ready = false;
     if (ready && !S.activeMinigame) btn.classList.add('show');
     else btn.classList.remove('show');
   }
@@ -103,7 +101,7 @@ function updateUI() {
 }
 // ─── Хранилище ресурсов (шкала и улучшение) ────────────────────────
 function updateStorageUI() {
-  const resources = ['dust', 'energy', 'civ'];
+  const resources = ['dust', 'energy', 'civ', 'metals'];
   resources.forEach(res => {
     const cell = document.querySelector(`.storage-cell[data-res="${res}"]`);
     if (!cell) return;
@@ -116,6 +114,7 @@ function updateStorageUI() {
     if (res === 'dust') current = S.dust;
     else if (res === 'energy') current = S.energy;
     else if (res === 'civ') current = S.civLevel;
+    else if (res === 'metals') current = S.metalAmount || 0;
 
     if (valEl) valEl.textContent = fmt(current);
 
@@ -126,8 +125,13 @@ function updateStorageUI() {
         rateEl.textContent = '+' + fmt(energyPerSec() * 3600) + ' / час';
       } else if (res === 'civ') {
         rateEl.textContent = '+' + fmt(civPerSec() * 3600) + ' / час';
+      } else if (res === 'metals') {
+        rateEl.textContent = '+' + fmt(metalsPerSec()) + ' / сек';
       }
     }
+
+    // Металлы копятся без капа — шкала и апгрейд к ним не применяются
+    if (!progFill) return;
 
     let cap = 1;
     if (typeof getResourceCap === 'function') {
@@ -147,6 +151,23 @@ function updateStorageUI() {
     if (progText) {
       progText.textContent = fmt(current) + ' / ' + fmt(cap);
     }
+
+    // Кнопка «Улучшить» показывает, сколько уже вложено в апгрейд
+    const btn = cell.querySelector('.storage-upgrade-btn');
+    if (btn) {
+      const lvl = S.storageLevels[res] || 1;
+      const cost = STORAGE_CFG.getUpgradeCost(res, lvl);
+      if (lvl >= STORAGE_CFG.maxLevel) {
+        btn.textContent = 'МАКС';
+        btn.disabled = true;
+      } else {
+        btn.disabled = false;
+        const poured = S.storageProgress[res] || 0;
+        btn.textContent = poured > 0
+          ? 'Улучшить ' + Math.min(99, Math.floor((poured / cost) * 100)) + '%'
+          : 'Улучшить';
+      }
+    }
   });
 }
 
@@ -154,7 +175,6 @@ function updateStorageUI() {
 function openStorageModal(res) {
   const names = { dust: 'Пыли', energy: 'Энергии', civ: 'Цивилизации' };
   const icons = { dust: '✦', energy: '⚡', civ: '🧬' };
-  const resKey = res === 'dust' ? 'dust' : res === 'energy' ? 'energy' : 'civLevel';
   const lvl = S.storageLevels[res] || 1;
   const cost = STORAGE_CFG.getUpgradeCost(res, lvl);
 
@@ -177,61 +197,99 @@ function openStorageModal(res) {
   }
 
   const isMax = lvl >= STORAGE_CFG.maxLevel;
+  const poured = isMax ? 0 : Math.min(S.storageProgress[res] || 0, cost);
+  const pct = isMax ? 100 : Math.min(100, (poured / cost) * 100);
+  const starsPrice = (CFG && CFG.storageInstantStars) || 50;
 
   card.innerHTML = `
     <div class="modal-title">${icons[res]} Улучшение Хранилища ${names[res]}</div>
     <div class="modal-sub">Уровень ${lvl} из ${STORAGE_CFG.maxLevel}</div>
     <div class="info-box">
       <div class="row-stat">
-        <span>Текущий уровень:</span>
-        <span>${lvl}</span>
-      </div>
-      <div class="row-stat">
         <span>Параметры капа:</span>
         <span>${capInfo}</span>
       </div>
       <div class="row-stat">
-        <span>Стоимость апгрейда:</span>
-        <span>${isMax ? 'МАКСИМУМ' : fmt(cost) + ' ' + names[res]}</span>
+        <span>Стоимость уровня:</span>
+        <span>${isMax ? 'МАКСИМУМ' : fmt(cost) + ' ✦ пыли'}</span>
       </div>
-    </div>
-    ${!isMax ? `
-      <button class="storage-upgrade-action-btn" onclick="upgradeStorageInstant('${res}')" style="width:100%; padding:12px; background:linear-gradient(135deg, #7b2cbf, #9d4edd); color:white; border:none; border-radius:8px; font-weight:700; cursor:pointer; font-size:15px; margin-top:10px;">
-        Улучшить уровень (⚡ ${fmt(cost)})
+      ${!isMax ? `
+      <div class="row-stat">
+        <span>Вложено:</span>
+        <span>${fmt(poured)} / ${fmt(cost)}</span>
+      </div>
+      <div class="storage-progress" style="height:8px; margin-top:6px;">
+        <div class="storage-progress-fill" style="width:${pct}%"></div>
+      </div>
+      <div class="pour-btn-group">
+        <button class="pour-btn" onclick="pourStorage('${res}', 0.1)">+10%</button>
+        <button class="pour-btn" onclick="pourStorage('${res}', 0.25)">+25%</button>
+        <button class="pour-btn" onclick="pourStorage('${res}', 'max')">Вложить всё</button>
+      </div>
+      <button class="stars-btn" onclick="buyStorageWithStars('${res}')">
+        ⭐ Мгновенно за ${starsPrice} Stars
       </button>
-    ` : '<div style="text-align:center; color:#b9a8ff; font-weight:700; margin-top:15px;">Достигнут максимальный уровень!</div>'}
+      ` : '<div style="text-align:center; color:#b9a8ff; font-weight:700; margin-top:15px;">Достигнут максимальный уровень!</div>'}
   `;
 
   document.getElementById('modal').classList.add('show');
 }
 
-// ─── Мгновенный апгрейд хранилища за полную стоимость ───────────
-function upgradeStorageInstant(res) {
+// ─── Вкидывание пыли в апгрейд хранилища ────────────────────────
+// part: 0.1 / 0.25 — доля стоимости уровня, 'max' — всё, что есть
+function pourStorage(res, part) {
   const lvl = S.storageLevels[res] || 1;
   if (lvl >= STORAGE_CFG.maxLevel) {
-    toast('Максимальный уровень', 'Хранилище уже прокачено до предела.');
+    toast('Максимальный уровень', 'Хранилище уже прокачано до предела.');
     return;
   }
 
   const cost = STORAGE_CFG.getUpgradeCost(res, lvl);
-  const resKey = res === 'dust' ? 'dust' : res === 'energy' ? 'energy' : 'civLevel';
-  const available = S[resKey] || 0;
+  const poured = S.storageProgress[res] || 0;
+  const remaining = cost - poured;
 
-  if (available < cost) {
-    toast('Недостаточно ресурсов', 'Требуется ' + fmt(cost) + ' ' + namesTitle(res) + ', а у вас ' + fmt(available));
+  const want = (part === 'max') ? remaining : Math.floor(cost * part);
+  const amount = Math.floor(Math.min(want, remaining, S.dust));
+
+  if (amount <= 0) {
+    toast('Недостаточно пыли',
+      'Осталось вложить ' + fmt(remaining) + ' ✦, а у вас ' + fmt(S.dust));
     return;
   }
 
-  // Списываем полную стоимость и повышаем уровень мгновенно
-  S[resKey] -= cost;
-  S.storageLevels[res] = lvl + 1;
-  S.storageProgress[res] = 0; // сбрасываем старый прогресс на всякий случай
+  S.dust -= amount;
+  S.storageProgress[res] = poured + amount;
 
-  toast('Хранилище улучшено! 🎉', 'Новый уровень ' + namesTitle(res) + ': ' + (lvl + 1));
+  if (S.storageProgress[res] >= cost) {
+    S.storageLevels[res] = lvl + 1;
+    S.storageProgress[res] = 0;
+    toast('Хранилище улучшено! 🎉',
+      namesTitle(res) + ': уровень ' + S.storageLevels[res]);
+  }
+
   saveGame();
   updateUI();
   openStorageModal(res);
 }
+
+// ─── Донат: мгновенный апгрейд за Telegram Stars (заглушка) ─────
+function buyStorageWithStars(res) {
+  const lvl = S.storageLevels[res] || 1;
+  if (lvl >= STORAGE_CFG.maxLevel) {
+    toast('Максимальный уровень', 'Хранилище уже прокачано до предела.');
+    return;
+  }
+  const starsPrice = (CFG && CFG.storageInstantStars) || 50;
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (tg && typeof tg.openInvoice === 'function') {
+    // Реальная оплата появится на шаге «Монетизация (Telegram Stars)»
+    toast('⭐ Оплата', 'Инвойс на ' + starsPrice + ' Stars — заглушка.');
+  } else {
+    toast('⭐ Telegram Stars',
+      starsPrice + ' Stars за мгновенный апгрейд. Оплата откроется внутри Telegram.');
+  }
+}
+
 
 function namesTitle(res) {
   if (res === 'dust') return 'Пыли';
@@ -260,10 +318,10 @@ function getQuests() {
 }
 
 function updateQuestPanel() {
-  const panel = document.getElementById('questPanel');
+  const panel = document.getElementById('questsPanel');
   if (!panel || !panel.classList.contains('open')) return;
   const quests = getQuests();
-  let html = '';
+  let html = '<div class="quests-title">КВЕСТЫ</div>';
   for (let i = 0; i < quests.length; i++) {
     const q = quests[i];
     const pct = Math.min(100, Math.floor(q.cur / q.max * 100));
@@ -327,10 +385,10 @@ function updateSystemSwitcher() {
 
 // ─── Инициализация UI ───────────────────────────────────────────
 function initUI() {
-  const questArrowEl = document.getElementById('questArrow');
+  const questArrowEl = document.getElementById('phaseOrb');
   if (questArrowEl) {
     questArrowEl.addEventListener('click', function() {
-      document.getElementById('questPanel').classList.toggle('open');
+      document.getElementById('questsPanel').classList.toggle('open');
       this.classList.toggle('open');
       updateQuestPanel();
     });
@@ -378,8 +436,6 @@ function initUI() {
   updateStorageUI();
 
   setInterval(updateSystemSwitcher, 2000);
-
-  setInterval(updateSystemSwitcher, 2000);
 }
 // ─── Закрытие модалки кликом снаружи или крестиком ─────────────
 // Решает проблему «мёртвого» окна, когда кнопка disabled.
@@ -419,7 +475,8 @@ window.updateQuestPanel = updateQuestPanel;
 window.updateSystemSwitcher = updateSystemSwitcher;
 window.initUI = initUI;
 window.openStorageModal = openStorageModal;
-window.upgradeStorageInstant = upgradeStorageInstant;
+window.pourStorage = pourStorage;
+window.buyStorageWithStars = buyStorageWithStars;
 
 // ─── Вспышка Сверхновой (визуальный эффект) ─────────────────────
 function triggerSupernovaFlash() {

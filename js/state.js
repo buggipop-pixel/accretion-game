@@ -31,6 +31,17 @@ const S = {
   missions: [], comets: [], expeditions: [],
   explosions: [],
 
+  // ─── Вторжения ───
+  invasions: [], lastInvasionCheck: 0,
+
+  // ─── Престиж (Сверхновая) ───
+  prestigeLevel: 0,        // сколько сверхновых уже прошло
+  galaxies: 1,             // количество галактик
+  galaxyForm: 'spiral',    // форма галактики: spiral/elliptical/irregular/ring
+  galaxyMultiplier: 1,     // множитель дохода за галактики
+  achievements: [],        // достижения (пока пусто)
+  metalAmount: 0,          // накопленные металлы
+
   // ─── Таймеры ───
   lastTick: Date.now(),
   eventTimer: 0, collisionTimer: 0,
@@ -61,6 +72,13 @@ function resetStateValues() {
   S.panX = 0; S.panY = 0; S.zoom = 1.0; S.rotation = 0;
   S.missions = []; S.comets = []; S.expeditions = [];
   S.explosions = [];
+  S.invasions = []; S.lastInvasionCheck = 0;
+  S.prestigeLevel = 0; S.galaxies = 1; S.galaxyForm = 'spiral';
+  S.galaxyMultiplier = 1; S.achievements = []; S.metalAmount = 0;
+  if (typeof MISS !== 'undefined') {
+    MISS.comets = []; MISS.expeditions = [];
+    MISS.lastCometAt = 0; MISS.lastExpeditionAt = 0;
+  }
   S.lastTick = Date.now();
   S.eventTimer = 0; S.collisionTimer = 0; S.gammaDebuff = 0;
   S.gasDensity = 1;
@@ -128,6 +146,17 @@ function saveGame() {
       missions: S.missions, comets: S.comets, expeditions: S.expeditions,
       gasDensity: S.gasDensity,
       lastTick: S.lastTick,
+      // ─── Вторжения ───
+      invasions: S.invasions, lastInvasionCheck: S.lastInvasionCheck,
+      // ─── Престиж ───
+      prestigeLevel: S.prestigeLevel, galaxies: S.galaxies,
+      galaxyForm: S.galaxyForm, galaxyMultiplier: S.galaxyMultiplier,
+      achievements: S.achievements, metalAmount: S.metalAmount,
+      // ─── Активные полёты (MISS из missions.js) ───
+      missComets: (typeof MISS !== 'undefined') ? MISS.comets : [],
+      missExpeditions: (typeof MISS !== 'undefined') ? MISS.expeditions : [],
+      missLastCometAt: (typeof MISS !== 'undefined') ? MISS.lastCometAt : 0,
+      missLastExpeditionAt: (typeof MISS !== 'undefined') ? MISS.lastExpeditionAt : 0,
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
   } catch (e) { console.warn('save error', e); }
@@ -152,6 +181,24 @@ function loadGame() {
     if (!S.systemName) S.systemName = 'Родная';
     if (!S.storageLevels) S.storageLevels = { dust: 1, energy: 1, civ: 1 };
     if (!S.storageProgress) S.storageProgress = { dust: 0, energy: 0, civ: 0 };
+    // ─── Вторжения ───
+    if (!Array.isArray(S.invasions)) S.invasions = [];
+    if (typeof S.lastInvasionCheck !== 'number') S.lastInvasionCheck = 0;
+    // ─── Престиж ───
+    if (typeof S.prestigeLevel !== 'number') S.prestigeLevel = 0;
+    if (typeof S.galaxies !== 'number') S.galaxies = 1;
+    if (!S.galaxyForm) S.galaxyForm = 'spiral';
+    if (typeof S.galaxyMultiplier !== 'number') S.galaxyMultiplier = 1;
+    if (!Array.isArray(S.achievements)) S.achievements = [];
+    if (typeof S.metalAmount !== 'number') S.metalAmount = 0;
+
+    // ─── Активные полёты: MISS живёт в missions.js ───
+    if (typeof MISS !== 'undefined') {
+      MISS.comets = Array.isArray(data.missComets) ? data.missComets : [];
+      MISS.expeditions = Array.isArray(data.missExpeditions) ? data.missExpeditions : [];
+      MISS.lastCometAt = typeof data.missLastCometAt === 'number' ? data.missLastCometAt : 0;
+      MISS.lastExpeditionAt = typeof data.missLastExpeditionAt === 'number' ? data.missLastExpeditionAt : 0;
+    }
 
     // Восстановление полей планет
     for (let i = 0; i < S.planets.length; i++) {

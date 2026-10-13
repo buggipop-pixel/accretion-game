@@ -10,6 +10,16 @@ const CFG = {
   formationDuration: 600,
   civGrowthPerPlanet: 0.02,
   civClickBoost: 0.02,
+
+  // ─── Покупка систем в фазе «Галактика» ───
+  // Цена системы = N секунд текущего дохода (растёт вместе с доходом,
+  // поэтому тупика «цена больше капа» не возникает).
+  systemCostSeconds: 1800,  // 30 минут дохода за систему
+  systemCostGrowth: 1.0,    // множитель цены за каждую следующую систему
+  systemCostMin: 1e6,       // минимальная цена системы
+
+  // ─── Донат: стоимость мгновенного апгрейда хранилища ───
+  storageInstantStars: 50,
 };
 
 // ═════════════════════════════════════════════════════════════════
@@ -29,6 +39,22 @@ const STORAGE_CFG = {
     const caps = [1, 2, 4, 8, 16, 24, 48];
     const lvl = Math.min(Math.max(1, level || 1), 7);
     return caps[lvl - 1];
+  },
+  // Плоский кап пыли уровня (страховка ранних фаз, когда доход ~0):
+  // 50K, 1M, 20M, 400M, 8B, 120B, 2.4T
+  getDustFlatCap(level) {
+    const lvl = Math.min(Math.max(1, level || 1), 7);
+    return 50000 * Math.pow(10, lvl - 1) * this.getDustCapHours(lvl);
+  },
+  // Энергия: базовый кап ×2 за уровень → 100K, 200K, 400K, ...
+  getEnergyFlatCap(level) {
+    const lvl = Math.min(Math.max(1, level || 1), 7);
+    return 100000 * Math.pow(2, lvl - 1);
+  },
+  // Цивилизация: базовый кап ×1.5 за уровень → 100, 150, 225, ...
+  getCivFlatCap(level) {
+    const lvl = Math.min(Math.max(1, level || 1), 7);
+    return 100 * Math.pow(1.5, lvl - 1);
   },
   getEnergyCapMult(level) {
     const lvl = Math.min(Math.max(1, level || 1), 7);
@@ -268,6 +294,39 @@ const METALS_CFG = {
   colonyCostMetals: 500,
 };
 
+// ═══════════════════════════════════════════════════════════════
+//  MISSIONS_CFG — кометы, экспедиции, колонии
+//  Читается из js/missions.js (стоимости, время полёта, награды)
+//  и js/particles.js (урон комет по планетам).
+// ═══════════════════════════════════════════════════════════════
+const MISSIONS_CFG = {
+  // ─── Кометы: полёт 5–15 минут ───
+  cometFlightBase: 5 * 60 * 1000,   // база: 5 минут
+  cometFlightMinMult: 1.0,          // малая комета  → ~5 мин
+  cometFlightMaxMult: 3.0,          // большая комета → ~15 мин
+  cometRewardBase: 1000000,         // база награды
+  cometRewardPerPlanet: 0.15,       // +15% за каждую планету в системе
+  cometFailChance: 0.20,            // 20% — комета не возвращается
+  cometDamageRange: 2.5,            // радиус урона пролетающей кометы
+  cometDamageChance: 0.35,          // 35% — комета уничтожает планету
+
+  // ─── Экспедиции: 10–20 минут, 3000 × 1.5^(систем-1) энергии ───
+  expeditionCostBase: 3000,
+  expeditionCostRatio: 1.5,
+  expeditionFlightMin: 10 * 60 * 1000,
+  expeditionFlightMax: 20 * 60 * 1000,
+  expeditionRewardBase: 2000000,
+  expeditionRewardPerPlanet: 0.25,
+  expeditionFailChance: 0.25,
+
+  // ─── Колония: 3% шанс, 50K × 2^(систем) энергии + 50 × 1.8 цив. ───
+  colonyChance: 0.03,
+  colonyEnergyCost: 50000,
+  colonyEnergyRatio: 2,
+  colonyCivCost: 50,
+  colonyCivRatio: 1.8,
+};
+
 // ─── Salpeter IMF ───────────────────────────────────────────────
 const STAR_WEIGHTS = { M: 60, K: 15, G: 10, A: 10, B: 5 };
 
@@ -363,6 +422,7 @@ window.ORBIT_GEOMETRY = ORBIT_GEOMETRY;
 window.INVASION_CFG = INVASION_CFG;
 window.PRESTIGE_CFG = PRESTIGE_CFG;
 window.METALS_CFG = METALS_CFG;
+window.MISSIONS_CFG = MISSIONS_CFG;
 window.STAR_WEIGHTS = STAR_WEIGHTS;
 window.getOrbitR = getOrbitR;
 window.getAllowedTypesAtOrbit = getAllowedTypesAtOrbit;

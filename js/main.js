@@ -239,16 +239,45 @@ canvas.addEventListener('pointercancel', onPointerRelease);
 canvas.addEventListener('pointerleave', onPointerRelease);
 canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
 
+// ─── Позиция системы в галактическом виде ───────────────────────
+// Общая функция для отрисовки и кликов: форма галактики зависит
+// от S.galaxyForm (меняется после каждой сверхновой).
+function galaxySystemPos(i, total, time) {
+  const form = S.galaxyForm || 'spiral';
+  const t = time || 0;
+
+  if (form === 'ring') {
+    // Кольцевая: системы на окружности
+    const angle = (i / Math.max(1, total)) * Math.PI * 2 + t * 0.02;
+    const dist = 90 + Math.min(8, Math.floor(i / 10)) * 60;
+    return { x: cx + Math.cos(angle) * dist, y: cy + Math.sin(angle) * dist * 0.6 };
+  }
+  if (form === 'elliptical') {
+    // Эллиптическая: плотное ядро, вытянутый ореол
+    const angle = i * 2.399963 + t * 0.01;
+    const r = 45 + Math.sqrt(i) * 28;
+    return { x: cx + Math.cos(angle) * r * 1.5, y: cy + Math.sin(angle) * r * 0.75 };
+  }
+  if (form === 'irregular') {
+    // Иррегулярная: разброс без структуры
+    const angle = i * 2.399963 + Math.sin(i * 3.7) * 0.9 + t * 0.005;
+    const r = 35 + ((i * 47) % 140) + Math.sin(i * 1.7) * 30;
+    return { x: cx + Math.cos(angle) * r * 1.3, y: cy + Math.sin(angle) * r * 0.8 };
+  }
+  // Спиральная (по умолчанию): рукава
+  const arm = Math.floor(i / 6), idx = i % 6;
+  const angle = arm * Math.PI / 2 + idx * 0.4 + t * 0.02;
+  const dist = 60 + arm * 70 + idx * 25;
+  return { x: cx + Math.cos(angle) * dist, y: cy + Math.sin(angle) * dist * 0.5 };
+}
+
 // ─── Клик по галактическому виду ────────────────────────────────
 function handleGalaxyClick(x, y) {
   const total = S.totalSystemsCreated || 1;
+  const t = performance.now() / 1000;
   for (let i = 0; i < total; i++) {
-    const arm = Math.floor(i / 6), idx = i % 6;
-    const angle = arm * Math.PI / 2 + idx * 0.4;
-    const dist = 60 + arm * 70 + idx * 25;
-    const px = cx + Math.cos(angle) * dist;
-    const py = cy + Math.sin(angle) * dist * 0.5;
-    if (Math.hypot(px - x, py - y) < 20) {
+    const p = galaxySystemPos(i, total, t);
+    if (Math.hypot(p.x - x, p.y - y) < 20) {
       switchToSystem(i);
       S.panX = 0; S.panY = 0; S.zoom = 1; S.rotation = 0;
       return;
@@ -290,6 +319,10 @@ function loop(now) {
     if (actualEGain > 0) S.energy += actualEGain;
   }
 
+  // ─── Металлы от лава-планет (без капа) ───
+  const metalGain = metalsPerSec() * dt;
+  if (metalGain > 0) S.metalAmount = (S.metalAmount || 0) + metalGain;
+
   // Основные тики
   // Основные тики
   tickCiv(dt);
@@ -301,8 +334,8 @@ function loop(now) {
 
   // ★ Авто-создание новой системы в фазе galaxy
   if (S.stage === 'galaxy') {
-    const cost = Math.floor(50e9 * Math.pow(4, S.systems - 1));
-    if (S.dust >= cost && S.systems < 20) {
+    const cost = systemCost(S.systems - 1);
+    if (S.dust >= cost) {
       S.dust -= cost;
       if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) {
         S.otherSystems[0] = null;
@@ -377,14 +410,8 @@ function drawGalaxyView(time) {
   const total = S.totalSystemsCreated || 1;
   const positions = [];
   for (let i = 0; i < total; i++) {
-    const arm = Math.floor(i / 6), idx = i % 6;
-    const angle = arm * Math.PI / 2 + idx * 0.4 + t * 0.02;
-    const dist = 60 + arm * 70 + idx * 25;
-    positions.push({
-      x: cx + Math.cos(angle) * dist,
-      y: cy + Math.sin(angle) * dist * 0.5,
-      idx: i,
-    });
+    const p = galaxySystemPos(i, total, t);
+    positions.push({ x: p.x, y: p.y, idx: i });
   }
   // Связи между близкими системами
   ctx.save();
@@ -429,6 +456,19 @@ function drawGalaxyView(time) {
     else if (S.otherSystems[pos.idx]) nm = S.otherSystems[pos.idx].name;
     ctx.fillText(nm, pos.x, pos.y + size * 2.5);
   }
+
+  // ─── Подпись галактики: форма, номер и множитель дохода ───
+  const formLabel = {
+    spiral: 'Спиральная', elliptical: 'Эллиптическая',
+    irregular: 'Иррегулярная', ring: 'Кольцевая',
+  }[S.galaxyForm || 'spiral'];
+  ctx.save();
+  ctx.fillStyle = 'rgba(185, 168, 255, 0.8)';
+  ctx.font = 'bold 12px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Галактика ' + (S.galaxies || 1) + ' · ' + formLabel +
+    ' · доход ×' + (S.galaxyMultiplier || 1).toFixed(1), cx, H - 96);
+  ctx.restore();
 }
 
 // ─── Старт ──────────────────────────────────────────────────────
@@ -437,6 +477,7 @@ function start() {
   resize();
   initParticles();
   initUI();
+  if (typeof initPrestige === 'function') initPrestige();
 
   const offline = applyOfflineProgress();
   if (offline && offline.earned > 0) {

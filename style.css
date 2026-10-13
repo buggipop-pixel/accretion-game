@@ -110,10 +110,63 @@ html, body {
   color: #fff;
 }
 
+/* Панель квестов (открывается кликом по кругляшку фазы) */
+.quests-panel {
+  position: absolute;
+  top: 78px;
+  left: 12px;
+  width: 238px;
+  max-width: 78vw;
+  background: linear-gradient(180deg, rgba(25, 15, 50, 0.96), rgba(12, 8, 26, 0.96));
+  border: 1px solid rgba(139, 127, 212, 0.35);
+  border-radius: 14px;
+  padding: 10px;
+  z-index: 8;
+  display: none;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.quests-panel.open { display: block; animation: modalIn 0.25s ease; }
+
+.quests-title {
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: #8b7fd4;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.quest-item + .quest-item { margin-top: 9px; }
+.quest-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #e8e2ff;
+  margin-bottom: 4px;
+}
+.quest-title.quest-done { color: #7ee0a8; }
+.q-progress {
+  color: #b9a8ff;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.quest-bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.quest-bar > div {
+  height: 100%;
+  background: linear-gradient(90deg, #6b4de6, #b9a8ff);
+  transition: width 0.3s ease;
+}
+
 /* Хранилища */
 .storage-panel {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
   gap: 6px;
   background: linear-gradient(180deg, rgba(15, 10, 32, 0.72), rgba(10, 5, 20, 0.5));
   border: 1px solid rgba(139, 127, 212, 0.2);
@@ -196,6 +249,32 @@ html, body {
 }
 .turbo { right: 12px; background: linear-gradient(135deg, #ff5e3a, #ff9500); }
 .settings-btn { right: 54px; background: rgba(139, 127, 212, 0.25); border: 1px solid rgba(139, 127, 212, 0.4); }
+
+/* Кнопка престижа (Вспышка Сверхновой) */
+.prestige-btn {
+  position: absolute;
+  left: 50%;
+  bottom: 152px;
+  transform: translateX(-50%);
+  z-index: 6;
+  padding: 9px 16px;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #ffb347, #ff5e5e);
+  color: #1a0f35;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  box-shadow: 0 4px 18px rgba(255, 94, 94, 0.45);
+  animation: prestigePulse 1.8s ease-in-out infinite;
+}
+.prestige-btn:active { transform: translateX(-50%) scale(0.96); }
+@keyframes prestigePulse {
+  0%, 100% { box-shadow: 0 4px 18px rgba(255, 94, 94, 0.45); }
+  50% { box-shadow: 0 4px 26px rgba(255, 179, 71, 0.8); }
+}
 
 /* Модалки */
 .modal {
