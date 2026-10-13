@@ -270,6 +270,7 @@ function handleGalaxyClick(x, y) {
 // ─── Главный цикл ───────────────────────────────────────────────
 let last = performance.now();
 let lastSave = 0;
+let shopHintShown = false;
 
 function loop(now) {
   const dt = Math.min((now - last) / 1000, 0.5);
@@ -314,23 +315,18 @@ function loop(now) {
   if (typeof tickInvasions === 'function') tickInvasions(dt);
   checkEvolution();
 
-  // ★ Авто-создание новой системы в фазе galaxy
-  if (S.stage === 'galaxy') {
-    const cost = systemCost(S.systems - 1);
-    if (S.dust >= cost) {
-      S.dust -= cost;
-      if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) {
-        S.otherSystems[0] = null;
+  // ★ Фаза «Галактика»: системы покупаются в магазине (js/shop.js),
+  //   авто-создание убрано — игрок сам решает, когда и с какими бонусами.
+  if (S.stage === 'galaxy' && typeof systemShopCosts === 'function') {
+    const shopCost = systemShopCosts().dust;
+    if (S.dust >= shopCost) {
+      if (!shopHintShown) {
+        shopHintShown = true;
+        toast('🌌 Хватит пыли на систему',
+          'Открой кнопку «Новая система», чтобы основать её');
       }
-      const newSys = generateRandomSystem({ isColony: false });
-      const newIdx = S.otherSystems.length;
-      S.otherSystems.push(newSys);
-      S.systems++;
-      S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
-      toast('Система основана',
-        newSys.name + ' · ' + STAR_TYPES[newSys.starType].name);
-      // Автопереключение
-      if (typeof switchToSystem === 'function') switchToSystem(newIdx);
+    } else {
+      shopHintShown = false;
     }
   }
 

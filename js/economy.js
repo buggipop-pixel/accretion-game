@@ -57,7 +57,8 @@ function dustPerSec() {
   if (!st) return 0;
   // Вторжения НЕ уменьшают доход — они грабят накопленную пыль.
   return (st.baseRate + planetRate()) * starMult() *
-         systemTypeMult() * systemMult() * gammaMult() * galaxyMult();
+         systemTypeMult() * systemMult() * gammaMult() * galaxyMult() *
+         (1 + (S.systemIncomeBonus || 0));
 }
 
 function clickGain() {
@@ -107,7 +108,11 @@ function currentGoal() {
     if (S.planets.length >= 8) return null;
     return planetCost(S.planets.length);
   }
-  if (S.stage === 'galaxy') return systemCost(S.systems - 1);
+  if (S.stage === 'galaxy') {
+    // В фазе «Галактика» цель — цена системы в магазине (js/shop.js)
+    if (typeof systemShopCosts === 'function') return systemShopCosts().dust;
+    return systemCost(S.systems - 1);
+  }
   return null;
 }
 

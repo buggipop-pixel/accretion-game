@@ -337,6 +337,23 @@ const MISSIONS_CFG = {
   colonyCivRatio: 1.8,
 };
 
+// ═══════════════════════════════════════════════════════════════
+//  SYSTEM_SHOP_CFG — магазин новых систем (фаза «Галактика»)
+//  Три шкалы: пыль (обязательна), энергия (бонус), цивилизация (шанс жизни)
+// ═══════════════════════════════════════════════════════════════
+const SYSTEM_SHOP_CFG = {
+  dustSeconds: 1800,        // пыль: 30 минут текущего дохода
+  energyCapShare: 0.5,      // энергия: половина капа хранилища энергии
+  civCapShare: 0.4,         // цивилизация: 40% капа хранилища цивилизации
+
+  energyBonusPlanets: 2,    // +2 планеты при полностью вложенной энергии
+  energyBonusIncome: 0.5,   // +50% дохода системы при полностью вложенной энергии
+
+  colonyChanceFull: 0.60,   // шанс обитаемой системы при полном вложении
+  gasChance: 0.30,          // шанс «газовой» системы (не зависит от вложений)
+  // «Ледяная» система — всё, что осталось: 70% без вложений → 10% при полном
+};
+
 // ─── Salpeter IMF ───────────────────────────────────────────────
 const STAR_WEIGHTS = { M: 60, K: 15, G: 10, A: 10, B: 5 };
 
@@ -445,3 +462,4 @@ window.generateSystemName = generateSystemName;
 window.planetMass = planetMass;
 window.planetDiameter = planetDiameter;
 window.STORAGE_CFG = STORAGE_CFG;
+window.SYSTEM_SHOP_CFG = SYSTEM_SHOP_CFG;

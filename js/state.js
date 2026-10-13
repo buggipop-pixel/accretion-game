@@ -23,6 +23,8 @@ const S = {
   activeSystemIdx: 0,
   systems: 1,
   totalSystemsCreated: 1,
+  systemIncomeBonus: 0,   // бонус дохода активной системы (магазин систем)
+  systemShopProgress: { dust: 0, energy: 0, civ: 0 },  // шкалы магазина систем
 
   // ─── Камера ───
   panX: 0, panY: 0, zoom: 1.0, rotation: 0,
@@ -69,6 +71,8 @@ function resetStateValues() {
   S.systemName = 'Родная';
   S.otherSystems = []; S.activeSystemIdx = 0;
   S.systems = 1; S.totalSystemsCreated = 1;
+  S.systemIncomeBonus = 0;
+  S.systemShopProgress = { dust: 0, energy: 0, civ: 0 };
   S.panX = 0; S.panY = 0; S.zoom = 1.0; S.rotation = 0;
   S.missions = []; S.comets = []; S.expeditions = [];
   S.explosions = [];
@@ -98,6 +102,7 @@ function switchToSystem(idx) {
     starType: S.starType,
     systemType: S.systemType,
     planets: S.planets || [],
+    incomeBonus: S.systemIncomeBonus || 0,
   };
 
   // Возврат на родную
@@ -110,6 +115,7 @@ function switchToSystem(idx) {
     S.starType = home.starType;
     S.systemType = home.systemType;
     S.planets = home.planets;
+    S.systemIncomeBonus = home.incomeBonus || 0;
     S.activeSystemIdx = 0;
     return true;
   }
@@ -124,6 +130,7 @@ function switchToSystem(idx) {
   S.starType = target.starType;
   S.systemType = target.systemType;
   S.planets = target.planets || [];
+  S.systemIncomeBonus = target.incomeBonus || 0;
   S.activeSystemIdx = idx;
   return true;
 }
@@ -143,6 +150,8 @@ function saveGame() {
       otherSystems: S.otherSystems, activeSystemIdx: S.activeSystemIdx,
       panX: S.panX, panY: S.panY, zoom: S.zoom, rotation: S.rotation,
       systems: S.systems, totalSystemsCreated: S.totalSystemsCreated,
+      systemIncomeBonus: S.systemIncomeBonus,
+      systemShopProgress: S.systemShopProgress,
       missions: S.missions, comets: S.comets, expeditions: S.expeditions,
       gasDensity: S.gasDensity,
       lastTick: S.lastTick,
@@ -191,6 +200,18 @@ function loadGame() {
     if (typeof S.galaxyMultiplier !== 'number') S.galaxyMultiplier = 1;
     if (!Array.isArray(S.achievements)) S.achievements = [];
     if (typeof S.metalAmount !== 'number') S.metalAmount = 0;
+
+    // ─── Магазин систем ───
+    if (typeof S.systemIncomeBonus !== 'number') S.systemIncomeBonus = 0;
+    if (!S.systemShopProgress) S.systemShopProgress = { dust: 0, energy: 0, civ: 0 };
+    if (typeof S.systemShopProgress.dust !== 'number') S.systemShopProgress.dust = 0;
+    if (typeof S.systemShopProgress.energy !== 'number') S.systemShopProgress.energy = 0;
+    if (typeof S.systemShopProgress.civ !== 'number') S.systemShopProgress.civ = 0;
+    // Бонус дохода берём из данных активной системы, если он там есть
+    if (S.activeSystemIdx > 0 && S.otherSystems[S.activeSystemIdx] &&
+        typeof S.otherSystems[S.activeSystemIdx].incomeBonus === 'number') {
+      S.systemIncomeBonus = S.otherSystems[S.activeSystemIdx].incomeBonus;
+    }
 
     // ─── Активные полёты: MISS живёт в missions.js ───
     if (typeof MISS !== 'undefined') {

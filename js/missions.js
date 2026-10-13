@@ -347,6 +347,16 @@ function renderMissionButtons() {
       '<div class="mb-cost">' + expCheck.reason + '</div></button>';
   }
 
+  // ─── Магазин систем (фаза «Галактика») ───
+  if (S.stage === 'galaxy' && typeof systemShopCosts === 'function') {
+    const shopCosts = systemShopCosts();
+    const canBuy = S.dust >= shopCosts.dust;
+    html += '<button class="mission-btn sys" data-action="sys">' +
+      '<div class="mb-icon">🌌</div><div>Новая система</div>' +
+      '<div class="mb-cost">' + fmt(shopCosts.dust) + ' ✦' + (canBuy ? ' ✓' : '') +
+      '</div></button>';
+  }
+
   if (container.dataset.key !== html) {
     container.innerHTML = html;
     container.dataset.key = html;
@@ -366,6 +376,7 @@ function renderMissionButtons() {
       const action = btn.dataset.action;
       if (action === 'comet') openCometDialog();
       else if (action === 'exp') launchExpedition();
+      else if (action === 'sys' && typeof openSystemShop === 'function') openSystemShop();
     });
   }
   if (document.readyState === 'loading') {

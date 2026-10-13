@@ -426,5 +426,46 @@ step('в мини-игре кнопка «Эволюция» скрыта', () =
   return hidden ? 'скрыта ✓' : 'осталась видимой ✗';
 });
 
+// ─── Магазин систем (фаза «Галактика») ───
+step('магазин систем: шкалы, шансы и бонусы', () => {
+  S.stage = 'galaxy'; S.systems = 3;
+  S.dust = 1e12; S.energy = 1e9; S.civLevel = 5000;
+  S.systemShopProgress = { dust: 0, energy: 0, civ: 0 };
+  const costs = sandbox.systemShopCosts();
+  const base = sandbox.systemShopOutcome();
+  const pure = 'обит.' + Math.round(base.colony * 100) + '% газ.' +
+    Math.round(base.gas * 100) + '% лёд.' + Math.round(base.ice * 100) + '%';
+  sandbox.pourSystemShop('dust', 'max');
+  sandbox.pourSystemShop('energy', 'max');
+  sandbox.pourSystemShop('civ', 'max');
+  const full = sandbox.systemShopOutcome();
+  const fullStr = 'обит.' + Math.round(full.colony * 100) + '% газ.' +
+    Math.round(full.gas * 100) + '% лёд.' + Math.round(full.ice * 100) + '%';
+  const okPure = base.colony === 0 && Math.round(base.gas * 100) === 30 &&
+                 Math.round(base.ice * 100) === 70;
+  const okFull = Math.round(full.colony * 100) === 60 &&
+                 Math.round(full.gas * 100) === 30 &&
+                 Math.round(full.ice * 100) === 10;
+  return 'цены ✦' + costs.dust + ' ⚡' + costs.energy + ' 🧬' + costs.civ +
+    ' | только пыль: ' + pure + (okPure ? ' ✓' : ' ✗') +
+    ' | всё: ' + fullStr + (okFull ? ' ✓' : ' ✗') +
+    ' · +' + full.extraPlanets + ' планет, +' + Math.round(full.incomeBonus * 100) + '% дохода';
+});
+step('магазин систем: создание и автопереход', () => {
+  const before = S.systems;
+  const rateBefore = sandbox.dustPerSec();
+  const ok = sandbox.createSystemFromShop();
+  const sys = S.otherSystems[S.otherSystems.length - 1];
+  return 'ok=' + ok + ', систем ' + before + '→' + S.systems +
+    ', активная=' + S.activeSystemIdx + ', планет в новой=' + (sys ? sys.planets.length : '-') +
+    ', бонус=' + (sys ? sys.incomeBonus : '-') + ', доход ' + Math.round(rateBefore) +
+    '→' + Math.round(sandbox.dustPerSec()) + ', шкалы=' + JSON.stringify(S.systemShopProgress);
+});
+step('магазин: без заполненной пыли система не создаётся', () => {
+  S.systemShopProgress = { dust: 0, energy: 0, civ: 0 };
+  const ok = sandbox.createSystemFromShop();
+  return String(ok) + (ok === false ? ' ✓ отказ' : ' ✗');
+});
+
 console.log('\n' + (failed ? '❌ ЕСТЬ ОШИБКИ' : '✅ Все проверки прошли'));
 process.exit(failed ? 1 : 0);
