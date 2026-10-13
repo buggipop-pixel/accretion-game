@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover,shrink-to-fit=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="format-detection" content="telephone=no">
+<meta name="theme-color" content="#02010a">
+  <title>АККРЕЦИЯ</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Canvas для отрисовки игры -->
+    <canvas id="sky" width="100%" height="100%"></canvas>
+
+    <!-- Интерфейс (слой поверх canvas) -->
+    <div class="hud">
+      <!-- Кругляшок фазы (левый верхний угол) -->
+      <div class="phase-orb" id="phaseOrb">
+        <svg viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="42" class="orb-bg"/>
+          <circle cx="50" cy="50" r="42" class="orb-progress" id="orbProgress"/>
+        </svg>
+        <span class="orb-label" id="orbLabel">I</span>
+      </div>
+
+      <!-- Панель квестов (раскрывается по клику на круг) -->
+      <div class="quests-panel" id="questsPanel"></div>
+
+      <!-- Миссии (активные экспедиции) -->
+      <div class="missions" id="missions"></div>
+      <div id="systemSwitcher"></div>
+<div id="gasIndicator" style="
+  position:absolute;
+  top:80px;
+  left:12px;
+  z-index:5;
+  font-size:11px;
+  font-weight:600;
+  font-family:-apple-system, sans-serif;
+  padding:4px 10px;
+  background:rgba(15,10,32,0.7);
+  border-radius:8px;
+  border:1px solid rgba(139,127,212,0.3);
+  display:none;
+"></div>
+      <!-- Распорка -->
+      <div class="spacer"></div>
+
+      <!-- Кнопка эволюции (появляется при готовности) -->
+      <button class="evolve-btn" id="evolveBtn">Эволюция</button>
+
+      <!-- Кнопки запуска -->
+          <div class="mission-buttons" id="missionButtons"></div>
+
+      <!-- Хранилища ресурсов -->
+      <div class="storage-panel" id="storagePanel">
+        <div class="storage-cell" data-res="dust">
+          <div class="storage-icon">✦</div>
+          <div class="storage-val" id="dustVal">0</div>
+          <div class="storage-label">ПЫЛЬ</div>
+          <div class="storage-rate" id="dustRate">+0 / ч</div>
+          <div class="storage-progress">
+            <div class="storage-progress-fill" id="dustProgressFill"></div>
+          </div>
+          <div class="storage-progress-text" id="dustProgressText">0/0</div>
+          <button class="storage-upgrade-btn" data-res="dust">Улучшить</button>
+        </div>
+        <div class="storage-cell" data-res="energy">
+          <div class="storage-icon">⚡</div>
+          <div class="storage-val" id="energyVal">0</div>
+          <div class="storage-label">ЭНЕРГИЯ</div>
+          <div class="storage-rate" id="energyRate">+0 / ч</div>
+          <div class="storage-progress">
+            <div class="storage-progress-fill" id="energyProgressFill"></div>
+          </div>
+          <div class="storage-progress-text" id="energyProgressText">0/0</div>
+          <button class="storage-upgrade-btn" data-res="energy">Улучшить</button>
+        </div>
+        <div class="storage-cell" data-res="civ">
+          <div class="storage-icon">🧬</div>
+          <div class="storage-val" id="civVal">0</div>
+          <div class="storage-label">ЦИВИЛИЗАЦИЯ</div>
+          <div class="storage-rate" id="civRate">+0 / ч</div>
+          <div class="storage-progress">
+            <div class="storage-progress-fill" id="civProgressFill"></div>
+          </div>
+          <div class="storage-progress-text" id="civProgressText">0/0</div>
+          <button class="storage-upgrade-btn" data-res="civ">Улучшить</button>
+        </div>
+        <div class="storage-cell" data-res="systems">
+          <div class="storage-icon">🌌</div>
+          <div class="storage-val" id="systemsVal">1</div>
+          <div class="storage-label">СИСТЕМ</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Тосты (уведомления) -->
+    <div class="toasts" id="toasts"></div>
+
+    <!-- Кнопка Turbo для тестов -->
+    <button class="turbo" id="turbo" title="Turbo (тест)">🚀</button>
+<button class="reset-btn" id="resetBtn" title="Сброс прогресса">⟲</button>
+    <div class="zoom-controls" id="zoomControls">
+  <button class="zoom-btn" id="zoomIn" title="Приблизить">+</button>
+  <button class="zoom-btn" id="zoomOut" title="Отдалить">−</button>
+</div>
+
+    <!-- Кнопка настроек -->
+    <button class="settings-btn" id="settingsBtn" title="Настройки">⚙</button>
+  </div>
+
+  <!-- Модальные окна -->
+  <div class="modal" id="modal">
+    <div class="modal-card" id="modalCard"></div>
+  </div>
+
+  <!-- Подключение модулей (порядок важен!) -->
+  <!-- Порядок важен! -->
+  <script src="js/config.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/physics.js"></script>
+  <script src="js/economy.js"></script>
+  <script src="js/particles.js"></script>
+  <script src="js/planets.js"></script>
+  <script src="js/minigames.js"></script>
+  <script src="js/missions.js"></script>
+  <script src="js/evolution.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
