@@ -110,7 +110,9 @@ let failed = false;
 function step(name, fn) {
   try {
     const r = fn();
-    console.log('OK   ' + name + (r !== undefined ? ' → ' + r : ''));
+    const bad = typeof r === 'string' && r.indexOf('✗') !== -1;
+    if (bad) failed = true;
+    console.log((bad ? 'FAIL ' : 'OK   ') + name + (r !== undefined ? ' → ' + r : ''));
   } catch (e) {
     failed = true;
     console.log('FAIL ' + name + ' → ' + e.constructor.name + ': ' + e.message);
@@ -337,28 +339,83 @@ step('апгрейды энергии/цивилизации влезают в �
   return out.join(' | ') + (ok ? ' ✓' : ' ✗');
 });
 
-// ─── Мини-игра assemble: раскладка и слияния ───
-step('шары стоят на месте и не сливаются сами', () => {
+// ─── Мини-игра assemble: раскладка, цвета, слияния ───
+function counts(color, n) { const o = {}; o[color] = n; return o; }
+
+step('ассембл: цвета со свободных орбит, шары хаотично', () => {
+  S.starType = 'G'; S.systemType = 'single'; S.planets = [];   // все орбиты свободны
   sandbox.startMinigame('assemble', () => {});
-  const before = sandbox.MG.fieldParticles.length;
-  let minDist = Infinity;
-  const ps = sandbox.MG.fieldParticles;
-  for (let i = 0; i < ps.length; i++) {
-    for (let j = i + 1; j < ps.length; j++) {
-      minDist = Math.min(minDist, Math.hypot(ps[i].x - ps[j].x, ps[i].y - ps[j].y));
-    }
-    if (ps[i].vx !== 0 || ps[i].vy !== 0) return '✗ у шара ненулевая скорость';
-  }
-  for (let i = 0; i < 180; i++) sandbox.updateMinigame(0.016, i * 0.016);
-  const after = sandbox.MG.fieldParticles.length;
+  const avail = (sandbox.MG.availableColors || []).join(',');
+  const balls = sandbox.MG.fieldParticles.length;
+  const per = {};
+  sandbox.MG.fieldParticles.forEach(p => { per[p.colors[0]] = (per[p.colors[0]] || 0) + 1; });
+  // хаотичность: координаты не выстроены в линию/сетку
+  const xs = sandbox.MG.fieldParticles.map(p => Math.round(p.x / 10) * 10);
+  const ys = sandbox.MG.fieldParticles.map(p => Math.round(p.y / 10) * 10);
+  const uniqueXs = new Set(xs).size, uniqueYs = new Set(ys).size;
+  const even = Object.keys(per).every(k => per[k] === 4);
   sandbox.endMinigame(false);
-  return before + ' шаров, мин. дистанция ' + minDist.toFixed(0) + ' → через 180 кадров ' +
-         after + (before === after ? ' ✓ не сливаются' : ' ✗ слились сами');
+  return 'цвета: ' + avail + ' | шаров: ' + balls + ' | по 4 каждого: ' + even +
+         ' | разных X: ' + uniqueXs + ', Y: ' + uniqueYs +
+         ((even && uniqueXs > 6 && uniqueYs > 3) ? ' ✓ хаотично' : ' ✗');
+});
+step('ассембл: занятая орбита убирает свой цвет', () => {
+  S.starType = 'G'; S.planets = [];
+  S.planets.push({ type: 'lava', baseOrbitR: sandbox.getOrbitR(0), orbitR: sandbox.getOrbitR(0), forming: false });
+  sandbox.startMinigame('assemble', () => {});
+  const avail = sandbox.MG.availableColors.join(',');
+  const noLava = sandbox.MG.availableColors.indexOf('lava') === -1;
+  sandbox.endMinigame(false);
+  return 'свободные цвета: ' + avail + (noLava ? ' ✓ без лавы' : ' ✗ лава осталась');
+});
+step('ассембл: 1 свободный цвет → fallback на все 4', () => {
+  S.starType = 'G'; S.planets = [];
+  [0, 2, 3, 4, 5, 6, 7].forEach(i => S.planets.push({
+    type: 'rocky', baseOrbitR: sandbox.getOrbitR(i), orbitR: sandbox.getOrbitR(i), forming: false,
+  }));
+  sandbox.startMinigame('assemble', () => {});
+  const avail = sandbox.MG.availableColors.join(',');
+  sandbox.endMinigame(false);
+  return 'цвета: ' + avail + (sandbox.MG.availableColors.length === 4 ? ' ✓ fallback' : ' ✗');
+});
+step('ассембл: палец тянет только один шар', () => {
+  S.starType = 'G'; S.planets = [];
+  sandbox.startMinigame('assemble', () => {});
+  const cx = sandbox.window.CANVAS_CX || 0, cy = sandbox.window.CANVAS_CY || 0;
+  const balls = sandbox.MG.fieldParticles;
+  const target = balls[0];
+  const startX = target.x;
+  const startPos = new Map();
+  balls.forEach(b => startPos.set(b, { x: b.x, y: b.y }));
+
+  sandbox.mgPointerDown(target.x + cx, target.y + cy);
+  const grabbedOne = sandbox.MG.grabbed === target;
+  sandbox.mgPointerMove(target.x + cx + 90, target.y + cy);
+  for (let i = 0; i < 25; i++) sandbox.updateMinigame(0.016, i * 0.016);
+  const moved = target.x - startX;
+  // Сосед, в которого врезался шар, может отъехать — это нормально.
+  // Проверяем, что САМОСТОЯТЕЛЬНО (без касания) не поехало больше одного шара.
+  const bystanders = sandbox.MG.fieldParticles.filter(b => b !== target);
+  let movedFar = 0;
+  for (let i = 0; i < bystanders.length; i++) {
+    const b = bystanders[i];
+    const st = startPos.get(b);
+    if (!st) continue;   // новый шар из слияния — не считаем
+    const d = Math.hypot(b.x - st.x, b.y - st.y);
+    if (d > 3 && d < 200) movedFar++;
+  }
+  sandbox.mgPointerUp();
+  const released = sandbox.MG.grabbed === null;
+  sandbox.endMinigame(false);
+  return 'схвачен 1 шар=' + grabbedOne + ', сдвиг=' + moved.toFixed(0) + 'px' +
+         ', сдвинулось соседей=' + movedFar + ' (норма ≤1), отпущен=' + released +
+         ((grabbedOne && moved > 40 && movedFar <= 1 && released) ? ' ✓' : ' ✗');
 });
 step('Земля: путь 1 — четыре одиночных разных цвета', () => {
   sandbox.startMinigame('assemble', () => {});
-  sandbox.MG.fieldParticles = ['ice', 'lava', 'stone', 'gas'].map((c, i) => ({
-    x: 0, y: 0, vx: 0, vy: 0, r: 18, colors: [c], mass: 1, fixed: false,
+  sandbox.MG.fieldParticles = ['ice', 'lava', 'stone', 'gas'].map(c => ({
+    x: 0, y: 0, vx: 0, vy: 0, r: 18, colors: [c], colorCounts: counts(c, 1),
+    mass: 1, fixed: false,
   }));
   for (let i = 0; i < 6; i++) sandbox.updateMinigame(0.016, i * 0.016);
   const res = sandbox.MG.result;
@@ -367,9 +424,11 @@ step('Земля: путь 1 — четыре одиночных разных ц
 });
 step('Земля: путь 2 — два двойных шара (красный+синий, жёлтый+зелёный)', () => {
   sandbox.startMinigame('assemble', () => {});
+  const cA = {}; cA.lava = 1; cA.ice = 1;
+  const cB = {}; cB.gas = 1; cB.stone = 1;
   sandbox.MG.fieldParticles = [
-    { x: -20, y: 0, vx: 0, vy: 0, r: 24, colors: ['lava', 'ice'], mass: 2, fixed: false },
-    { x: 20, y: 0, vx: 0, vy: 0, r: 24, colors: ['gas', 'stone'], mass: 2, fixed: false },
+    { x: -20, y: 0, vx: 0, vy: 0, r: 24, colors: ['lava', 'ice'], colorCounts: cA, mass: 2, fixed: false },
+    { x: 20, y: 0, vx: 0, vy: 0, r: 24, colors: ['gas', 'stone'], colorCounts: cB, mass: 2, fixed: false },
   ];
   sandbox.updateMinigame(0.016, 1);
   const res = sandbox.MG.result;
@@ -377,10 +436,26 @@ step('Земля: путь 2 — два двойных шара (красный+
   sandbox.endMinigame(false);
   return 'result=' + res + ' (цвета: ' + colors + ')' + (res === 'superEarth' ? ' ✓ Земля' : ' ✗');
 });
+step('Большинство: 2 льда + лава + газ → ледяной гигант', () => {
+  sandbox.startMinigame('assemble', () => {});
+  const cA = {}; cA.ice = 1; cA.lava = 1;
+  const cB = {}; cB.ice = 1; cB.gas = 1;
+  sandbox.MG.fieldParticles = [
+    { x: -20, y: 0, vx: 0, vy: 0, r: 24, colors: ['ice', 'lava'], colorCounts: cA, mass: 2, fixed: false },
+    { x: 20, y: 0, vx: 0, vy: 0, r: 24, colors: ['ice', 'gas'], colorCounts: cB, mass: 2, fixed: false },
+  ];
+  sandbox.updateMinigame(0.016, 1);
+  const ball = sandbox.MG.fieldParticles[0];
+  const res = sandbox.MG.result;
+  sandbox.endMinigame(false);
+  return 'result=' + res + ' (counts: ' + JSON.stringify(ball ? ball.colorCounts : {}) + ')' +
+         (res === 'iceGiant' ? ' ✓ большинство льда' : ' ✗');
+});
 step('Лава-планета: 4 одинаковых шара', () => {
   sandbox.startMinigame('assemble', () => {});
   sandbox.MG.fieldParticles = [0, 1, 2, 3].map(() => ({
-    x: 0, y: 0, vx: 0, vy: 0, r: 18, colors: ['lava'], mass: 1, fixed: false,
+    x: 0, y: 0, vx: 0, vy: 0, r: 18, colors: ['lava'], colorCounts: counts('lava', 1),
+    mass: 1, fixed: false,
   }));
   for (let i = 0; i < 6; i++) sandbox.updateMinigame(0.016, i * 0.016);
   const res = sandbox.MG.result;
