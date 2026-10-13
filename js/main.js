@@ -22,16 +22,19 @@ function requestFullscreen() {
   }, 50);
 }
 
-// ─── Защита от сворачивания ─────────────────────────────────────
+// ─── Защита от случайного сворачивания жестами ────────────────
+// Односвайповые жесты (свайп вниз в ТГ = свернуть, свайп вбок в браузере = назад)
+// глушим полностью; скролл разрешаем только внутри карточки модалки.
 document.addEventListener('touchmove', function(e) {
-  if (e.touches.length > 1) return;
   const target = e.target;
-  if (target && target.closest && (target.closest('#sky') || target.closest('.hud'))) {
-    const dy = Math.abs(e.touches[0].clientY - (window._lastTouchY || 0));
-    window._lastTouchY = e.touches[0].clientY;
-    if (dy > 5) e.preventDefault();
-  }
+  if (target && target.closest && target.closest('.modal-card')) return;
+  if (e.touches.length > 1) { e.preventDefault(); return; }
+  e.preventDefault();
 }, { passive: false });
+
+// Safari: жесты масштабирования страницы не должны перехватывать игру
+document.addEventListener('gesturestart', function(e) { e.preventDefault(); }, { passive: false });
+document.addEventListener('gesturechange', function(e) { e.preventDefault(); }, { passive: false });
 
 document.addEventListener('touchstart', function(e) {
   window._lastTouchY = e.touches[0].clientY;
@@ -59,36 +62,81 @@ window.addEventListener('orientationchange', function() {
   setTimeout(resize, 400);
 });
 
-// ─── Зум: только тачпад / мышь / пинч (кнопок на экране нет) ────
+// ─── Камера: зум, защита от NaN и поворот на 360° ─────────────
 function applyZoom(factor) {
+  if (!isFinite(factor) || factor <= 0) return;
   S.zoom = Math.max(0.4, Math.min(3.0, (S.zoom || 1) * factor));
 }
 window.applyZoom = applyZoom;
+
+// Если в состояние попали NaN/бесконечность (например, от жестов),
+// всё рисование ломается и холст чернеет — поэтому чиним каждый кадр.
+function sanitizeView() {
+  if (!isFinite(S.zoom) || S.zoom <= 0) S.zoom = 1;
+  S.zoom = Math.max(0.4, Math.min(3.0, S.zoom));
+  if (!isFinite(S.panX)) S.panX = 0;
+  if (!isFinite(S.panY)) S.panY = 0;
+  if (!isFinite(S.rotation)) S.rotation = 0;
+}
+
+// Поворот камеры (кнопка ⤾): шаг 45°, удержание — непрерывное вращение
+function rotateCamera(delta) {
+  S.rotation = (S.rotation || 0) + delta;
+  while (S.rotation > Math.PI) S.rotation -= Math.PI * 2;
+  while (S.rotation < -Math.PI) S.rotation += Math.PI * 2;
+}
+window.rotateCamera = rotateCamera;
+let rotateHeld = false;
+let rotateHoldTimer = null;
+(function setupRotateButton() {
+  function attach() {
+    const btn = document.getElementById('rotateBtn');
+    if (!btn) { setTimeout(attach, 200); return; }
+    if (btn.dataset.rotateReady === '1') return;
+    btn.dataset.rotateReady = '1';
+
+    btn.addEventListener('pointerdown', function(e) {
+      e.preventDefault();
+      rotateCamera(Math.PI / 4);            // короткий тап — шаг 45°
+      rotateHoldTimer = setTimeout(function() { rotateHeld = true; }, 350);
+    });
+    const stopRotate = function() {
+      if (rotateHoldTimer) clearTimeout(rotateHoldTimer);
+      rotateHoldTimer = null;
+      rotateHeld = false;
+    };
+    btn.addEventListener('pointerup', stopRotate);
+    btn.addEventListener('pointerleave', stopRotate);
+    btn.addEventListener('pointercancel', stopRotate);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', attach);
+  } else { attach(); }
+})();
 
 // ─── Управление камерой: зум и панорамирование (исключительно тачпад / мышь) ───
 // Клавиатурное управление (WASD, стрелки) полностью отключено.
 canvas.addEventListener('wheel', function(e) {
   e.preventDefault();
-  // Жест pinch-to-zoom на тачпаде посылает wheel с ctrlKey: true
-  // Обычный скролл тачпадом двумя пальцами (deltaX/deltaY) выполняет панорамирование
-  if (e.ctrlKey) {
-    // Плавный зум от щипка двумя пальцами на тачпаде
-    const zoomFactor = Math.exp(-e.deltaY * 0.01);
-    applyZoom(zoomFactor);
-  } else if (Math.abs(e.deltaX) > 0 || Math.abs(e.deltaY) > 0) {
-    if (e.shiftKey) {
-      // Shift + колесо мыши / скролл зумирует
-      applyZoom(e.deltaY > 0 ? 0.95 : 1.05);
+
+  // Колесо мыши и пинч на тачпаде (ctrlKey) — ЗУМ.
+  // Двухпальцевый скролл тачпада — панорамирование камеры.
+  const isMouseWheel = e.ctrlKey || e.deltaMode !== 0 ||
+    (Math.abs(e.deltaY) >= 90 && Math.abs(e.deltaX) < 1);
+
+  if (isMouseWheel) {
+    applyZoom(e.ctrlKey ? Math.exp(-e.deltaY * 0.01)
+                        : (e.deltaY > 0 ? 0.90 : 1.11));
+    return;
+  }
+
+  if (Math.abs(e.deltaX) > 0 || Math.abs(e.deltaY) > 0) {
+    if (S.starType) {
+      // Двухпальцевый свайп на тачпаде двигает камеру
+      S.panX = (S.panX || 0) - e.deltaX;
+      S.panY = (S.panY || 0) - e.deltaY;
     } else {
-      // Двухпальцевый свайп на тачпаде перемещает камеру (панорамирование)
-      if (S.starType) {
-        S.panX = (S.panX || 0) - e.deltaX;
-        S.panY = (S.panY || 0) - e.deltaY;
-      } else {
-        // До звезды колесо зумирует плавнее
-        const factor = e.deltaY > 0 ? 0.92 : 1.08;
-        applyZoom(factor);
-      }
+      applyZoom(e.deltaY > 0 ? 0.92 : 1.08);
     }
   }
 }, { passive: false });
@@ -273,9 +321,28 @@ let lastSave = 0;
 let shopHintShown = false;
 
 function loop(now) {
+  // Одна «плохая» итерация не должна убивать игру (чёрный экран):
+  // перехватываем ошибку и продолжаем цикл.
+  try {
+    loopFrame(now);
+  } catch (e) {
+    if (!window.__loopErrorAt || performance.now() - window.__loopErrorAt > 3000) {
+      window.__loopErrorAt = performance.now();
+      console.error('Пропущен кадр (защита цикла):', e);
+    }
+    requestAnimationFrame(loop);
+  }
+}
+
+function loopFrame(now) {
+  sanitizeView();
+  if (!canvas.width || !canvas.height) resize();
   const dt = Math.min((now - last) / 1000, 0.5);
   last = now;
   const time = now / 1000;
+
+  // Удержание кнопки поворота — камера крутится непрерывно
+  if (rotateHeld) rotateCamera(1.6 * dt);
 
   // Мини-игра — пауза всей остальной логики
   if (S.activeMinigame && typeof updateMinigame === 'function') {
@@ -449,8 +516,28 @@ function drawGalaxyView(time) {
   ctx.restore();
 }
 
+// ─── Telegram Mini App: полный экран и запрет сворачивания ──────
+function setupTelegram() {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (!tg) return;
+  try {
+    if (tg.ready) tg.ready();
+    if (tg.expand) tg.expand();
+    // Свайп вниз больше не сворачивает игру
+    if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
+    if (tg.setHeaderColor) tg.setHeaderColor('#02010a');
+    if (tg.setBackgroundColor) tg.setBackgroundColor('#02010a');
+    // Полный экран в TG (Bot API 8.0+); если не поддерживается — обычный режим
+    if (tg.requestFullscreen &&
+        (!tg.isVersionAtLeast || tg.isVersionAtLeast('8.0'))) {
+      tg.requestFullscreen();
+    }
+  } catch (e) { /* в браузере просто пропускаем */ }
+}
+
 // ─── Старт ──────────────────────────────────────────────────────
 function start() {
+  setupTelegram();
   loadGame();
   resize();
   initParticles();

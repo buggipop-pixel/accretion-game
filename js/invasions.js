@@ -343,19 +343,33 @@ function drawInvasions(ctx, time) {
     const progress = elapsed / total;
 
     ctx.save();
+
+    // Красное кольцо вокруг атакованной планеты — сразу видно, кого грабят
+    ctx.beginPath();
+    ctx.arc(centerSp.x, centerSp.y, (victim.diameter * 5 + 7) * z, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255, 70, 70, ' + (0.55 + 0.35 * pulse).toFixed(2) + ')';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Табличка: имя планеты + фаза + таймер
     ctx.fillStyle = 'rgba(15, 5, 5, 0.85)';
-    ctx.fillRect(barX - 2, barY - 14 * z, barW + 4, 22 * z);
+    ctx.fillRect(barX - 2, barY - 26 * z, barW + 4, 36 * z);
     ctx.strokeStyle = 'rgba(255, 60, 60, 0.6)';
     ctx.lineWidth = 1;
-    ctx.strokeRect(barX - 2, barY - 14 * z, barW + 4, 22 * z);
+    ctx.strokeRect(barX - 2, barY - 26 * z, barW + 4, 36 * z);
+
+    ctx.fillStyle = '#ffd0d0';
+    ctx.font = 'bold ' + Math.round(7 * z) + 'px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('⚔ ' + (PLANET_TYPES[victim.type] ? PLANET_TYPES[victim.type].name : 'Планета'),
+                 centerSp.x, barY - 19 * z);
 
     ctx.fillStyle = phaseColor;
     ctx.fillRect(barX, barY - 10 * z, barW * progress, barH);
 
     ctx.fillStyle = phaseColor;
     ctx.font = 'bold ' + Math.round(7 * z) + 'px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
     ctx.fillText(phaseLabel + ' · ' + mm + ':' + ss,
                  centerSp.x, barY - 4 * z);
     ctx.restore();

@@ -530,6 +530,31 @@ function drawPassing(ctx) {
   for (let i = 0; i < PART.passing.length; i++) {
     const o = PART.passing[i];
     const alpha = o.alpha != null ? o.alpha : 1;
+
+    // ★ Привязка к планете-источнику: пунктир от планеты к кораблю/комете
+    if (o.originSeed && S.planets && S.planets.length &&
+        typeof getPlanetWorldPos === 'function') {
+      let src = null;
+      for (let pi = 0; pi < S.planets.length; pi++) {
+        if (S.planets[pi].seed === o.originSeed) { src = S.planets[pi]; break; }
+      }
+      if (src) {
+        const ppos = getPlanetWorldPos(src, performance.now() / 1000);
+        const a1 = worldToScreen(ppos.x, ppos.y);
+        const a2 = worldToScreen(o.x, o.y);
+        ctx.save();
+        ctx.globalAlpha = 0.35 * alpha;
+        ctx.strokeStyle = o.type === 'ship' ? '#7ec8ff' : '#9fd8ff';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 6]);
+        ctx.beginPath();
+        ctx.moveTo(a1.x, a1.y);
+        ctx.lineTo(a2.x, a2.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+    }
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (let j = 0; j < o.trail.length; j++) {

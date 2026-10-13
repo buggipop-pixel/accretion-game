@@ -238,7 +238,8 @@ function collidePlanets(a, b, decision) {
   } else {
     // Слияние — победитель по rate
     const survivorType = aPt.rate > bPt.rate ? a.type : b.type;
-    const newMass = a.mass + b.mass;
+    const rawMass = (isFinite(a.mass) ? a.mass : 1) + (isFinite(b.mass) ? b.mass : 1);
+    const newMass = (isFinite(rawMass) && rawMass > 0) ? rawMass : 1;
 
     S.planets = S.planets.filter(function(p) { return p !== a && p !== b; });
 
@@ -366,6 +367,8 @@ function drawPlanets(ctx, time) {
     }
 
     const baseSize = 5 * p.diameter * scale;
+    // Защита от «сломанных» значений: NaN валит createRadialGradient и холст чернеет
+    if (!isFinite(sp.x) || !isFinite(sp.y) || !isFinite(baseSize) || baseSize <= 0) continue;
     drawTexturedPlanet(ctx, sp.x, sp.y, baseSize, p, alpha);
 
     for (let m = 0; m < p.moons.length; m++) {
@@ -387,7 +390,7 @@ function drawPlanets(ctx, time) {
 }
 
 function drawTexturedPlanet(ctx, x, y, size, p, alpha) {
-  const pt = PLANET_TYPES[p.type];
+  const pt = PLANET_TYPES[p.type] || PLANET_TYPES.rocky;
   const starPos = worldToScreen(0, 0);
 
   ctx.save();

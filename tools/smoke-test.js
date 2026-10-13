@@ -541,6 +541,73 @@ step('магазин: без заполненной пыли система не
   const ok = sandbox.createSystemFromShop();
   return String(ok) + (ok === false ? ' ✓ отказ' : ' ✗');
 });
+// ─── Новые проверки: таймер сборки, камера, Telegram, поворот ───
+step('сборка: таймер истёк без планеты — игра закрывается', () => {
+  S.planets = [];
+  S.starType = 'G';
+  let got = null;
+  sandbox.startMinigame('assemble', function(success) { got = success; });
+  const activeBefore = S.activeMinigame;
+  // сдвигаем старт на 31 секунду назад — таймер истёк
+  sandbox.MG.startAt = sandbox.performance.now() - 31000;
+  sandbox.updateMinigame(0.016, 1);
+  const closed = S.activeMinigame === null;
+  return 'до таймаута active=' + activeBefore + ', callback=' + got +
+         ', после active=' + S.activeMinigame +
+         ((got === false && closed) ? ' ✓ закрылась без планеты' : ' ✗');
+});
+step('сборка: успешная сборка даёт callback success=true', () => {
+  S.starType = 'G';
+  let got = null;
+  sandbox.startMinigame('assemble', function(success) { got = success; });
+  const cs = {}; cs.lava = 1;
+  sandbox.MG.fieldParticles = [0, 1, 2, 3].map(() => ({
+    x: 0, y: 0, vx: 0, vy: 0, r: 18, colors: ['lava'], colorCounts: cs, mass: 1, fixed: false,
+  }));
+  for (let i = 0; i < 6; i++) sandbox.updateMinigame(0.016, i * 0.016);
+  // ждём finishDelay — эмулируем завершение вручную
+  sandbox.MG.finishAt = sandbox.performance.now() - 2000;
+  sandbox.updateMinigame(0.016, 1);
+  return 'result=' + sandbox.MG.result + ', callback=' + got +
+         ((got === true) ? ' ✓' : ' ✗');
+});
+step('камера: NaN починяется каждый кадр', () => {
+  S.zoom = NaN; S.rotation = NaN; S.panX = NaN; S.panY = NaN;
+  const cb = rafCallback;
+  rafCallback = null;
+  if (cb) cb(200000);
+  const ok = isFinite(S.zoom) && isFinite(S.rotation) && isFinite(S.panX) && isFinite(S.panY);
+  return 'zoom=' + S.zoom + ' rotation=' + S.rotation + ' pan=' + S.panX + ',' + S.panY +
+         (ok ? ' ✓' : ' ✗ всё ещё NaN');
+});
+step('поворот камеры: шаг 45° и заворот в [-π, π]', () => {
+  if (typeof sandbox.rotateCamera !== 'function') return '✗ rotateCamera нет';
+  S.rotation = 0;
+  sandbox.rotateCamera(Math.PI / 4);
+  const after1 = S.rotation;
+  for (let i = 0; i < 12; i++) sandbox.rotateCamera(Math.PI / 4);
+  const ok1 = Math.abs(after1 - Math.PI / 4) < 1e-9;
+  const ok2 = isFinite(S.rotation) && Math.abs(S.rotation) <= Math.PI + 1e-9;
+  return 'после одного шага=' + after1.toFixed(3) + ', после 13=' + S.rotation.toFixed(3) +
+         ((ok1 && ok2) ? ' ✓' : ' ✗');
+});
+step('Telegram: expand, полный экран и запрет свайпов', () => {
+  const calls = [];
+  sandbox.Telegram = { WebApp: {
+    ready: () => calls.push('ready'),
+    expand: () => calls.push('expand'),
+    disableVerticalSwipes: () => calls.push('swipes'),
+    setHeaderColor: () => calls.push('header'),
+    setBackgroundColor: () => calls.push('bg'),
+    requestFullscreen: () => calls.push('fullscreen'),
+    isVersionAtLeast: () => true,
+  } };
+  sandbox.setupTelegram();
+  delete sandbox.Telegram;
+  const need = ['expand', 'swipes', 'fullscreen'];
+  const ok = need.every(n => calls.indexOf(n) !== -1);
+  return calls.join(', ') + (ok ? ' ✓' : ' ✗');
+});
 
 console.log('\n' + (failed ? '❌ ЕСТЬ ОШИБКИ' : '✅ Все проверки прошли'));
 process.exit(failed ? 1 : 0);

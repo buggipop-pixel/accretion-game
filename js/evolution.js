@@ -4,10 +4,12 @@
 // ═══════════════════════════════════════════════════════════════
 
 let evolutionModalOpen = false;
+let evolutionSuppressUntil = 0;   // пауза после неудачной сборки планеты
 
 // ─── Проверка перехода ──────────────────────────────────────────
 function checkEvolution() {
   if (evolutionModalOpen) return;
+  if (performance.now() < evolutionSuppressUntil) return;
   if (S.activeMinigame) return;
   const modal = document.getElementById('modal');
   if (modal && modal.classList.contains('show')) return;
@@ -93,6 +95,27 @@ function getOrbitHint() {
 }
 window.getOrbitHint = getOrbitHint;
 
+// ─── Правила сборки планеты для стартового окна ──────────────────
+function assembleRulesHTML() {
+  const rows = [
+    ['🔵', 'Лёд', 'ледяной гигант'],
+    ['🔴', 'Лава', 'лава-планета'],
+    ['🟢', 'Камень', 'каменная планета'],
+    ['🟡', 'Газ', 'газовый гигант'],
+  ];
+  let list = '';
+  for (let i = 0; i < rows.length; i++) {
+    list += '<br>' + rows[i][0] + ' 4 шара «' + rows[i][1] + '» → ' + rows[i][2];
+  }
+  return '<div style="margin-top:10px;font-size:11px;line-height:1.6;color:#b9a8ff;text-align:left">' +
+    '<b>Как играть:</b> тяни шары по одному — при касании они сливаются.<br>' +
+    'Шар растёт до массы 4 и фиксируется как планета. На сборку 30 секунд.<br>' +
+    '<b>Что можно создать:</b>' +
+    '<br>🌈 4 разных цвета → <b>Земля</b> (обитаемая)' + list +
+    '<br>Если цветов меньше четырёх — планета определяется по большинству.' +
+    '</div>';
+}
+
 // ─── Диспетчер эволюции ─────────────────────────────────────────
 function openEvolution() {
   if (evolutionModalOpen) return;
@@ -161,7 +184,7 @@ function openEvolution() {
     const zone = getOrbitHint();
 
     setModal(buildModal('Сборка первой планеты',
-      'Орбита 1 · Стоимость: ' + fmt(cost) + ' пыли.',
+      'Стоимость: ' + fmt(cost) + ' пыли.' + assembleRulesHTML(),
       [{ id:'go', name:'Начать сборку',
         desc: canAfford ? 'Собери планету из частиц' : 'Не хватает ' + fmt(cost - S.dust),
         stats: zone.hint,
@@ -175,10 +198,11 @@ function openEvolution() {
               const ok = addPlanet(type);
               S.stage = 'system';
               if (!ok) toast('⚠ Не удалось разместить', PLANET_TYPES[type].name);
-              else toast(PLANET_TYPES[type].name + ' сформирована', 'Орбита 1');
+              else toast(PLANET_TYPES[type].name + ' сформирована', 'Новая планета в системе');
             },
             function() {
               S.dust += cost;
+              evolutionSuppressUntil = performance.now() + 3000;
               toast('Сборка не удалась', 'Возврат ' + fmt(cost) + ' пыли');
             }
           );
@@ -220,7 +244,7 @@ function openEvolution() {
     const zone = getOrbitHint();
 
     setModal(buildModal('Сборка планеты №' + (S.planets.length + 1),
-      'Орбита ' + (S.planets.length + 1) + ' · Стоимость: ' + fmt(cost) + ' пыли.',
+      'Стоимость: ' + fmt(cost) + ' пыли.' + assembleRulesHTML(),
       [{ id:'go', name:'Начать сборку',
         desc: canAfford ? 'Собери планету из частиц' : 'Не хватает ' + fmt(cost - S.dust),
         stats: zone.hint,
@@ -234,10 +258,11 @@ function openEvolution() {
               const ok = addPlanet(type);
               if (!ok) toast('⚠ Не удалось разместить', PLANET_TYPES[type].name);
               else toast(PLANET_TYPES[type].name + ' сформирована',
-                         'Орбита ' + S.planets.length);
+                         'Новая планета в системе');
             },
             function() {
               S.dust += cost;
+              evolutionSuppressUntil = performance.now() + 3000;
               toast('Сборка не удалась', 'Возврат ' + fmt(cost) + ' пыли');
             }
           );

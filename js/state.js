@@ -224,15 +224,19 @@ function loadGame() {
     // Восстановление полей планет
     for (let i = 0; i < S.planets.length; i++) {
       const p = S.planets[i];
-      if (!p.baseOrbitR) p.baseOrbitR = p.orbitR || 100;
+      // isFinite-проверки: typeof NaN === 'number', поэтому одной проверки типа мало
+      if (!isFinite(p.baseOrbitR) || p.baseOrbitR <= 0) p.baseOrbitR = p.orbitR || 100;
+      if (!isFinite(p.orbitR) || p.orbitR <= 0) p.orbitR = p.baseOrbitR;
       if (typeof p.forming !== 'boolean') p.forming = false;
-      if (typeof p.mass !== 'number') p.mass = 1.0;
-      if (typeof p.diameter !== 'number') p.diameter = 1.0;
+      if (!isFinite(p.mass) || p.mass <= 0) p.mass = 1.0;
+      if (!isFinite(p.diameter) || p.diameter <= 0) p.diameter = 1.0;
+      if (!isFinite(p.angle)) p.angle = Math.random() * Math.PI * 2;
+      if (!isFinite(p.speed) || p.speed <= 0) p.speed = 0.15 / Math.sqrt((p.baseOrbitR || 100) / 90);
       if (!p.moons) p.moons = [];
       // ★ Прецессия орбиты (для эллиптических орбит в двойных/тройных)
-      if (typeof p.precession !== 'number') p.precession = 0;
+      if (!isFinite(p.precession)) p.precession = 0;
       // ★ Истинная аномалия (угол положения на эллипсе)
-      if (typeof p.trueAnomaly !== 'number') p.trueAnomaly = p.angle || 0;
+      if (!isFinite(p.trueAnomaly)) p.trueAnomaly = p.angle || 0;
     }
 
     S.vis.collapse = S.starType ? 1 : (S.stage === 'condense' ? 0.3 : 0);

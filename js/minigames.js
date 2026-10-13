@@ -483,11 +483,12 @@ function updateAssemble(dt, elapsed, cx, cy) {
 
 function finishAssemble() {
   if (!MG.result) {
-    MG.result = 'superEarth';
-    MG.quality = 0.5;
-  } else {
-    MG.quality = 1.0;
+    // Ничего не собрано за 30 секунд — мини-игра закрывается без планеты,
+    // пыль возвращается, снова появляется кнопка «Эволюция».
+    endMinigame(false);
+    return;
   }
+  MG.quality = 1.0;
   endMinigame(true);
 }
 
@@ -662,19 +663,14 @@ function drawIgnite(ctx, cx, cy, t) {
 function drawAssemble(ctx, cx, cy, t) {
   const left = Math.max(0, MG_ASSEMBLE.duration - (MG.elapsedSec || 0));
 
-  // ─── Свободные орбиты: какие цвета шаров доступны в этой системе ───
-  const avail = (MG.availableColors && MG.availableColors.length)
-    ? MG.availableColors : ['ice', 'lava', 'stone', 'gas'];
-  let orbitIcons = '';
-  for (let i = 0; i < COLOR_ORDER.length; i++) {
-    if (avail.indexOf(COLOR_ORDER[i]) !== -1) orbitIcons += COLOR_EMOJI[COLOR_ORDER[i]];
-  }
+  // ─── Таймер сборки (виден всё время) ───
+  const isRush = left <= 5;
 
   ctx.save();
   ctx.textAlign = 'center';
-  ctx.font = 'bold 12px -apple-system, sans-serif';
-  ctx.fillStyle = '#b9a8ff';
-  ctx.fillText('Свободные орбиты: ' + orbitIcons, cx, cy - MG.fieldHalfH - 52);
+  ctx.font = 'bold 15px -apple-system, sans-serif';
+  ctx.fillStyle = isRush ? '#ff5555' : '#ffb347';
+  ctx.fillText('⏱ ' + left.toFixed(1) + ' с', cx, cy - MG.fieldHalfH - 54);
 
   ctx.font = 'bold 16px -apple-system, sans-serif';
   ctx.fillStyle = '#e8e2ff';
@@ -704,8 +700,8 @@ function drawAssemble(ctx, cx, cy, t) {
     ctx.font = 'bold 13px -apple-system, sans-serif';
     ctx.fillText('★ ' + pt.name, cx, by + 22);
   } else {
-    ctx.fillStyle = '#8b7fd4';
-    ctx.fillText(left.toFixed(1) + 'с · суперземля по умолчанию',
+    ctx.fillStyle = isRush ? '#ff8a8a' : '#8b7fd4';
+    ctx.fillText('Осталось ' + left.toFixed(1) + ' с · иначе сборка сорвётся',
                  cx, by + 22);
   }
   ctx.restore();

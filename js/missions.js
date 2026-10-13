@@ -141,6 +141,7 @@ function launchComet(sizePct) {
       alpha: 1, age: 0, trail: [],
       immune: true,   // ★ Не наносит урон своей системе
       missionId: 'comet_' + Math.random().toString(36).slice(2),
+      originSeed: icePlanet ? icePlanet.seed : null,   // от какой планеты ушла
     });
   }
 
@@ -222,6 +223,7 @@ function launchExpedition() {
       alpha: 1, age: 0, trail: [],
       immune: true,
       missionId: 'exp_' + Math.random().toString(36).slice(2),
+      originSeed: civPlanet ? civPlanet.seed : null,   // от какой планеты ушла
     });
   }
 

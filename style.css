@@ -250,6 +250,26 @@ html, body {
 .turbo { right: 12px; background: linear-gradient(135deg, #ff5e3a, #ff9500); }
 .settings-btn { right: 54px; background: rgba(139, 127, 212, 0.25); border: 1px solid rgba(139, 127, 212, 0.4); }
 
+/* Кнопка поворота камеры на 360° */
+.rotate-btn {
+  position: absolute;
+  top: 54px;
+  right: 54px;   /* под настройками */
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(139, 127, 212, 0.4);
+  border-radius: 50%;
+  background: rgba(107, 77, 230, 0.35);
+  color: #b9a8ff;
+  font-size: 17px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  z-index: 5;
+  touch-action: none;
+}
+.rotate-btn:active { transform: scale(0.92); background: rgba(107, 77, 230, 0.65); }
+
 /* Кнопка престижа (Вспышка Сверхновой) */
 .prestige-btn {
   position: absolute;
@@ -300,6 +320,7 @@ html, body {
   width: 100%;
   max-height: 88vh;
   overflow-y: auto;
+  touch-action: pan-y;   /* внутри модалки прокрутка разрешена */
   box-shadow: 0 30px 100px rgba(107, 77, 230, 0.4);
 }
 /* Кнопка сброса (для тестов) */
