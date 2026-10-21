@@ -243,66 +243,6 @@ html, body {
   gap: 8px;
   z-index: 5;
 }
-.system-buttons .settings-btn,
-.system-buttons .view3d-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 15px;
-  touch-action: manipulation;
-}
-.system-buttons .settings-btn {
-  background: rgba(139, 127, 212, 0.25);
-  border: 1px solid rgba(139, 127, 212, 0.4);
-  color: #fff;
-}
-.system-buttons .view3d-btn {
-  background: rgba(139, 127, 212, 0.25);
-  border: 1px solid rgba(139, 127, 212, 0.4);
-  color: #b9a8ff;
-}
-.system-buttons .settings-btn:active,
-.system-buttons .view3d-btn:active {
-  transform: scale(0.92);
-}
-
-/* Тестовые кнопки (верхний центр) */
-.test-buttons {
-  position: absolute;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 8px;
-  z-index: 6;
-}
-.test-buttons .turbo,
-.test-buttons .reset-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 15px;
-  line-height: 1;
-  touch-action: manipulation;
-}
-.test-buttons .turbo {
-  background: linear-gradient(135deg, #ff5e3a, #ff9500);
-  border: none;
-  color: #fff;
-}
-.test-buttons .reset-btn {
-  background: rgba(255, 94, 58, 0.25);
-  border: 1px solid rgba(255, 94, 58, 0.5);
-  color: #ff8a6a;
-}
-.test-buttons .turbo:active,
-.test-buttons .reset-btn:active {
-  transform: scale(0.92);
-}
 
 /* Кнопка престижа (Вспышка Сверхновой) */
 .prestige-btn {
@@ -823,3 +763,33 @@ body.mg-active .toasts {
   max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .prime-obj { font-size: 9px; color: #b9a8ff; letter-spacing: 0.5px; }
+/* ─── Настройки ─── */
+#settingsModal .info-box {
+  padding: 10px 15px;
+}
+#settingsModal .row-stat {
+  border-bottom: none;
+  padding: 10px 0;
+}
+#settingsModal input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(139, 127, 212, 0.3);
+  outline: none;
+}
+#settingsModal input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #b9a8ff;
+  cursor: pointer;
+}
+#soundToggleBtn.active {
+  background: rgba(46, 170, 119, 0.4) !important;
+  border-color: #2eaa77 !important;
+  color: #7ee0a8 !important;
+}
