@@ -3,23 +3,80 @@
 // ═══════════════════════════════════════════════════════════════
 
 const CFG = {
-  offlineCapHours: 1, // базовый кап в часах (будет переопределен уровнями хранилища)
-  offlineEfficiency: 0.5,
+  offlineCapHours: 8,        // совпадает с dustHours[0]
+  offlineEfficiency: 1.0,    // 100% — офлайн идентичен онлайну
   eventInterval: 200,
   eventChance: 0.5,
   formationDuration: 600,
   civGrowthPerPlanet: 0.02,
-  civClickBoost: 0.02,
+  civClickBoost: 0.0,
 
-  // ─── Покупка систем в фазе «Галактика» ───
-  // Цена системы = N секунд текущего дохода (растёт вместе с доходом,
-  // поэтому тупика «цена больше капа» не возникает).
-  systemCostSeconds: 1800,  // 30 минут дохода за систему
-  systemCostGrowth: 1.0,    // множитель цены за каждую следующую систему
-  systemCostMin: 1e6,       // минимальная цена системы
+    // ─── Экономика фаз IV–VI ───
+    // Фиксированные капы в пыли (не зависят от дохода).
+    // Скорость накопления зависит от качества систем.
+    //   planetCost(n) = 80000 × 2^n
+    //     80K, 160K, 320K, 640K, 1.28M, 2.56M, 5.12M, 10.24M
+    //   systemCost(n) = 30M × 2^n
+    //     30M, 60M, 120M, 240M (для 2,3,4,5 систем)
+    planetBaseCost: 80000,
+    planetCostGrowth: 2.0,
+
+    systemBaseCost: 30000000,
+    systemGrowth: 2.0,
+    systemCostMin: 30000000,
+
+    // Множитель дохода от количества систем (было ×0.5 — стало ×1.0)
+    // 5 систем → ×5 к доходу всей галактики
+    systemIncomeMultPerSystem: 1.0,
 
   // ─── Донат: стоимость мгновенного апгрейда хранилища ───
   storageInstantStars: 50,
+
+  // ═════════════════════════════════════════════════════════════
+  //  АКТИВНЫЕ ФАЗЫ I–III
+  //  Пыль капает ТОЛЬКО от поглощения частиц (см. particles.js).
+  //  Ускорение пальцем меняет МОДУЛЬ скорости, а не направление.
+  // ═════════════════════════════════════════════════════════════
+    activeBoost: {
+    // ─── Фаза I ───
+    cloud: {
+      vRef: 25, radialSpeed: 25,
+      holdBoost: 2.5, twistBoost: 1.0, twistThreshold: 999,
+      dustPerParticle: 1,
+    },
+
+    // ─── Фаза II: диск у звезды ───
+    condense: {
+      vRef: 30, radialSpeed: 45,
+      holdBoost: 2.0, twistBoost: 3.5, twistScale: 0.7, twistThreshold: 0.05,
+      dustPerParticle: 2,
+      diskRadius: 40,
+      diskWidth: 12,
+      diskOrbitSec: 3,
+      diskSpinSpeed: 3.0,
+      diskFormSec: 14,
+    },
+
+    // ─── Фаза III: ПЛОТНЫЙ диск ───
+    protostar: {
+      vRef: 20,                 // ★ ниже — частицы идут в диск, не разлетаются
+      radialSpeed: 35,
+      dustPerParticle: 1,
+      diskRadius: 70,
+      diskWidth: 20,            // ★ уже — плотнее
+      diskOrbitSec: 5,
+      diskSpinSpeed: 6.0,       // ★ очень быстрое вращение
+      duration: 30,
+      heatDecayBase: 0.10, heatDecayAccel: 0.15, heatTapBoost: 0.09,
+      starThresholds: [
+        { q: 0.90, star: 'M', color: '#ff3030' },
+        { q: 0.70, star: 'B', color: '#5577ff' },
+        { q: 0.45, star: 'K', color: '#ff9944' },
+        { q: 0.25, star: 'A', color: '#ccccff' },
+        { q: 0.00, star: 'G', color: '#ffcc55' },
+      ],
+    },
+  },
 };
 
 // ═════════════════════════════════════════════════════════════════
@@ -28,21 +85,22 @@ const CFG = {
 const STORAGE_CFG = {
   maxLevel: 7,
   // Кап в часах для пыли (уровни 1-7)
-  dustHours: [1, 2, 4, 8, 16, 24, 48],
+  // Ур.1 = 8 ч (одна ночь), Ур.7 = 72 ч (выходные/праздники).
+  dustHours: [8, 16, 24, 36, 48, 60, 72],
   // Доля капа уровня, которую нужно накопить на апгрейд (уровни 1→2 ... 6→7).
   // Доля растёт → каждый следующий апгрейд купить сложнее.
-  dustCostShare: [0.5, 0.6, 0.7, 0.8, 0.9, 0.95],
+  dustCostShare: [0.9, 1.5, 2.5, 4.0, 6.0, 9.0],
   // Энергия и цивилизация дороже пыли (те же доли капа, но с множителем)
-  energyCostMult: 8,
-  civCostMult: 12,
+  energyCostMult: 12,
+  civCostMult: 20,
   // Множитель капа для энергии (×2 на уровень): 1, 2, 4, 8, 16, 32, 64
   // Множитель капа для цивилизации (×1.5 на уровень): 1, 1.5, 2.25, 3.375, 5.0625, 7.59375, 11.39
   // Стоимость перехода на уровень (level): level 1->2 (idx 0), 2->3 (idx 1), etc.
   // dust: 50K * 10^(level-1)
   // energy: dustCost * 8
   // civ: dustCost * 12
-  getDustCapHours(level) {
-    const caps = [1, 2, 4, 8, 16, 24, 48];
+    getDustCapHours(level) {
+    const caps = [8, 16, 24, 36, 48, 60, 72];
     const lvl = Math.min(Math.max(1, level || 1), 7);
     return caps[lvl - 1];
   },
@@ -89,22 +147,22 @@ const STAGES = {
   cloud: {
     tag: 'ФАЗА I', scale: 'ОБЛАКО', name: 'Молекулярное облако',
     desc: 'Холодная пыль дрейфует в пустоте. Проведи пальцем — собери пыль.',
-    goal: 500, baseRate: 0, clickRate: 1, goalLabel: 'Накопи 500 пылинок',
+    goal: 2000, baseRate: 0, clickRate: 0, goalLabel: 'Накопи 2 000 пылинок',
   },
   condense: {
     tag: 'ФАЗА II', scale: 'ДИСК', name: 'Протопланетный диск',
     desc: 'Гравитация сжимает облако. Диск вращается, пыль слипается.',
-    goal: 25000, baseRate: 0.05, clickRate: 2, goalLabel: 'Накопи 25 000 пыли',
+    goal: 25000, baseRate: 0, clickRate: 0, goalLabel: 'Накопи 25 000 пыли',
   },
   protostar: {
     tag: 'ФАЗА III', scale: 'ЗВЕЗДА', name: 'Протозвезда',
-    desc: 'Термоядерный синтез запущен. Биполярные джеты пробивают кокон.',
-    goal: 200000, baseRate: 5, clickRate: 5, goalLabel: 'Накопи 200 000 пыли',
+    desc: 'Термоядерный синтез запущен. Держи жар тапами!',
+    goal: null, baseRate: 0, clickRate: 0, goalLabel: 'Держи жар',
   },
   firstPlanet: {
     tag: 'ФАЗА IV', scale: 'ЗВЕЗДА', name: 'Первая планета',
     desc: 'Диск остывает. Пора собрать первую планету из обломков.',
-    goal: 800000, baseRate: 40, clickRate: 20, goalLabel: 'Накопи 800 000 пыли',
+    goal: null, baseRate: 40, clickRate: 0, goalLabel: 'Собери первую планету',
   },
   system: {
     tag: 'ФАЗА V', scale: 'СИСТЕМА', name: 'Формирование системы',
@@ -117,7 +175,6 @@ const STAGES = {
     goal: null, baseRate: 2000, clickRate: 100, goalLabel: 'Расширяй галактику',
   },
 };
-
 // ─── Спектральные классы звёзд ──────────────────────────────────
 const STAR_TYPES = {
   M: { name: 'Красный карлик', color: 8, sat: 92, light: 60,
@@ -141,7 +198,7 @@ const STAR_TYPES = {
 const SYSTEM_TYPES = {
   single: {
     name: 'Одиночная', stars: 1, chance: 0.50, rateMult: 1.0,
-    collisionRate: 0,
+    collisionRate: 0.08,
     civPassiveMult: 1.0, civClickMult: 1.0,
     icon: '⭐', color: '#6b4de6',
     desc: 'Идеально круглые орбиты.',
@@ -150,7 +207,7 @@ const SYSTEM_TYPES = {
   },
   binary: {
     name: 'Двойная', stars: 2, chance: 0.38, rateMult: 1.7,
-    collisionRate: 0.015,
+    collisionRate: 0.20,
     civPassiveMult: 0.65, civClickMult: 3.0,
     icon: '✨', color: '#8b5cf6',
     desc: 'Две звезды. Слегка вытянутые орбиты.',
@@ -159,7 +216,7 @@ const SYSTEM_TYPES = {
   },
   trinary: {
     name: 'Кратная', stars: 3, chance: 0.12, rateMult: 2.5,
-    collisionRate: 0.025,
+    collisionRate: 0.35,
     civPassiveMult: 0.40, civClickMult: 6.0,
     icon: '💫', color: '#a855f7',
     desc: 'Три звезды. Заметно вытянутые орбиты.',
@@ -206,10 +263,10 @@ const PHYS = {
 
 // ─── Орбитальная геометрия ──────────────────────────────────────
 const ORBIT_GEOMETRY = {
-  baseR: 90,
-  ratio: 1.25,
-  minGap: 25,
-  maxR: 500,
+  baseR: 170,     // было 90 — даёт место для прайм-объекта в центре
+  ratio: 1.22,
+  minGap: 30,
+  maxR: 750,      // 8-я орбита теперь на 620
 };
 
 function getOrbitR(index) {
@@ -342,7 +399,7 @@ const MISSIONS_CFG = {
 //  Три шкалы: пыль (обязательна), энергия (бонус), цивилизация (шанс жизни)
 // ═══════════════════════════════════════════════════════════════
 const SYSTEM_SHOP_CFG = {
-  dustSeconds: 1800,        // пыль: 30 минут текущего дохода
+  dustSeconds: 1800,        // (устарело) пыль считается через systemCost()
   energyCapShare: 0.5,      // энергия: половина капа хранилища энергии
   civCapShare: 0.4,         // цивилизация: 40% капа хранилища цивилизации
 
@@ -396,7 +453,7 @@ function generateRandomSystem(opts) {
     planets.push({
       type: type,
       angle: Math.random() * Math.PI * 2,
-      speed: 0.15 / Math.sqrt(orbitR / 90),
+      speed: 0.2 / Math.pow(orbitR / 90, 1.5),
       baseOrbitR: orbitR, orbitR: orbitR,
       driftPhase: Math.random() * Math.PI * 2,
       rotation: Math.random() * Math.PI * 2,

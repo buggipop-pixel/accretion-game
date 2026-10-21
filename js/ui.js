@@ -43,8 +43,15 @@ function updateUI() {
   }
 
   const rateEl = document.getElementById('dustRate');
-  if (rateEl && typeof dustPerSec === 'function') {
-    rateEl.textContent = '+' + fmt(dustPerSec() * 3600) + ' / ч';
+  if (rateEl) {
+    let rateText;
+    if (S.stage === 'cloud' || S.stage === 'condense' || S.stage === 'protostar') {
+      const r = (typeof PART !== 'undefined' && PART.absorbRate) ? PART.absorbRate : 0;
+      rateText = '+' + r.toFixed(1) + ' / сек';
+    } else {
+      rateText = '+' + fmt(dustPerSec() * 3600) + ' / час';
+    }
+    rateEl.textContent = rateText;
   }
   
   const energyRateEl = document.getElementById('energyRate');
@@ -90,14 +97,21 @@ function updateUI() {
   if (btn) {
     const goal = currentGoal();
     let ready = false;
-    if (S.stage === 'system' && S.planets.length >= 8) ready = true;
-    if (goal !== null && S.dust >= goal && S.stage !== 'galaxy') ready = true;
-    // В фазе «Галактика» системы строятся автоматически — кнопка не нужна
-    if (S.stage === 'galaxy') ready = false;
+    if (S.stage === 'galaxy' || S.prestigeLevel > 0) ready = false;
+    else if (S.planets.length >= 8) ready = false;
+    else if (goal !== null && S.dust >= goal) ready = true;
+
     if (ready && !S.activeMinigame) btn.classList.add('show');
     else btn.classList.remove('show');
   }
+
+  const backBtn = document.getElementById('backToGalaxyBtn');
+  if (backBtn) {
+    if (S.stage === 'system' && S.prestigeLevel > 0) backBtn.style.display = 'block';
+    else backBtn.style.display = 'none';
+  }
   updateStorageUI();
+  //updatePrimeBadge();
 }
 // ─── Хранилище ресурсов (шкала и улучшение) ────────────────────────
 function updateStorageUI() {
@@ -120,7 +134,12 @@ function updateStorageUI() {
 
     if (rateEl) {
       if (res === 'dust') {
-        rateEl.textContent = '+' + fmt(dustPerSec() * 3600) + ' / час';
+        if (S.stage === 'cloud' || S.stage === 'condense' || S.stage === 'protostar') {
+          const r = (typeof PART !== 'undefined' && PART.absorbRate) ? PART.absorbRate : 0;
+          rateEl.textContent = '+' + r.toFixed(1) + ' / сек';
+        } else {
+          rateEl.textContent = '+' + fmt(dustPerSec() * 3600) + ' / час';
+        }
       } else if (res === 'energy') {
         rateEl.textContent = '+' + fmt(energyPerSec() * 3600) + ' / час';
       } else if (res === 'civ') {
@@ -300,45 +319,98 @@ function namesTitle(res) {
 // ─── Квесты ─────────────────────────────────────────────────────
 function getQuests() {
   const list = [];
-  const st = S.stage;
-  if (st === 'cloud') list.push({ title:'Собери 500 пылинок', cur: S.dustTotal, max: 500 });
-  else if (st === 'condense') list.push({ title:'Накопи 25 000 пыли', cur: S.dustTotal, max: 25000 });
-  else if (st === 'protostar') list.push({ title:'Накопи 200 000 пыли', cur: S.dust, max: 200000 });
-  else if (st === 'firstPlanet') list.push({ title:'Накопи 800 000 пыли', cur: S.dust, max: 800000 });
-  else if (st === 'system') {
-    list.push({ title:'Сформируй 8 планет', cur: S.planets.length, max: 8 });
-    if (S.planets.length < 8)
-      list.push({ title:'Следующая планета', cur: S.dust, max: planetCost(S.planets.length) });
-  } else if (st === 'galaxy') {
-    list.push({ title:'Основай 3 системы', cur: S.systems, max: 3 });
-    list.push({ title:'Основай 5 систем → галактика', cur: S.systems, max: 5 });
-    list.push({ title:'Основай 10 систем', cur: S.systems, max: 10 });
-  }
-  return list;
-}
+  const st = (S.prestigeLevel > 0 && S.stage === 'system') ? 'galaxy' : S.stage;
 
-function updateQuestPanel() {
-  const panel = document.getElementById('questsPanel');
-  if (!panel || !panel.classList.contains('open')) return;
-  const quests = getQuests();
-  let html = '<div class="quests-title">КВЕСТЫ</div>';
-  for (let i = 0; i < quests.length; i++) {
-    const q = quests[i];
-    const pct = Math.min(100, Math.floor(q.cur / q.max * 100));
-    const done = pct >= 100;
-    html += '<div class="quest-item">' +
-      '<div class="quest-title' + (done ? ' quest-done' : '') + '">' +
-        '<span>' + q.title + '</span>' +
-        '<span class="q-progress">' + fmt(q.cur) + ' / ' + fmt(q.max) + '</span>' +
-      '</div><div class="quest-bar"><div style="width:' + pct + '%"></div></div></div>';
+  if (st === 'cloud' && STAGES.cloud.goal) {
+    list.push({
+      title: 'Собери ' + fmt(STAGES.cloud.goal) + ' пылинок',
+      cur: S.dustTotal, max: STAGES.cloud.goal,
+    });
   }
-  panel.innerHTML = html;
+  else if (st === 'condense' && STAGES.condense.goal) {
+    list.push({
+      title: 'Накопи ' + fmt(STAGES.condense.goal) + ' пыли',
+      cur: S.dustTotal, max: STAGES.condense.goal,
+    });
+  }
+  else if (st === 'protostar') {
+    // ★ Таймер разогрева, а не heat-процент
+    const left = (typeof getProtostarTimeLeft === 'function')
+      ? getProtostarTimeLeft() : 0;
+    const b = (CFG.activeBoost && CFG.activeBoost.protostar) || {};
+    const total = b.duration || 30;
+    const passed = Math.max(0, total - left);
+    list.push({
+      title: '🔥 Разогрев · ' + left.toFixed(1) + 'с',
+      cur: passed, max: total,
+    });
+  }
+  else if (st === 'firstPlanet') {
+    const cost = planetCost(0);
+    list.push({
+      title: 'Собери первую планету · ' + fmt(cost) + ' ✦',
+      cur: S.dust, max: cost,
+    });
+  }
+  else if (st === 'system') {
+    const built = S.planets.length;
+    if (built < 5) {
+      list.push({ title: 'Собери 5 планет', cur: built, max: 5 });
+      const nextCost = planetCost(built);
+      list.push({
+        title: 'Следующая планета · ' + fmt(nextCost) + ' ✦',
+        cur: S.dust, max: nextCost,
+      });
+    } else if (built < 8) {
+      list.push({ title: 'Собери 8 планет (система готова)', cur: built, max: 8 });
+      const nextCost = planetCost(built);
+      list.push({
+        title: 'Следующая планета · ' + fmt(nextCost) + ' ✦',
+        cur: S.dust, max: nextCost,
+      });
+    } else {
+      list.push({ title: 'Система готова · расширяйся', cur: 1, max: 1 });
+    }
+  }
+  else if (st === 'galaxy') {
+    const systems = S.systems;
+    const nextCost = systemCost(Math.max(0, systems - 1));
+    if (systems < 2) {
+      list.push({
+        title: 'Основай 2-ю систему · ' + fmt(nextCost) + ' ✦',
+        cur: S.dust, max: nextCost,
+      });
+    } else {
+      // ★ Квест на престиж (проверяем доступность корректно)
+      const avail = (typeof checkPrestigeAvailability === 'function') ? checkPrestigeAvailability() : 0;
+      if (avail > 0) {
+        list.push({ title: '💥 Престиж доступен!', cur: 1, max: 1 });
+      } else {
+        const reqs = (typeof prestigeRequirements === 'function') ? prestigeRequirements() : [];
+        const nextReq = reqs[S.prestigeLevel || 0];
+        if (nextReq) {
+          list.push({
+            title: '💥 До престижа',
+            cur: systems, max: nextReq
+          });
+        }
+      }
+      list.push({
+        title: 'Следующая система · ' + fmt(nextCost) + ' ✦',
+        cur: S.dust, max: nextCost,
+      });
+    }
+  }
+
+  return list;
 }
 
 // ─── Переключатель систем ───────────────────────────────────────
 function updateSystemSwitcher() {
   const el = document.getElementById('systemSwitcher');
   if (!el) return;
+  if (S.prestigeLevel > 0) { el.style.display = 'none'; return; }
+  if (S.stage === 'galaxy') { el.style.display = 'none'; return; }
   if (S.totalSystemsCreated < 2) { el.style.display = 'none'; return; }
   el.style.display = 'flex';
 
@@ -397,10 +469,11 @@ function initUI() {
   const evolveBtnEl = document.getElementById('evolveBtn');
   if (evolveBtnEl) {
     evolveBtnEl.addEventListener('click', function() {
+      // Фаза VI: планеты не собираются вручную
+      if (S.stage === 'galaxy') return;
       if (typeof openEvolution === 'function') openEvolution();
     });
   }
-
   const turboEl = document.getElementById('turbo');
   if (turboEl) {
     turboEl.addEventListener('click', function() {
@@ -409,6 +482,18 @@ function initUI() {
       S.dust += amount; S.dustTotal += amount;
       toast('🚀 Turbo', '+' + fmt(amount));
     });
+  }
+
+  // ★ Кнопка «Назад в галактику» (только после престижа)
+  const backBtn = document.getElementById('backToGalaxyBtn');
+  if (backBtn) {
+    backBtn.onclick = function() {
+      S.stage = 'galaxy';
+      S.panX = 0; S.panY = 0; S.zoom = 1; S.rotation = 0;
+      updateUI();
+      updateSystemSwitcher();
+      if (typeof checkEvolution === 'function') checkEvolution();
+    };
   }
 
   const resetEl = document.getElementById('resetBtn');
@@ -467,6 +552,92 @@ function initUI() {
     document.addEventListener('DOMContentLoaded', attach);
   } else { attach(); }
 })();
+// ─── Квесты: обновление без перерисовки innerHTML каждый кадр ──
+// Перерисовка ломает CSS transition полосок — бар выглядит пустым.
+let _lastQuestKey = '';
+
+function updateQuestPanel() {
+  const panel = document.getElementById('questsPanel');
+  if (!panel || !panel.classList.contains('open')) return;
+  const quests = getQuests();
+
+  // Ключ по тексту — если состав не менялся, обновляем только ширины
+  let key = '';
+  for (let i = 0; i < quests.length; i++) {
+    key += quests[i].title + '|';
+  }
+
+  if (key !== _lastQuestKey) {
+    _lastQuestKey = key;
+    let html = '<div class="quests-title">КВЕСТЫ</div>';
+    for (let i = 0; i < quests.length; i++) {
+      const q = quests[i];
+      let pct = 0;
+      if (q.max > 0) pct = Math.min(100, Math.floor(q.cur / q.max * 100));
+      if (pct < 0 || !isFinite(pct)) pct = 0;
+      html += '<div class="quest-item">' +
+        '<div class="quest-title' + (pct >= 100 ? ' quest-done' : '') + '">' +
+          '<span>' + q.title + '</span>' +
+          '<span class="q-progress">' + fmt(q.cur) + ' / ' + fmt(q.max) + '</span>' +
+        '</div>' +
+        '<div class="quest-bar"><div style="width:' + pct + '%"></div></div>' +
+      '</div>';
+    }
+    panel.innerHTML = html;
+  } else {
+    // Обновляем только проценты и текст прогресса
+    const items = panel.querySelectorAll('.quest-item');
+    for (let i = 0; i < quests.length && i < items.length; i++) {
+      const q = quests[i];
+      let pct = 0;
+      if (q.max > 0) pct = Math.min(100, Math.floor(q.cur / q.max * 100));
+      if (pct < 0 || !isFinite(pct)) pct = 0;
+
+      const bar = items[i].querySelector('.quest-bar > div');
+      if (bar) bar.style.width = pct + '%';
+
+      const prog = items[i].querySelector('.q-progress');
+      if (prog) prog.textContent = fmt(q.cur) + ' / ' + fmt(q.max);
+
+      const titleRow = items[i].querySelector('.quest-title');
+      if (titleRow) {
+        if (pct >= 100) titleRow.classList.add('quest-done');
+        else titleRow.classList.remove('quest-done');
+      }
+    }
+  }
+}
+// ─── Плашка активного Прайм-объекта ─────────────────────────────
+function updatePrimeBadge() {
+  let el = document.getElementById('primeBadge');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'primeBadge';
+    el.className = 'prime-badge';
+    const hud = document.querySelector('.hud');
+    if (hud) hud.appendChild(el);
+    return;
+  }
+
+  if (!S.primeSystem) { el.style.display = 'none'; return; }
+
+  el.style.display = 'flex';
+  const obj = S.primeSystem;
+  el.innerHTML =
+    '<canvas class="prime-mini" id="primeBadgeIcon" width="40" height="40"></canvas>' +
+    '<div class="prime-info">' +
+      '<div class="prime-name">' + (obj.name || 'Прайм') + '</div>' +
+      '<div class="prime-obj">' + (obj.objectName || obj.objectKey) + '</div>' +
+    '</div>';
+
+  const canvas = document.getElementById('primeBadgeIcon');
+  if (canvas && typeof drawPrimeIcon === 'function') {
+    const cctx = canvas.getContext('2d');
+    cctx.clearRect(0, 0, 40, 40);
+    drawPrimeIcon(cctx, 20, 20, obj.objectIcon || obj.objectKey, performance.now() / 1000, 10);
+  }
+}
+window.updatePrimeBadge = updatePrimeBadge;
 window.fmt = fmt;
 window.fmtTime = fmtTime;
 window.toast = toast;

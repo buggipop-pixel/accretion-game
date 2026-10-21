@@ -55,6 +55,7 @@ function metalsPerSec() {
 function dustPerSec() {
   const st = STAGES[S.stage];
   if (!st) return 0;
+  if (S.stage === 'cloud' || S.stage === 'condense' || S.stage === 'protostar') return 0;
   // Вторжения НЕ уменьшают доход — они грабят накопленную пыль.
   return (st.baseRate + planetRate()) * starMult() *
          systemTypeMult() * systemMult() * gammaMult() * galaxyMult() *
@@ -82,28 +83,42 @@ function energyPerSec() {
   if (S.civLevel < 4) return 0;
   const c = civPlanetCount();
   if (c === 0) return 0;
-  return (S.civLevel - 3) * c * 0.5;
+  // Масштабируем от уровня хранилища энергии, чтобы пассив
+  // не отставал от растущего капа на высоких уровнях.
+  const levels = S.storageLevels || { energy: 1 };
+  return (S.civLevel - 3) * c * 0.5 * Math.pow(1.5, (levels.energy || 1) - 1);
 }
 
 // ─── Стоимости ──────────────────────────────────────────────────
-function planetCost(n) { return Math.floor(500000 * Math.pow(2.2, n)); }
+// ФИКСИРОВАННАЯ цена: 80K × 2^n.
+// Не зависит от dustPerSec — качество системы влияет через доход.
+function planetCost(n) {
+  const base = CFG.planetBaseCost   || 80000;
+  const grw  = CFG.planetCostGrowth || 2.0;
+  return Math.floor(base * Math.pow(grw, n || 0));
+}
 
-// Цена системы привязана к текущему доходу: 30 минут дохода за систему.
-// Так цена всегда достижима и никогда не превышает кап хранилища.
+// ФИКСИРОВАННАЯ цена: base × growth^n.
+// Не привязана к dustPerSec — поэтому топовые системы
+// копят быстрее, плохие дольше. Даёт разброс времени.
 function systemCost(n) {
-  const seconds = CFG.systemCostSeconds || 1800;
-  const growth = CFG.systemCostGrowth || 1;
-  const rate = Math.max(dustPerSec(), 1);
-  const cost = rate * seconds * Math.pow(growth, n || 0);
-  return Math.max(Math.floor(CFG.systemCostMin || 0), Math.floor(cost));
+  const base   = CFG.systemBaseCost || 1e8;
+  const growth = CFG.systemGrowth   || 3.0;
+  const min    = CFG.systemCostMin  || 1e6;
+  const cost   = base * Math.pow(growth, n || 0);
+  return Math.max(min, Math.floor(cost));
 }
 
 // ─── Цель текущей фазы ──────────────────────────────────────────
 function currentGoal() {
   const st = STAGES[S.stage];
   if (!st) return null;
-  if (S.stage === 'cloud' || S.stage === 'condense' ||
-      S.stage === 'protostar' || S.stage === 'firstPlanet') return st.goal;
+  if (S.stage === 'cloud' || S.stage === 'condense') return st.goal;
+  if (S.stage === 'protostar') return null;   // управляется таймером heat
+  if (S.stage === 'firstPlanet') {
+    // ★ Динамическая цель = цена первой планеты
+    return planetCost(0);
+  }
   if (S.stage === 'system') {
     if (S.planets.length >= 8) return null;
     return planetCost(S.planets.length);
@@ -117,29 +132,79 @@ function currentGoal() {
 }
 
 // ─── Офлайн-прогресс ────────────────────────────────────────────
+// Считает пыль, энергию и цивилизацию по одинаковым правилам.
+// Возвращает объект со всеми начисленными ресурсами или null,
+// если офлайн был меньше 30 сек или всё в капе.
 function applyOfflineProgress() {
   const now = Date.now();
   const elapsedSec = Math.max(0, (now - S.lastTick) / 1000);
-  if (elapsedSec < 60) return;
+  if (elapsedSec < 30) return null;
+
   const levels = S.storageLevels || { dust: 1, energy: 1, civ: 1 };
-  const capSec = STORAGE_CFG.getDustCapHours(levels.dust) * 3600;
-  const cappedSec = Math.min(elapsedSec, capSec);
-  const rate = dustPerSec();
-  const earned = Math.floor(rate * cappedSec * CFG.offlineEfficiency);
-  if (earned > 0) {
+  const out = {
+    seconds: Math.floor(elapsedSec),
+    dustEarned: 0,
+    energyEarned: 0,
+    civEarned: 0,
+  };
+
+  // ─── 1. Пыль ───
+  const dustCapSec = STORAGE_CFG.getDustCapHours(levels.dust) * 3600;
+  const dustCappedSec = Math.min(elapsedSec, dustCapSec);
+  const dRate = dustPerSec();
+  const dEarned = Math.floor(dRate * dustCappedSec * CFG.offlineEfficiency);
+  if (dEarned > 0) {
     const dustCap = getResourceCap('dust');
     const available = dustCap - S.dust;
     if (available > 0) {
-      const actualEarned = Math.min(earned, available);
-      S.dust += actualEarned;
-      S.dustTotal += actualEarned;
-      return { seconds: Math.floor(elapsedSec), earned: actualEarned };
+      const actual = Math.min(dEarned, available);
+      S.dust += actual;
+      S.dustTotal += actual;
+      out.dustEarned = actual;
     }
+  }
+
+  // ─── 2. Энергия ───
+  const eRate = energyPerSec();
+  if (eRate > 0) {
+    const energyCapSec = STORAGE_CFG.getDustCapHours(levels.energy) * 3600;
+    const energyCappedSec = Math.min(elapsedSec, energyCapSec);
+    const eEarned = Math.floor(eRate * energyCappedSec * CFG.offlineEfficiency);
+    if (eEarned > 0) {
+      const energyCap = getResourceCap('energy');
+      const availableE = energyCap - S.energy;
+      if (availableE > 0) {
+        const actual = Math.min(eEarned, availableE);
+        S.energy += actual;
+        out.energyEarned = actual;
+      }
+    }
+  }
+
+  // ─── 3. Цивилизация ───
+  const cRate = (typeof civPerSec === 'function') ? civPerSec() : 0;
+  if (cRate > 0) {
+    const civCapSec = STORAGE_CFG.getDustCapHours(levels.civ) * 3600;
+    const civCappedSec = Math.min(elapsedSec, civCapSec);
+    const cEarned = cRate * civCappedSec * CFG.offlineEfficiency;
+    if (cEarned > 0) {
+      const civCap = getResourceCap('civ');
+      const availableC = civCap - S.civLevel;
+      if (availableC > 0) {
+        const actual = Math.min(cEarned, availableC);
+        S.civLevel += actual;
+        out.civEarned = Math.floor(actual);
+      }
+    }
+  }
+
+  if (out.dustEarned > 0 || out.energyEarned > 0 || out.civEarned > 0) {
+    return out;
   }
   return null;
 }
-
-// ─── Обработка клика ────────────────────────────────────────────
+// Клик даёт только пыль (в фазах, где clickRate > 0).
+// Цивилизация растёт пассивно через civPerSec — клики её не ускоряют.
 function handleCanvasClick(x, y) {
   const dustCap = getResourceCap('dust');
   if (S.dust < dustCap) {
@@ -147,13 +212,6 @@ function handleCanvasClick(x, y) {
     const actualGain = Math.min(dustCap - S.dust, gain);
     S.dust += actualGain;
     S.dustTotal += actualGain;
-  }
-  if (civPlanetCount() > 0) {
-    const civCap = getResourceCap('civ');
-    if (S.civLevel < civCap) {
-      const boost = CFG.civClickBoost * SYSTEM_TYPES[S.systemType || 'single'].civClickMult;
-      S.civLevel = Math.min(civCap, S.civLevel + boost);
-    }
   }
 }
 

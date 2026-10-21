@@ -1,47 +1,55 @@
 // ═══════════════════════════════════════════════════════════════
-//  MINIGAMES.JS — три мини-игры
-//  1. mass     — раскрути вихрь
-//  2. ignite   — 30 секунд держи топливо
-//  3. assemble — собери планету из цветных шаров
+//  MINIGAMES.JS — мини-игра «Сборка планеты» (assemble)
+//
+//  Зависимости: state.js (S), config.js (PLANET_TYPES, getAllowedTypesForSystem)
+//  Экспортирует: startMinigame, updateMinigame, drawMinigame,
+//                mgPointerDown, mgPointerMove, mgPointerUp, MG
+//
+//  ФИЧА 6.5: миниигры mass и ignite перенесены в основной процесс
+//  (см. particles.js → updatePhaseProgress / registerProtostarTap).
+//  Здесь остаётся только assemble — сборка планеты, вызывается
+//  из evolution.js при переходе IV→V и в фазе V.
+//
+//  Изменения сессии 2026-10-14 (ч.3):
+//    • Удалены MG_VORTEX, MG_IGNITE, updateMass, drawMass,
+//      updateIgnite, drawIgnite, MG.particles, MG.power, MG.elapsedSec
+//    • + Патч 5: «Пропустить ▸» только после первого прохождения
+//    • + Общие поля MG сокращены до необходимого для assemble
 // ═══════════════════════════════════════════════════════════════
 
 const MG = {
-  type: null, startAt: 0, onComplete: null,
-  progress: 0, dragX: 0, dragY: 0, dragActive: false, trail: [],
-  particles: [], capturedCount: 0, finishAt: 0,
-  power: 0, elapsedSec: 0, quality: 0,
-  fieldParticles: [], result: null, resultLabel: null,
-  sparks: [],
+  type: null,
+  startAt: 0,
+  onComplete: null,
+  progress: 0,
+
+  // Drag
+  dragX: 0, dragY: 0, dragActive: false, trail: [],
+  grabbedIndex: -1,
+  grabbed: null,
+
+  // Assemble
+  fieldParticles: [],
   fieldHalfW: 300, fieldHalfH: 200,
   startDistMin: 150, startDistMax: 220,
+  sparks: [],
+  result: null, resultLabel: null,
+  finishAt: 0, elapsedSec: 0,
 };
 
-// ─── Параметры ──────────────────────────────────────────────────
-const MG_VORTEX = {
-  fingerRadius: 140, fingerForce: 2400, captureRadius: 130,
-  orbitDecay: 0.05, minOrbitR: 25, slowDrift: 12, maxDrift: 300,
-};
-
-const MG_IGNITE = {
-  duration: 30, baseDecay: 0.10, decayAccel: 0.18,
-  tapBoost: 0.08, tapRadius: 250,
-};
-
-// ═══════════════════════════════════════════════════════════════
-//  ПАРАМЕТРЫ СБОРКИ ПЛАНЕТЫ
-//  colorsPerType = 4 → всего 16 шаров (по 4 каждого цвета)
-//  Это минимум, чтобы собрать tier 3 (2 + 2 = 4)
-// ═══════════════════════════════════════════════════════════════
+// ─── Параметры сборки планеты ───────────────────────────────────
+// colorsPerType = 4 → всего 16 шаров (по 4 каждого цвета).
+// 4 одинаковых → планета; 4 разных → Земля.
 const MG_ASSEMBLE = {
-  duration: 30,               // Секунд на игру
-  fingerRadius: 170,
-  fingerForce: 1000,
-  baseRadius: 18,             // Базовый радиус tier 1
-  radiusStep: 6,              // +6 px за каждую единицу массы
-  minBetweenDist: 120,        // Минимум между шарами при спавне
-  mergeDist: 3,               // Зазор для слияния
+  duration: 30,
+  fingerRadius: 140,
+  fingerForce: 2400,
+  baseRadius: 18,
+  radiusStep: 6,
+  minBetweenDist: 120,
+  mergeDist: 3,
   finishDelay: 1500,
-  colorsPerType: 4,           // ★ 4 шара каждого цвета
+  colorsPerType: 4,
 };
 
 // Цвета: 🔵 лёд, 🔴 лава, 🟢 камень, 🟡 газ
@@ -52,51 +60,20 @@ const ASSEMBLE_TYPES = {
   gas:   { color: '#ffd633', glow: 'rgba(255,214,51,0.8)', name: 'Газ',    planet: 'gasGiant' },
 };
 
-// Тип планеты с орбиты → цвет шара в мини-игре
-const PLANET_TO_COLOR = {
-  rocky: 'stone', superEarth: 'stone',
-  iceGiant: 'ice', gasGiant: 'gas', lava: 'lava',
-};
-
-// Порядок и иконки цветов для подсказки «Свободные орбиты»
-const COLOR_ORDER = ['lava', 'ice', 'stone', 'gas'];
-const COLOR_EMOJI = { lava: '🔴', ice: '🔵', stone: '🟢', gas: '🟡' };
-
-// Планета по большинству цветов в шаре: 4 разных → Земля,
-// иначе побеждает цвет с наибольшим счётчиком (при равенстве — случайный).
-function determinePlanetFromCounts(counts) {
-  counts = counts || {};
-  const keys = Object.keys(counts);
-  if (keys.length >= 4) return 'superEarth';
-  if (keys.length === 0) return 'rocky';
-
-  let max = 0;
-  for (let i = 0; i < keys.length; i++) {
-    if (counts[keys[i]] > max) max = counts[keys[i]];
-  }
-  const winners = [];
-  for (let i = 0; i < keys.length; i++) {
-    if (counts[keys[i]] === max) winners.push(keys[i]);
-  }
-  const pick = winners[Math.floor(Math.random() * winners.length)];
-  return (ASSEMBLE_TYPES[pick] && ASSEMBLE_TYPES[pick].planet) || 'rocky';
-}
-
-function assemblePlanetLabel(planet) {
-  if (planet === 'superEarth') return 'Земля';
-  for (const key in ASSEMBLE_TYPES) {
-    if (ASSEMBLE_TYPES[key].planet === planet) return ASSEMBLE_TYPES[key].name;
-  }
-  return planet;
-}
-
-// ─── Запуск ─────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+//  ЗАПУСК
+// ═══════════════════════════════════════════════════════════════
 function startMinigame(type, onComplete) {
+  // Патч 5.1: помечаем, что миниигра запускалась
+  if (!S.seenMinigame) S.seenMinigame = {};
+  S.seenMinigame[type] = true;
+
   MG.type = type;
   MG.startAt = performance.now();
   MG.onComplete = onComplete;
   MG.progress = 0;
   MG.dragActive = false;
+  MG.grabbedIndex = -1;
   MG.trail = [];
   MG.finishAt = 0;
   MG.sparks = [];
@@ -104,134 +81,23 @@ function startMinigame(type, onComplete) {
   MG.result = null;
   MG.resultLabel = null;
 
-  // Во время мини-игры кнопка «Эволюция» не нужна
+  // Скрываем кнопку «Эволюция» — во время миниигры она не нужна
   const evolveBtnEl = document.getElementById('evolveBtn');
   if (evolveBtnEl) evolveBtnEl.classList.remove('show');
 
-  if (type === 'mass') {
-    MG.particles = [];
-    MG.capturedCount = 0;
-    for (let i = 0; i < 60; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const r = 160 + Math.random() * 120;
-      MG.particles.push({
-        x: Math.cos(a) * r, y: Math.sin(a) * r * 0.85,
-        vx: 0, vy: 0, r: 1.6 + Math.random() * 1.8,
-        hue: 200 + Math.random() * 60,
-        captured: false, orbitAngle: 0, orbitRadius: 0, orbitSpeed: 0,
-      });
-    }
-  } else if (type === 'ignite') {
-    MG.power = 0; MG.elapsedSec = 0; MG.quality = 0;
-  } else if (type === 'assemble') {
-    const W = window.CANVAS_W || 400;
-    const H = window.CANVAS_H || 700;
-    MG.fieldHalfW = W / 2 - 25;
-    MG.fieldHalfH = H / 2 - 140;
-    MG.startDistMin = Math.min(MG.fieldHalfW, MG.fieldHalfH) * 0.40;
-    MG.startDistMax = Math.min(MG.fieldHalfW, MG.fieldHalfH) * 0.95;
+  if (type === 'assemble') {
+    initAssembleField();
 
-    MG.fieldParticles = [];
-    MG.result = null;
-    MG.resultLabel = null;
-    MG.elapsedSec = 0;
-    MG.finishAt = 0;
-
-    // ─── Цвета шаров берём со СВОБОДНЫХ орбит текущей системы ───
-    const occupied = [];
-    for (let i = 0; i < S.planets.length; i++) {
-      const r = S.planets[i].baseOrbitR || S.planets[i].orbitR || 0;
-      if (r) occupied.push(r);
-    }
-    const freeColors = [];
-    for (let i = 0; i < 8; i++) {
-      const orbitR = getOrbitR(i);
-      let busy = false;
-      for (let j = 0; j < occupied.length; j++) {
-        if (Math.abs(occupied[j] - orbitR) < ORBIT_GEOMETRY.minGap) { busy = true; break; }
+    // ★ Все орбиты заняты — сборка невозможна.
+    // Вызываем endMinigame(false) — иначе промис повиснет,
+    // ресурсы не вернутся, и игрок залипнет на пустом поле.
+    if (MG.fieldParticles.length === 0) {
+      if (typeof toast === 'function') {
+        toast('Система заполнена', 'Все доступные орбиты заняты планетами');
       }
-      if (busy) continue;
-      const allowed = getAllowedTypesAtOrbit(S.starType || 'G', i);
-      for (let k = 0; k < allowed.length; k++) {
-        const col = PLANET_TO_COLOR[allowed[k]];
-        if (col && freeColors.indexOf(col) === -1) freeColors.push(col);
-      }
+      endMinigame(false);
+      return;
     }
-    MG.availableColors = freeColors.slice();
-    if (MG.availableColors.length < 2) {
-      // На свободных орбитах не хватает цветов — fallback на все 4
-      MG.availableColors = ['ice', 'lava', 'stone', 'gas'];
-    }
-
-    // 16 шаров делим поровну между доступными цветами (остаток — первым цветам)
-    const totalBalls = MG_ASSEMBLE.colorsPerType * 4;
-    const colors = MG.availableColors;
-    const perColor = Math.floor(totalBalls / colors.length);
-    let remainder = totalBalls - perColor * colors.length;
-    const bag = [];
-    for (let ci = 0; ci < colors.length; ci++) {
-      let n = perColor;
-      if (remainder > 0) { n++; remainder--; }
-      for (let k = 0; k < n; k++) bag.push(colors[ci]);
-    }
-    // Перемешиваем, чтобы цвета шли вперемешку
-    for (let i = bag.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      const tmp = bag[i]; bag[i] = bag[j]; bag[j] = tmp;
-    }
-
-    // ─── Хаотичная раскладка по всему полю (без наложений) ───
-    const safeDist = MG_ASSEMBLE.baseRadius * 2 + 14;   // 50 px > порога слияния 39
-    for (let i = 0; i < bag.length; i++) {
-      let px = 0, py = 0, placed = false;
-      for (let attempt = 0; attempt < 80 && !placed; attempt++) {
-        px = (Math.random() * 2 - 1) * (MG.fieldHalfW - 30);
-        py = (Math.random() * 2 - 1) * (MG.fieldHalfH - 30);
-        placed = true;
-        for (let j = 0; j < MG.fieldParticles.length; j++) {
-          const other = MG.fieldParticles[j];
-          if (Math.hypot(other.x - px, other.y - py) < safeDist) { placed = false; break; }
-        }
-      }
-
-      const counts = {};
-      counts[bag[i]] = 1;
-      MG.fieldParticles.push({
-        x: px, y: py,
-        vx: 0, vy: 0,          // ★ стоят на месте, пока игрок их не тянет
-        r: MG_ASSEMBLE.baseRadius,
-        colors: [bag[i]],      // множество цветов шара
-        colorCounts: counts,   // счётчик по каждому цвету
-        mass: 1,               // масса = сумма tier'ов
-        fixed: false,          // финальный (планета)
-      });
-    }
-
-    // Страховка: разводим пары ближе safeDist (иначе слияние без участия игрока)
-    for (let iter = 0; iter < 30; iter++) {
-      let moved = false;
-      for (let i = 0; i < MG.fieldParticles.length; i++) {
-        for (let j = i + 1; j < MG.fieldParticles.length; j++) {
-          const a = MG.fieldParticles[i], b = MG.fieldParticles[j];
-          let dx = b.x - a.x, dy = b.y - a.y;
-          let d = Math.hypot(dx, dy);
-          if (d >= safeDist) continue;
-          if (d < 0.01) { dx = 1; dy = 0; d = 1; }
-          const push = (safeDist - d) / 2 + 0.5;
-          a.x -= (dx / d) * push; a.y -= (dy / d) * push;
-          b.x += (dx / d) * push; b.y += (dy / d) * push;
-          moved = true;
-        }
-      }
-      for (let i = 0; i < MG.fieldParticles.length; i++) {
-        const p = MG.fieldParticles[i];
-        p.x = Math.max(-MG.fieldHalfW + 20, Math.min(MG.fieldHalfW - 20, p.x));
-        p.y = Math.max(-MG.fieldHalfH + 20, Math.min(MG.fieldHalfH - 20, p.y));
-      }
-      if (!moved) break;
-    }
-
-    MG.grabbed = null;   // шар, который сейчас тянет палец
   }
 
   S.activeMinigame = type;
@@ -239,14 +105,144 @@ function startMinigame(type, onComplete) {
   if (modal) modal.classList.remove('show');
 }
 
+function initAssembleField() {
+  const W = window.CANVAS_W || 400;
+  const H = window.CANVAS_H || 700;
+  MG.fieldHalfW = W / 2 - 25;
+  MG.fieldHalfH = H / 2 - 140;
+  MG.startDistMin = Math.min(MG.fieldHalfW, MG.fieldHalfH) * 0.40;
+  MG.startDistMax = Math.min(MG.fieldHalfW, MG.fieldHalfH) * 0.95;
+
+  MG.fieldParticles = [];
+  MG.result = null;
+  MG.resultLabel = null;
+  MG.elapsedSec = 0;
+  MG.finishAt = 0;
+
+  // ═══════════════════════════════════════════════════════════════
+  //  ФИЛЬТР ЦВЕТОВ — только реально размещаемые планеты
+  //  Правило: цвет доступен, если его планета влезет на свободную
+  //  орбиту. Земля — отдельно: только если все 4 цвета уже доступны.
+  // ═══════════════════════════════════════════════════════════════
+  const COLOR_TO_PLANET = {
+    ice:   'iceGiant',
+    lava:  'lava',
+    stone: 'rocky',
+    gas:   'gasGiant',
+  };
+
+  // Можно ли разместить планету этого типа (та же логика что в addPlanet)
+  const canPlacePlanet = function(planetKey) {
+    if (S.planets.length >= 8) return false;
+    if (typeof getAllowedOrbitsForType !== 'function' ||
+        typeof getOrbitR !== 'function') return false;
+    const orbits = getAllowedOrbitsForType(S.starType, planetKey);
+    if (!orbits || orbits.length === 0) return false;
+    const gap = (typeof ORBIT_GEOMETRY !== 'undefined' && ORBIT_GEOMETRY.minGap)
+      ? ORBIT_GEOMETRY.minGap : 25;
+    for (let oi = 0; oi < orbits.length; oi++) {
+      const orbitR = getOrbitR(orbits[oi]);
+      let free = true;
+      for (let pi = 0; pi < S.planets.length; pi++) {
+        if (Math.abs(S.planets[pi].baseOrbitR - orbitR) < gap) {
+          free = false; break;
+        }
+      }
+      if (free) return true;
+    }
+    return false;
+  };
+
+  // Собираем только те цвета, чьи планеты реально разместятся
+  const allColors = ['ice', 'lava', 'stone', 'gas'];
+  const allowedColors = [];
+  const allowedPlanets = [];
+
+  for (let ci = 0; ci < allColors.length; ci++) {
+    const color = allColors[ci];
+    const planetKey = COLOR_TO_PLANET[color];
+    if (canPlacePlanet(planetKey)) {
+      allowedColors.push(color);
+      if (allowedPlanets.indexOf(planetKey) === -1) {
+        allowedPlanets.push(planetKey);
+      }
+    }
+  }
+
+  // Земля — только если все 4 цвета уже доступны + есть орбита под superEarth
+  if (allowedColors.length === 4 && canPlacePlanet('superEarth')) {
+    if (allowedPlanets.indexOf('superEarth') === -1) {
+      allowedPlanets.push('superEarth');
+    }
+  }
+
+  // Fallback: если совсем ничего не разместить (все орбиты заняты),
+  // оставляем пустой список — UI покажет «Система заполнена»,
+  // а игрок не сможет начать сборку.
+  MG.availableColors = allowedColors.slice();
+  MG.allowedPlanets = allowedPlanets;
+
+  // Если разместить нечего — выходим, миниигру не запускаем
+  if (allowedColors.length === 0) {
+    MG.fieldParticles = [];
+    return;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  РАЗМЕЩЕНИЕ ШАРОВ — хаотично по полю
+  // ═══════════════════════════════════════════════════════════════
+  const types = allowedColors;
+  const total = types.length * MG_ASSEMBLE.colorsPerType;
+  const margin = 30;
+  const innerW = (MG.fieldHalfW - margin) * 0.9;
+  const innerH = (MG.fieldHalfH - margin) * 0.9;
+
+  const placed = [];
+  let attempts = 0;
+  const maxAttempts = 500;
+
+  for (let i = 0; i < total; i++) {
+    let x = 0, y = 0, ok = false;
+    while (!ok && attempts < maxAttempts) {
+      attempts++;
+      x = (Math.random() * 2 - 1) * innerW;
+      y = (Math.random() * 2 - 1) * innerH;
+      ok = true;
+      for (let k = 0; k < placed.length; k++) {
+        const dx = x - placed[k].x, dy = y - placed[k].y;
+        if (dx * dx + dy * dy < 55 * 55) { ok = false; break; }
+      }
+    }
+    placed.push({ x: x, y: y });
+    const colorKey = types[Math.floor(i / MG_ASSEMBLE.colorsPerType)];
+    const cc = {}; cc[colorKey] = 1;
+    MG.fieldParticles.push({
+      x: x, y: y, vx: 0, vy: 0,
+      r: MG_ASSEMBLE.baseRadius,
+      colors: [colorKey],
+      colorCounts: cc,
+      mass: 1,
+      fixed: false,
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  ЗАВЕРШЕНИЕ
+// ═══════════════════════════════════════════════════════════════
 function endMinigame(success) {
   const cb = MG.onComplete;
+  const type = MG.type;
   MG.type = null;
   S.activeMinigame = null;
+  // Патч 5.3: помечаем, что миниигра пройдена (для кнопки «Пропустить»)
+  if (type && S.seenMinigame) S.seenMinigame[type + '_shown'] = true;
   if (cb) cb(success);
 }
 
-// ─── Обновление ─────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+//  ОБНОВЛЕНИЕ
+// ═══════════════════════════════════════════════════════════════
 function updateMinigame(dt, time) {
   const cx = window.CANVAS_CX || 0, cy = window.CANVAS_CY || 0;
   const elapsed = (performance.now() - MG.startAt) / 1000;
@@ -265,84 +261,26 @@ function updateMinigame(dt, time) {
     if (s.age > s.life) MG.sparks.splice(i, 1);
   }
 
-  if (MG.type === 'mass')     updateMass(dt, cx, cy);
-  if (MG.type === 'ignite')   updateIgnite(dt, elapsed);
   if (MG.type === 'assemble') updateAssemble(dt, elapsed, cx, cy);
 }
 
-// ─── Мини-игра 1: Вихрь ─────────────────────────────────────────
-function updateMass(dt, cx, cy) {
-  if (MG.dragActive) MG.trail.push({ x: MG.dragX, y: MG.dragY, age: 0 });
-  for (let i = 0; i < MG.particles.length; i++) {
-    const p = MG.particles[i];
-    if (p.captured) {
-      p.orbitAngle += p.orbitSpeed * dt;
-      p.orbitRadius -= p.orbitRadius * MG_VORTEX.orbitDecay * dt;
-      if (p.orbitRadius < MG_VORTEX.minOrbitR) p.orbitRadius = MG_VORTEX.minOrbitR;
-      p.x = Math.cos(p.orbitAngle) * p.orbitRadius;
-      p.y = Math.sin(p.orbitAngle) * p.orbitRadius * 0.85;
-      continue;
-    }
-    if (MG.dragActive) {
-      const tdx = (MG.dragX - cx) - p.x, tdy = (MG.dragY - cy) - p.y;
-      const td = Math.hypot(tdx, tdy) || 1;
-      if (td < MG_VORTEX.fingerRadius) {
-        const f = (1 - td / MG_VORTEX.fingerRadius) * MG_VORTEX.fingerForce;
-        p.vx += (tdx / td) * f * dt;
-        p.vy += (tdy / td) * f * dt;
-      }
-    }
-    const dCenter = Math.hypot(p.x, p.y) || 1;
-    if (dCenter < MG_VORTEX.maxDrift) {
-      const drift = MG_VORTEX.slowDrift * (1 - dCenter / MG_VORTEX.maxDrift);
-      p.vx += (-p.x / dCenter) * drift * dt;
-      p.vy += (-p.y / dCenter) * drift * dt;
-    }
-    p.vx *= 0.94; p.vy *= 0.94;
-    p.x += p.vx * dt; p.y += p.vy * dt;
-    const d = Math.hypot(p.x, p.y);
-    if (d < MG_VORTEX.captureRadius) {
-      p.captured = true;
-      p.orbitAngle = Math.atan2(p.y, p.x);
-      p.orbitRadius = Math.max(MG_VORTEX.minOrbitR, d);
-      const tanSpeed = Math.hypot(p.vx, p.vy);
-      p.orbitSpeed = Math.max(1.5, Math.min(5.0, 1.5 + tanSpeed / 100));
-    }
-    if (d > 400) { p.x = (p.x/d)*400; p.y = (p.y/d)*400; p.vx *= 0.5; p.vy *= 0.5; }
-  }
-  MG.capturedCount = 0;
-  for (let i = 0; i < MG.particles.length; i++) {
-    if (MG.particles[i].captured) MG.capturedCount++;
-  }
-  MG.progress = MG.capturedCount / MG.particles.length;
-  if (MG.progress >= 1) {
-    if (!MG.finishAt) MG.finishAt = performance.now();
-    if (performance.now() - MG.finishAt > 1500) endMinigame(true);
-  }
-}
-
-// ─── Мини-игра 2: Зажигание ─────────────────────────────────────
-function updateIgnite(dt, elapsed) {
-  MG.elapsedSec = elapsed;
-  const decay = MG_IGNITE.baseDecay * (1 + elapsed * MG_IGNITE.decayAccel);
-  MG.power = Math.max(0, MG.power - decay * dt);
-  MG.progress = MG.power;
-  if (elapsed >= MG_IGNITE.duration) {
-    MG.quality = MG.power;
-    endMinigame(true);
-  }
-}
-
 // ═══════════════════════════════════════════════════════════════
-//  ПРАВИЛА СЛИЯНИЯ — строгие tier'ы
-//  mono tier 1 + mono tier 1 (тот же) → mono tier 2 (mass 2)
-//  mono tier 2 + mono tier 2 (тот же) → mono tier 3 (mass 4) FIXED
-//  mono tier 1 + mono tier 1 (разный) → 2-цветный (mass 2)
-//  multi + mono tier 1 (новый цвет)   → multi + 1 (mass +1)
-//  mono tier 1 + mono tier 2 / multi  → отскок
+//  ПРАВИЛА СЛИЯНИЯ
+//  mono tier 1 + mono tier 1 (тот же) → mono tier 2
+//  mono tier 2 + mono tier 2 (тот же) → mono tier 3 → финал (mass=4)
+//  mono 1 + mono 1 (разный)           → 2-цветный (mass 2)
+//  multi + mono 1 (новый цвет)        → multi + 1 (mass +1)
 // ═══════════════════════════════════════════════════════════════
 function updateAssemble(dt, elapsed, cx, cy) {
   MG.elapsedSec = elapsed;
+
+  // ★ Держим MG.grabbed и MG.grabbedIndex синхронными: после слияний
+  // индекс мог сдвинуться, а сам схваченный шар — исчезнуть.
+  if (MG.grabbed) {
+    const gi = MG.fieldParticles.indexOf(MG.grabbed);
+    if (gi < 0) { MG.grabbed = null; MG.grabbedIndex = -1; }
+    else MG.grabbedIndex = gi;
+  }
 
   // Трейл пальца
   if (MG.dragActive && Math.random() < 0.4) {
@@ -350,30 +288,38 @@ function updateAssemble(dt, elapsed, cx, cy) {
       x: MG.dragX - cx, y: MG.dragY - cy,
       vx: (Math.random() - 0.5) * 30,
       vy: (Math.random() - 0.5) * 30,
-      age: 0, life: 0.35,
-      trail: true,
+      age: 0, life: 0.35, trail: true,
     });
   }
 
-  // ─── Тянем ОДИН шар (тот, который взял палец) ───
-  if (MG.dragActive && MG.grabbed && !MG.grabbed.fixed) {
-    const g = MG.grabbed;
-    const fx = MG.dragX - cx, fy = MG.dragY - cy;
-    const tx = fx - (MG.grabDX || 0);
-    const ty = fy - (MG.grabDY || 0);
-    const k = Math.min(1, dt * 18);   // плавно, без телепорта
-    g.x += (tx - g.x) * k;
-    g.y += (ty - g.y) * k;
-    g.vx = 0; g.vy = 0;
+  // Притяжение к пальцу — ТОЛЬКО для «схваченного» шара.
+  // Остальные стоят на месте и отскакивают при столкновениях.
+  if (MG.dragActive && MG.grabbedIndex >= 0 &&
+      MG.grabbedIndex < MG.fieldParticles.length) {
+    const p = MG.fieldParticles[MG.grabbedIndex];
+    if (!p.fixed) {
+      const fx = MG.dragX - cx, fy = MG.dragY - cy;
+      const dx = fx - p.x, dy = fy - p.y;
+      const d = Math.hypot(dx, dy) || 1;
+      if (d < MG_ASSEMBLE.fingerRadius) {
+        const force = (1 - d / MG_ASSEMBLE.fingerRadius) * MG_ASSEMBLE.fingerForce;
+        p.vx += (dx / d) * force * dt;
+        p.vy += (dy / d) * force * dt;
+      }
+    }
   }
 
-  // Движение
+  // Движение — схваченный шар двигается свободно, остальные быстро
+  // гасят скорость (стоят на месте, но отскакивают при столкновениях).
   for (let i = 0; i < MG.fieldParticles.length; i++) {
     const p = MG.fieldParticles[i];
     if (p.fixed) continue;
-    p.vx *= 0.96; p.vy *= 0.96;
+    const isGrabbed = (i === MG.grabbedIndex);
+    const friction = isGrabbed ? 0.96 : 0.85;
+    p.vx *= friction; p.vy *= friction;
+    if (!isGrabbed && Math.abs(p.vx) < 2) p.vx = 0;
+    if (!isGrabbed && Math.abs(p.vy) < 2) p.vy = 0;
     p.x += p.vx * dt; p.y += p.vy * dt;
-
     if (Math.abs(p.x) > MG.fieldHalfW) {
       p.x = Math.sign(p.x) * MG.fieldHalfW; p.vx *= -0.7;
     }
@@ -396,31 +342,28 @@ function updateAssemble(dt, elapsed, cx, cy) {
       const minD = a.r + b.r + MG_ASSEMBLE.mergeDist;
       if (d >= minD) continue;
 
-      // ─── Универсальное правило слияния ───
-      // Сливаются любые два шара, если суммарная масса ≤ 4 и после
-      // объединения получается не больше 4 разных цветов.
-      const uniqueColors = {};
-      for (let ci = 0; ci < a.colors.length; ci++) uniqueColors[a.colors[ci]] = true;
-      for (let ci = 0; ci < b.colors.length; ci++) uniqueColors[b.colors[ci]] = true;
-      const uniqueList = Object.keys(uniqueColors);
+      // Уникальные цвета
+      const totalMass = a.mass + b.mass;
+      const uniqueColors = [];
+      for (let ci = 0; ci < a.colors.length; ci++) {
+        if (uniqueColors.indexOf(a.colors[ci]) === -1) uniqueColors.push(a.colors[ci]);
+      }
+      for (let ci = 0; ci < b.colors.length; ci++) {
+        if (uniqueColors.indexOf(b.colors[ci]) === -1) uniqueColors.push(b.colors[ci]);
+      }
+
+      // Складываем веса
+      const newCounts = {};
+      if (a.colorCounts) for (const k in a.colorCounts) newCounts[k] = (newCounts[k] || 0) + a.colorCounts[k];
+      if (b.colorCounts) for (const k in b.colorCounts) newCounts[k] = (newCounts[k] || 0) + b.colorCounts[k];
 
       let mergeResult = null;
-      if (a.mass + b.mass <= 4 && uniqueList.length <= 4) {
-        // Счётчики цветов складываем покоординатно
-        const counts = {};
-        const ac = a.colorCounts || {};
-        const bc = b.colorCounts || {};
-        for (const key in ac) counts[key] = (counts[key] || 0) + ac[key];
-        for (const key in bc) counts[key] = (counts[key] || 0) + bc[key];
-        mergeResult = {
-          colors: uniqueList,                 // множество цветов
-          colorCounts: counts,
-          mass: a.mass + b.mass,
-        };
+      if (totalMass <= 4 && uniqueColors.length <= 4) {
+        mergeResult = { colors: uniqueColors, mass: totalMass, colorCounts: newCounts };
       }
 
       if (mergeResult) {
-        // ─── Слияние ───
+        // Слияние
         a.x = (a.x + b.x) / 2;
         a.y = (a.y + b.y) / 2;
         a.vx = (a.vx + b.vx) / 2;
@@ -432,8 +375,7 @@ function updateAssemble(dt, elapsed, cx, cy) {
 
         MG.fieldParticles.splice(j, 1);
         j--;
-
-        // Если палец держал исчезнувший шар — переносим захват на выживший
+        // Если «схваченным» был исчезнувший шар — хватаем результат слияния
         if (MG.grabbed === b) MG.grabbed = a;
 
         // Искры
@@ -442,25 +384,21 @@ function updateAssemble(dt, elapsed, cx, cy) {
           const ss = 60 + Math.random() * 120;
           MG.sparks.push({
             x: a.x, y: a.y,
-            vx: Math.cos(sa) * ss,
-            vy: Math.sin(sa) * ss,
+            vx: Math.cos(sa) * ss, vy: Math.sin(sa) * ss,
             age: 0, life: 0.6,
           });
         }
 
-        // ─── Проверка финала ───
-        // ─── Финал: масса 4 → планета по большинству цветов ───
         if (a.mass >= 4) {
           a.fixed = true; a.vx = 0; a.vy = 0;
-          if (MG.grabbed === a) MG.grabbed = null;
           if (!MG.result) {
-            MG.result = determinePlanetFromCounts(a.colorCounts);
-            MG.resultLabel = assemblePlanetLabel(MG.result);
+            MG.result = determinePlanetFromColors(a.colorCounts);
+            MG.resultLabel = PLANET_TYPES[MG.result].name;
             MG.finishAt = performance.now();
           }
         }
       } else {
-        // ─── Отскок ───
+        // Отскок
         if (d > 0.001) {
           const nx = dx / d, ny = dy / d;
           const overlap = minD - d;
@@ -483,13 +421,38 @@ function updateAssemble(dt, elapsed, cx, cy) {
 
 function finishAssemble() {
   if (!MG.result) {
-    // Ничего не собрано за 30 секунд — мини-игра закрывается без планеты,
-    // пыль возвращается, снова появляется кнопка «Эволюция».
-    endMinigame(false);
-    return;
+    MG.result = 'superEarth';
+    MG.quality = 0.5;
+  } else {
+    MG.quality = 1.0;
   }
-  MG.quality = 1.0;
   endMinigame(true);
+}
+
+// Определение планеты по набору цветов
+const _COLOR_TO_PLANET = {
+  ice:   'iceGiant',
+  lava:  'lava',
+  stone: 'rocky',
+  gas:   'gasGiant',
+};
+
+// colorCounts — объект { lava: 2, ice: 1, gas: 1 }
+function determinePlanetFromColors(colorCounts) {
+  if (!colorCounts) return 'superEarth';
+  const keys = Object.keys(colorCounts);
+  if (keys.length === 0) return 'superEarth';
+  if (keys.length >= 4) return 'superEarth';   // 4 разных → Земля
+  if (keys.length === 1) {
+    return _COLOR_TO_PLANET[keys[0]] || 'rocky';
+  }
+  // 2–3 цвета → по большинству (при равенстве — первый по порядку)
+  let bestKey = keys[0], bestCount = -1;
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    if (colorCounts[k] > bestCount) { bestCount = colorCounts[k]; bestKey = k; }
+  }
+  return _COLOR_TO_PLANET[bestKey] || 'rocky';
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -504,187 +467,104 @@ function drawMinigame(ctx, time) {
   ctx.fillRect(0, 0, window.CANVAS_W, window.CANVAS_H);
   ctx.restore();
 
-  if (MG.type === 'mass')     drawMass(ctx, cx, cy, t);
-  if (MG.type === 'ignite')   drawIgnite(ctx, cx, cy, t);
   if (MG.type === 'assemble') drawAssemble(ctx, cx, cy, t);
 
-  ctx.save();
-  ctx.textAlign = 'right';
-  ctx.font = '11px -apple-system, sans-serif';
-  ctx.fillStyle = 'rgba(139, 127, 212, 0.7)';
-  ctx.fillText('Пропустить ▸', window.CANVAS_W - 16, 32);
-  ctx.restore();
-}
-
-function drawMass(ctx, cx, cy, t) {
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 16px -apple-system, sans-serif';
-  ctx.fillStyle = '#e8e2ff';
-  ctx.fillText('Создай вихрь', cx, cy - 230);
-  ctx.font = '13px -apple-system, sans-serif';
-  ctx.fillStyle = MG.progress >= 1 ? '#ffb347' : '#a89ce0';
-  ctx.fillText(MG.progress >= 1 ? '★ ГОТОВО' : 'Раскрути пыль вокруг центра',
-               cx, cy - 208);
-  ctx.restore();
-
-  ctx.save();
-  ctx.strokeStyle = 'rgba(160, 130, 240, ' + (0.2 + MG.progress * 0.4) + ')';
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([6, 8]);
-  ctx.beginPath();
-  ctx.arc(cx, cy, MG_VORTEX.captureRadius, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.restore();
-
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-  for (let i = 0; i < MG.particles.length; i++) {
-    const p = MG.particles[i];
-    const sx = cx + p.x, sy = cy + p.y;
-    const boost = p.captured ? 1.5 : 1.0;
-    const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, p.r * 4 * boost);
-    g.addColorStop(0, 'hsla(' + p.hue + ', 90%, 85%, 1)');
-    g.addColorStop(0.5, 'hsla(' + p.hue + ', 80%, 65%, 0.5)');
-    g.addColorStop(1, 'hsla(' + p.hue + ', 70%, 50%, 0)');
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(sx, sy, p.r * 4 * boost, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.restore();
-
-  if (MG.trail.length > 1) {
+  // Патч 5.2: «Пропустить ▸» — только если игрок уже проходил эту миниигру
+  if (S.seenMinigame && S.seenMinigame[MG.type + '_shown']) {
     ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    for (let i = 1; i < MG.trail.length; i++) {
-      const a = MG.trail[i - 1], b = MG.trail[i];
-      const alpha = Math.max(0, 1 - b.age / 0.7);
-      ctx.strokeStyle = 'rgba(200, 180, 255, ' + (alpha * 0.8) + ')';
-      ctx.lineWidth = 3 * alpha + 1;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.stroke();
-    }
+    ctx.textAlign = 'right';
+    ctx.font = '11px -apple-system, sans-serif';
+    ctx.fillStyle = 'rgba(139, 127, 212, 0.7)';
+    ctx.fillText('Пропустить ▸', window.CANVAS_W - 16, 32);
     ctx.restore();
   }
-
-  const coreBase = 18 + MG.progress * 26;
-  const corePulse = 1 + 0.08 * Math.sin(t * 3);
-  const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreBase * corePulse * 3);
-  cg.addColorStop(0, 'rgba(255,240,200,' + (0.6 + MG.progress * 0.4) + ')');
-  cg.addColorStop(0.4, 'rgba(255,180,80,' + (0.25 + MG.progress * 0.35) + ')');
-  cg.addColorStop(1, 'rgba(255,100,40,0)');
-  ctx.fillStyle = cg;
-  ctx.beginPath();
-  ctx.arc(cx, cy, coreBase * corePulse * 3, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = 'rgba(255,250,220,' + (0.85 + MG.progress * 0.15) + ')';
-  ctx.beginPath();
-  ctx.arc(cx, cy, 6 + MG.progress * 8, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.font = '11px -apple-system, sans-serif';
-  ctx.fillStyle = '#8b7fd4';
-  ctx.fillText(MG.capturedCount + ' / ' + MG.particles.length + ' частиц',
-               cx, cy + 220);
-  ctx.restore();
-}
-
-function drawIgnite(ctx, cx, cy, t) {
-  const left = Math.max(0, MG_IGNITE.duration - (MG.elapsedSec || 0));
-  let tier = 'G', tierColor = '#ffcc55';
-  if (MG.power >= 0.90) { tier = 'M'; tierColor = '#ff3030'; }
-  else if (MG.power >= 0.70) { tier = 'B'; tierColor = '#5577ff'; }
-  else if (MG.power >= 0.45) { tier = 'K'; tierColor = '#ff9944'; }
-  else if (MG.power >= 0.25) { tier = 'A'; tierColor = '#ccccff'; }
-
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 16px -apple-system, sans-serif';
-  ctx.fillStyle = '#e8e2ff';
-  ctx.fillText('Зажги синтез', cx, cy - 230);
-  ctx.font = '13px -apple-system, sans-serif';
-  ctx.fillStyle = '#a89ce0';
-  ctx.fillText('Держи топливо ' + MG_IGNITE.duration + ' секунд', cx, cy - 208);
-  ctx.restore();
-
-  const pulse = 1 + MG.power * 0.5;
-  const coreR = (15 + MG.power * 30) * pulse;
-  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 4);
-  g.addColorStop(0, 'rgba(255,240,200,' + (0.3 + MG.power * 0.7) + ')');
-  g.addColorStop(0.3, 'rgba(255,180,80,' + (0.2 + MG.power * 0.4) + ')');
-  g.addColorStop(1, 'rgba(255,100,40,0)');
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.arc(cx, cy, coreR * 4, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = 'rgba(255,250,220,' + (0.6 + MG.power * 0.4) + ')';
-  ctx.beginPath();
-  ctx.arc(cx, cy, coreR * 0.4, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.save();
-  ctx.strokeStyle = 'rgba(60,30,20,0.7)';
-  ctx.lineWidth = 12;
-  ctx.beginPath();
-  ctx.arc(cx, cy, 110, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.strokeStyle = tierColor;
-  ctx.lineWidth = 8;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.arc(cx, cy, 110, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * MG.power);
-  ctx.stroke();
-  ctx.restore();
-
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 28px -apple-system, sans-serif';
-  ctx.fillStyle = tierColor;
-  ctx.shadowColor = tierColor;
-  ctx.shadowBlur = 20;
-  ctx.fillText(tier, cx, cy - 130);
-  ctx.shadowBlur = 0;
-  ctx.font = '10px -apple-system, sans-serif';
-  ctx.fillStyle = '#a89ce0';
-  ctx.fillText('прогноз звезды', cx, cy - 108);
-  ctx.font = 'bold 20px -apple-system, sans-serif';
-  ctx.fillStyle = left < 5 ? '#ff5555' : '#fff';
-  ctx.fillText(left.toFixed(1) + 'с', cx, cy + 170);
-  ctx.restore();
 }
 
 function drawAssemble(ctx, cx, cy, t) {
   const left = Math.max(0, MG_ASSEMBLE.duration - (MG.elapsedSec || 0));
 
-  // ─── Таймер сборки (виден всё время) ───
-  const isRush = left <= 5;
-
   ctx.save();
   ctx.textAlign = 'center';
-  ctx.font = 'bold 15px -apple-system, sans-serif';
-  ctx.fillStyle = isRush ? '#ff5555' : '#ffb347';
-  ctx.fillText('⏱ ' + left.toFixed(1) + ' с', cx, cy - MG.fieldHalfH - 54);
-
   ctx.font = 'bold 16px -apple-system, sans-serif';
   ctx.fillStyle = '#e8e2ff';
-  ctx.fillText('Собери планету', cx, cy - MG.fieldHalfH - 32);
+  ctx.fillText('Собери планету', cx, cy - MG.fieldHalfH - 60);
 
+  // ─── Список доступных планет с цветными маркерами ───
+  const COLOR_LABEL = {
+    ice:   { color: '#3b9eff', name: 'Лёд'   },
+    lava:  { color: '#ff2d2d', name: 'Лава'  },
+    stone: { color: '#00e639', name: 'Камень'},
+    gas:   { color: '#ffd633', name: 'Газ'   },
+  };
+  const PLANET_LABEL = {
+    iceGiant:   'Ледяной гигант',
+    lava:       'Лава-планета',
+    rocky:      'Каменная',
+    gasGiant:   'Газовый гигант',
+    superEarth: 'Земля',
+  };
+
+  const allowedColors = (MG.availableColors && MG.availableColors.length)
+    ? MG.availableColors : ['ice', 'lava', 'stone', 'gas'];
+  const allowedPlanets = MG.allowedPlanets || [];
+
+  // Отрисовка: строка с "Можно собрать:" и перечень
+  const hintY = cy - MG.fieldHalfH - 38;
   ctx.font = 'bold 11px -apple-system, sans-serif';
-  ctx.fillStyle = '#7ec8e3';
-  ctx.fillText('Собирай до массы 4 · большинство решает', cx, cy - MG.fieldHalfH - 16);
+  ctx.fillStyle = '#a89ce0';
+  ctx.fillText('Можно собрать:', cx, hintY);
 
-  ctx.font = '11px -apple-system, sans-serif';
-  ctx.fillStyle = '#8b7fd4';
-  ctx.fillText('4 разных → Земля · 4 одинаковых → моно', cx, cy - MG.fieldHalfH - 2);
+  // ─── Одна строка со всеми комбинациями ───
+  const items = [];
+  for (let pi = 0; pi < allowedPlanets.length; pi++) {
+    const planetKey = allowedPlanets[pi];
+    if (planetKey === 'superEarth') continue;   // отдельной строкой ниже
+    const planetName = PLANET_LABEL[planetKey] || planetKey;
+    // Найти цвет этой планеты
+    let color = '#b9a8ff';
+    const reverse = { iceGiant:'ice', lava:'lava', rocky:'stone', gasGiant:'gas' };
+    for (let ck in COLOR_LABEL) {
+      // PLANET_TO_COLOR обратный маппинг
+      if (reverse[planetKey] === ck) color = COLOR_LABEL[ck].color;
+    }
+    items.push({ color: color, text: '×4 ' + planetName });
+  }
 
-  // Прогресс
+  if (items.length > 0) {
+    const lineY = hintY + 20;
+    const totalTextW = items.reduce(function(acc, it) {
+      return acc + 10 + ctx.measureText(it.text).width + 14;
+    }, 0);
+    let cursorX = cx - totalTextW / 2;
+
+    for (let ii = 0; ii < items.length; ii++) {
+      const it = items[ii];
+      // Цветной кружок
+      ctx.beginPath();
+      ctx.fillStyle = it.color;
+      ctx.arc(cursorX + 5, lineY - 3, 4, 0, Math.PI * 2);
+      ctx.fill();
+      cursorX += 12;
+
+      // Текст
+      ctx.font = 'bold 11px -apple-system, sans-serif';
+      ctx.fillStyle = '#e8e2ff';
+      ctx.textAlign = 'left';
+      ctx.fillText(it.text, cursorX, lineY);
+      cursorX += ctx.measureText(it.text).width + 14;
+    }
+    ctx.textAlign = 'center';
+  }
+
+  // ─── Земля отдельной строкой ───
+  if (allowedPlanets.indexOf('superEarth') !== -1) {
+    const eqY = hintY + 40;
+    ctx.font = 'bold 11px -apple-system, sans-serif';
+    ctx.fillStyle = '#5ee0a0';
+    ctx.fillText('🌈 Земля · 4 разных цвета', cx, eqY);
+  }
+
+  // Прогресс-бар
   const barW = 260, barH = 6;
   const bx = cx - barW / 2, by = cy + MG.fieldHalfH + 20;
   ctx.save();
@@ -700,9 +580,8 @@ function drawAssemble(ctx, cx, cy, t) {
     ctx.font = 'bold 13px -apple-system, sans-serif';
     ctx.fillText('★ ' + pt.name, cx, by + 22);
   } else {
-    ctx.fillStyle = isRush ? '#ff8a8a' : '#8b7fd4';
-    ctx.fillText('Осталось ' + left.toFixed(1) + ' с · иначе сборка сорвётся',
-                 cx, by + 22);
+    ctx.fillStyle = '#8b7fd4';
+    ctx.fillText(left.toFixed(1) + 'с · суперземля по умолчанию', cx, by + 22);
   }
   ctx.restore();
 
@@ -733,7 +612,7 @@ function drawAssemble(ctx, cx, cy, t) {
   }
   ctx.restore();
 
-  // Частицы
+  // Шары
   for (let i = 0; i < MG.fieldParticles.length; i++) {
     drawAssembleParticle(ctx, MG.fieldParticles[i], cx, cy, t, i);
   }
@@ -781,7 +660,6 @@ function drawAssembleParticle(ctx, p, cx, cy, t, idx) {
 
   // Тело
   if (colorCount === 1) {
-    // Одноцветный — градиент
     const color = ASSEMBLE_TYPES[p.colors[0]].color;
     const g = ctx.createRadialGradient(sx - p.r * 0.3, sy - p.r * 0.3, 0, sx, sy, p.r);
     g.addColorStop(0, lightenHex(color, 0.35));
@@ -791,23 +669,54 @@ function drawAssembleParticle(ctx, p, cx, cy, t, idx) {
     ctx.arc(sx, sy, p.r, 0, Math.PI * 2);
     ctx.fill();
   } else {
-    // Многоцветный — сектора равной доли
+    // Базовый цвет — первый в списке, смешивается с белым
+    const baseColor = ASSEMBLE_TYPES[p.colors[0]].color;
+    const g0 = ctx.createRadialGradient(sx - p.r * 0.3, sy - p.r * 0.3, 0, sx, sy, p.r);
+    g0.addColorStop(0, lightenHex(baseColor, 0.35));
+    g0.addColorStop(1, darkenHex(baseColor, 0.3));
+    ctx.fillStyle = g0;
+    ctx.beginPath();
+    ctx.arc(sx, sy, p.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Второй и последующие цвета — «пятнами» внутри круга
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(sx, sy, p.r, 0, Math.PI * 2);
+    ctx.clip();
+
+    // Псевдослучайный seed по позиции, чтобы пятна не мигали
+    const seed = (p.x * 13.7 + p.y * 41.3);
     const n = colorCount;
-    for (let k = 0; k < n; k++) {
-      const a0 = (k / n) * Math.PI * 2 - Math.PI / 2;
-      const a1 = ((k + 1) / n) * Math.PI * 2 - Math.PI / 2;
-      ctx.fillStyle = ASSEMBLE_TYPES[p.colors[k]].color;
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.arc(sx, sy, p.r, a0, a1);
-      ctx.closePath();
-      ctx.fill();
+    for (let k = 1; k < n; k++) {
+      const col = ASSEMBLE_TYPES[p.colors[k]].color;
+      // 3 пятна на каждый дополнительный цвет
+      for (let s = 0; s < 3; s++) {
+        const h1 = Math.abs(Math.sin(seed + k * 7.3 + s * 31.7));
+        const h2 = Math.abs(Math.sin(seed + k * 11.1 + s * 17.3));
+        const h3 = Math.abs(Math.sin(seed + k * 5.9 + s * 47.1));
+        const ang = h1 * Math.PI * 2;
+        const dist = h2 * p.r * 0.7;
+        const rr = p.r * (0.35 + h3 * 0.35);
+        const cx0 = sx + Math.cos(ang) * dist;
+        const cy0 = sy + Math.sin(ang) * dist;
+        const gk = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, rr);
+        gk.addColorStop(0, col);
+        gk.addColorStop(0.6, col);
+        gk.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = gk;
+        ctx.beginPath();
+        ctx.arc(cx0, cy0, rr, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
-    const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, p.r);
-    g.addColorStop(0, 'rgba(255,255,255,0.15)');
-    g.addColorStop(0.7, 'rgba(0,0,0,0.05)');
-    g.addColorStop(1, 'rgba(0,0,0,0.3)');
-    ctx.fillStyle = g;
+    ctx.restore();
+
+    // Затемнение по краям (объём)
+    const gv = ctx.createRadialGradient(sx, sy, p.r * 0.4, sx, sy, p.r);
+    gv.addColorStop(0, 'rgba(255,255,255,0.10)');
+    gv.addColorStop(1, 'rgba(0,0,0,0.30)');
+    ctx.fillStyle = gv;
     ctx.beginPath();
     ctx.arc(sx, sy, p.r, 0, Math.PI * 2);
     ctx.fill();
@@ -820,7 +729,7 @@ function drawAssembleParticle(ctx, p, cx, cy, t, idx) {
   ctx.arc(sx, sy, p.r, 0, Math.PI * 2);
   ctx.stroke();
 
-  // ★ Только для финальных
+  // Звезда для финального
   if (p.fixed) {
     ctx.save();
     ctx.fillStyle = '#fff';
@@ -833,18 +742,15 @@ function drawAssembleParticle(ctx, p, cx, cy, t, idx) {
     ctx.restore();
   }
 
-  // ─── Подпись ───
+  // Подпись
   let label = null;
   let labelColor = '#e8e2ff';
-
   if (colorCount === 1) {
-    // Одноцветный
     label = ASSEMBLE_TYPES[p.colors[0]].name;
   } else if (colorCount >= 4) {
     label = 'Земля';
     labelColor = '#5ee0a0';
   } else {
-    // Многоцветный 2–3 цвета: имя первого + кол-во цветов
     label = colorCount + ' цвета: ' + ASSEMBLE_TYPES[p.colors[0]].name + '...';
   }
 
@@ -886,51 +792,54 @@ function darkenHex(hex, amt) {
 // ─── Ввод ───────────────────────────────────────────────────────
 function mgPointerDown(x, y) {
   if (!MG.type) return;
+  // Кнопка «Пропустить» (только для assemble, после первого прохождения)
   if (y < 50 && x > (window.CANVAS_W || 400) - 120) {
-    endMinigame(false); return;
+    if (S.seenMinigame && S.seenMinigame[MG.type + '_shown']) {
+      endMinigame(false);
+    }
+    return;
   }
   if (MG.type === 'assemble') {
-    // Берём ровно ОДИН ближайший шар — двигать можно только его
+    MG.dragActive = true;
+    MG.dragX = x;
+    MG.dragY = y;
+
+    // ★ Найти ближайший шар в радиусе пальца и «схватить» его.
+    // Тянется только он один, остальные стоят.
     const cx = window.CANVAS_CX || 0, cy = window.CANVAS_CY || 0;
-    const wx = x - cx, wy = y - cy;
-    let best = null, bestD = Infinity;
+    const fx = x - cx, fy = y - cy;
+    let bestIdx = -1;
+    let bestD2 = MG_ASSEMBLE.fingerRadius * MG_ASSEMBLE.fingerRadius;
     for (let i = 0; i < MG.fieldParticles.length; i++) {
       const p = MG.fieldParticles[i];
       if (p.fixed) continue;
-      const d = Math.hypot(p.x - wx, p.y - wy);
-      if (d < p.r + 26 && d < bestD) { best = p; bestD = d; }
+      const dx = p.x - fx, dy = p.y - fy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        bestIdx = i;
+      }
     }
-    MG.grabbed = best;
-    if (best) {
-      MG.grabDX = wx - best.x;
-      MG.grabDY = wy - best.y;
-      MG.dragActive = true;
-      MG.dragX = x; MG.dragY = y;
-    } else {
-      MG.dragActive = false;
-    }
-  } else if (MG.type === 'mass') {
-    MG.dragActive = true; MG.dragX = x; MG.dragY = y;
-  } else if (MG.type === 'ignite') {
-    const cx = window.CANVAS_CX || 0, cy = window.CANVAS_CY || 0;
-    if (Math.hypot(x - cx, y - cy) < MG_IGNITE.tapRadius) {
-      MG.power = Math.min(1, MG.power + MG_IGNITE.tapBoost);
-    }
+    MG.grabbedIndex = bestIdx;
+    MG.grabbed = bestIdx >= 0 ? MG.fieldParticles[bestIdx] : null;
   }
 }
 
 function mgPointerMove(x, y) {
   if (!MG.type) return;
-  if (MG.type === 'mass' || MG.type === 'assemble') {
-    MG.dragX = x; MG.dragY = y;
+  if (MG.type === 'assemble') {
+    MG.dragX = x;
+    MG.dragY = y;
   }
 }
 
 function mgPointerUp() {
   MG.dragActive = false;
+  MG.grabbedIndex = -1;
   MG.grabbed = null;
 }
 
+// ─── Экспорт ────────────────────────────────────────────────────
 window.startMinigame = startMinigame;
 window.updateMinigame = updateMinigame;
 window.drawMinigame = drawMinigame;

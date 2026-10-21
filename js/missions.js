@@ -16,12 +16,26 @@ function cometCost() {
   for (let i = 0; i < S.planets.length; i++) {
     if (S.planets[i].type === 'iceGiant' && !S.planets[i].forming) ice++;
   }
-  return Math.floor(500000 / Math.max(1, ice));
+  if (ice === 0) return 0;
+
+  // ★ Цена = 10 минут текущего дохода (минимум 500K).
+  // Растёт с числом ледяных гигантов.
+  const baseCost = Math.max(500000, dustPerSec() * 600);
+  const iceMult = 1 + ice * 0.3;
+  return Math.floor(baseCost * iceMult);
 }
 
 function expeditionEnergyCost() {
   const cfg = MISSIONS_CFG;
-  return Math.floor(cfg.expeditionCostBase * Math.pow(cfg.expeditionCostRatio, S.systems - 1));
+  let lifeCount = 0;
+  for (let i = 0; i < S.planets.length; i++) {
+    if (PLANET_TYPES[S.planets[i].type].civ && !S.planets[i].forming) lifeCount++;
+  }
+  // ★ Цена = 5 минут текущего дохода энергии (минимум 3000).
+  const baseCost = Math.max(cfg.expeditionCostBase, energyPerSec() * 300);
+  const lifeMult = 1 + lifeCount * 0.4;
+  const systemMult = Math.pow(cfg.expeditionCostRatio, S.systems - 1);
+  return Math.floor(baseCost * lifeMult * systemMult);
 }
 
 function colonyEnergyCost() {
@@ -153,6 +167,11 @@ function launchComet(sizePct) {
   toast('☄️ Комета запущена',
     'Размер: ' + Math.round(sizePct * 100) + '% · возврат через ' +
     fmtTime(flightMs / 1000));
+  if (typeof addEvent === 'function') {
+    addEvent('comet_spawn',
+      'Запущена комета (' + Math.round(sizePct * 100) + '%) · возврат через ' +
+      fmtTime(flightMs / 1000));
+  }
   return true;
 }
 
@@ -233,9 +252,13 @@ function launchExpedition() {
     reward: reward, fail: Math.random() < cfg.expeditionFailChance,
     hasColony: Math.random() < cfg.colonyChance,
   });
-  toast('🚀 Экспедиция запущена',
+    toast('🚀 Экспедиция запущена',
     'Возврат через ' + fmtTime(flightMs / 1000) +
     ' · цена ' + fmt(check.cost) + '⚡');
+  if (typeof addEvent === 'function') {
+    addEvent('comet_spawn',
+      'Запущена экспедиция · возврат через ' + fmtTime(flightMs / 1000));
+  }
   return true;
 }
 
@@ -298,10 +321,13 @@ function updateMissions() {
   for (let i = MISS.comets.length - 1; i >= 0; i--) {
     const c = MISS.comets[i];
     if (now - c.startAt >= c.flightTime) {
-      if (c.fail) toast('☄️ Комета потеряна', 'Не вернулась');
-      else {
+      if (c.fail) {
+        toast('☄️ Комета потеряна', 'Не вернулась');
+        if (typeof addEvent === 'function') addEvent('comet_lost', 'Комета потеряна в пути');
+      } else {
         S.dust += c.reward; S.dustTotal += c.reward;
         toast('☄️ Комета вернулась', '+' + fmt(c.reward));
+        if (typeof addEvent === 'function') addEvent('comet_arrive', 'Комета вернулась · +' + fmt(c.reward) + ' ✦');
       }
       MISS.comets.splice(i, 1);
     }
@@ -309,14 +335,49 @@ function updateMissions() {
   for (let i = MISS.expeditions.length - 1; i >= 0; i--) {
     const e = MISS.expeditions[i];
     if (now - e.startAt >= e.flightTime) {
-      if (e.fail) toast('🚀 Экспедиция потеряна', 'Корабль не вернулся');
-      else {
+      if (e.fail) {
+        toast('🚀 Экспедиция потеряна', 'Корабль не вернулся');
+        if (typeof addEvent === 'function') addEvent('comet_lost', 'Экспедиция потеряна');
+      } else {
         S.dust += e.reward; S.dustTotal += e.reward;
         toast('🚀 Экспедиция вернулась', '+' + fmt(e.reward));
+        if (typeof addEvent === 'function') addEvent('comet_arrive', 'Экспедиция вернулась · +' + fmt(e.reward) + ' ✦');
         if (e.hasColony) setTimeout(offerColony, 800);
       }
       MISS.expeditions.splice(i, 1);
     }
+  }
+}
+
+// ─── Единый диалог миссий ───────────────────────────────────────
+function openMissionDialog() {
+  const cometCheck = canLaunchComet();
+  const expCheck = canLaunchExpedition();
+  if (!cometCheck.ok && !expCheck.ok) {
+    toast('Миссии недоступны', cometCheck.reason || expCheck.reason || '');
+    return;
+  }
+  const choices = [
+    {
+      id: 'comet', name: 'Комета',
+      desc: 'Выбери размер и запусти комету',
+      stats: cometCheck.ok ? 'Стоимость от ' + fmt(cometCheck.cost) + ' ✦'
+                           : (cometCheck.reason || 'Недоступна'),
+      color: '#3d6dd4', icon: '☄️', disabled: !cometCheck.ok,
+    },
+    {
+      id: 'exp', name: 'Экспедиция',
+      desc: 'Отправь корабль к другой звезде',
+      stats: expCheck.ok ? 'Стоимость ' + fmt(expCheck.cost) + ' ⚡'
+                         : (expCheck.reason || 'Недоступна'),
+      color: '#2f9e6e', icon: '🚀', disabled: !expCheck.ok,
+    },
+  ];
+  if (typeof setModal === 'function') {
+    setModal(buildModal('Миссии', 'Выбери миссию', choices), {
+      comet: function() { openCometDialog(); },
+      exp: function() { launchExpedition(); closeEvolutionModal(); },
+    });
   }
 }
 
@@ -328,35 +389,39 @@ function renderMissionButtons() {
   const expCheck = canLaunchExpedition();
   let html = '';
 
-  if (cometCheck.ok) {
-    html += '<button class="mission-btn comet" data-action="comet">' +
-      '<div class="mb-icon">☄️</div><div>Комета</div>' +
-      '<div class="mb-cost">' + fmt(cometCheck.cost) + ' ✦</div></button>';
-  } else if (cometCheck.reason !== 'Нужен ледяной гигант') {
-    html += '<button class="mission-btn disabled" disabled>' +
-      '<div class="mb-icon">☄️</div><div>Комета</div>' +
-      '<div class="mb-cost">' + cometCheck.reason + '</div></button>';
-  }
+  // ★ Единая кнопка миссий
+  const hasComet = cometCheck.ok;
+  const hasExp = expCheck.ok;
 
-  if (expCheck.ok) {
-    html += '<button class="mission-btn exp" data-action="exp">' +
-      '<div class="mb-icon">🚀</div><div>Экспедиция</div>' +
-      '<div class="mb-cost">' + fmt(expCheck.cost) + ' ⚡</div></button>';
-  } else if (expCheck.reason !== 'Нужен цив. 6' &&
-             expCheck.reason !== 'Нужна планета с жизнью') {
+  if (hasComet || hasExp) {
+    html += '<button class="mission-btn missions" data-action="missions">' +
+      '<div class="mb-icon">🚀</div><div>Миссии</div>' +
+      '<div class="mb-cost">Доступны</div></button>';
+  } else {
+    let reason = 'Нет доступных';
+    // Показываем причину, если она не связана с отсутствием планет
+    if (!hasComet && !hasExp) reason = 'Нет планет';
+    else if (!hasComet) reason = cometCheck.reason;
+    else if (!hasExp) reason = expCheck.reason;
+
     html += '<button class="mission-btn disabled" disabled>' +
-      '<div class="mb-icon">🚀</div><div>Экспедиция</div>' +
-      '<div class="mb-cost">' + expCheck.reason + '</div></button>';
+      '<div class="mb-icon">🚀</div><div>Миссии</div>' +
+      '<div class="mb-cost">' + reason + '</div></button>';
   }
 
   // ─── Магазин систем (фаза «Галактика») ───
   if (S.stage === 'galaxy' && typeof systemShopCosts === 'function') {
     const shopCosts = systemShopCosts();
     const canBuy = S.dust >= shopCosts.dust;
-    html += '<button class="mission-btn sys" data-action="sys">' +
-      '<div class="mb-icon">🌌</div><div>Новая система</div>' +
-      '<div class="mb-cost">' + fmt(shopCosts.dust) + ' ✦' + (canBuy ? ' ✓' : '') +
-      '</div></button>';
+    if (canBuy) {
+      html += '<button class="mission-btn sys" data-action="sys">' +
+        '<div class="mb-icon">🌌</div><div>Новая система</div>' +
+        '<div class="mb-cost">' + fmt(shopCosts.dust) + ' ✦ ✓</div></button>';
+    } else {
+      html += '<button class="mission-btn disabled" disabled>' +
+        '<div class="mb-icon">🌌</div><div>Новая система</div>' +
+        '<div class="mb-cost">' + fmt(shopCosts.dust) + ' ✦</div></button>';
+    }
   }
 
   if (container.dataset.key !== html) {
@@ -376,8 +441,7 @@ function renderMissionButtons() {
       const btn = e.target.closest('.mission-btn');
       if (!btn || btn.disabled) return;
       const action = btn.dataset.action;
-      if (action === 'comet') openCometDialog();
-      else if (action === 'exp') launchExpedition();
+      if (action === 'missions') openMissionDialog();
       else if (action === 'sys' && typeof openSystemShop === 'function') openSystemShop();
     });
   }
@@ -392,6 +456,7 @@ window.canLaunchComet = canLaunchComet;
 window.canLaunchExpedition = canLaunchExpedition;
 window.launchComet = launchComet;
 window.openCometDialog = openCometDialog;
+window.openMissionDialog = openMissionDialog;
 window.launchExpedition = launchExpedition;
 window.offerColony = offerColony;
 window.cometCost = cometCost;

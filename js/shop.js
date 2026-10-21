@@ -10,11 +10,8 @@
 // ─── Стоимость трёх шкал ────────────────────────────────────────
 function systemShopCosts() {
   const cfg = SYSTEM_SHOP_CFG || {};
-  const dustSeconds = cfg.dustSeconds || 1800;
-  const dust = Math.max(
-    Math.floor(CFG.systemCostMin || 0),
-    Math.floor(Math.max(dustPerSec(), 1) * dustSeconds)
-  );
+  const systemsOwned = Math.max(0, (S.systems || 1) - 1);
+  const dust = systemCost(systemsOwned);
   return {
     dust: dust,
     energy: Math.max(1000, Math.floor(getResourceCap('energy') * (cfg.energyCapShare || 0.5))),
@@ -103,7 +100,7 @@ function systemShopAddPlanet(sys) {
     sys.planets.push({
       type: type,
       angle: Math.random() * Math.PI * 2,
-      speed: 0.15 / Math.sqrt(orbitR / 90),
+      speed: 0.2 / Math.pow(orbitR / 90, 1.5),
       baseOrbitR: orbitR, orbitR: orbitR,
       driftPhase: Math.random() * Math.PI * 2,
       rotation: Math.random() * Math.PI * 2,
@@ -181,16 +178,38 @@ function createSystemFromShop() {
     (outcome.incomeBonus > 0 ? ' · доход +' + Math.round(outcome.incomeBonus * 100) + '%' : ''));
 
   // Автопереход на новую систему
-  if (typeof switchToSystem === 'function') switchToSystem(newIdx);
-
-  if (typeof closeEvolutionModal === 'function') closeEvolutionModal();
+    if (typeof switchToSystem === 'function') switchToSystem(newIdx);
+  
+  // ★ Принудительное закрытие модалки через DOM
+  document.getElementById('modal').classList.remove('show');
+  
   saveGame();
   updateUI();
   updateSystemSwitcher();
   return true;
 }
 
-// ─── Модалка магазина ───────────────────────────────────────────
+function cancelSystemCreation() {
+  if (!S.systemShopProgress) {
+    document.getElementById('modal').classList.remove('show');
+    return;
+  }
+  const p = S.systemShopProgress;
+  if (p.dust > 0)   { S.dust     += p.dust;   }
+  if (p.energy > 0) { S.energy   += p.energy; }
+  if (p.civ > 0)    { S.civLevel += p.civ;    }
+  S.systemShopProgress = { dust: 0, energy: 0, civ: 0 };
+  saveGame();
+  updateUI();
+  
+  // ★ Принудительное закрытие модалки через DOM (не зависит от evolution.js)
+  document.getElementById('modal').classList.remove('show');
+  
+  toast('Создание отменено', 'Ресурсы возвращены');
+}
+window.cancelSystemCreation = cancelSystemCreation;
+
+// ─── Модалка магазина ────────────────────────────────────────
 function openSystemShop() {
   const card = document.getElementById('modalCard');
   if (!card) return;
@@ -251,6 +270,9 @@ function openSystemShop() {
         Заполни шкалу пыли, чтобы создать систему
       </div>
     `}
+    <button class="pour-btn" style="width:100%;margin-top:10px;background:rgba(255,94,94,0.2);
+      border-color:rgba(255,94,94,0.5);color:#ff8a8a;"
+      onclick="cancelSystemCreation()">✕ Отмена и вернуть ресурсы</button>
   `;
 
   document.getElementById('modal').classList.add('show');

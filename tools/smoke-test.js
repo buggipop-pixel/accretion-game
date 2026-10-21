@@ -359,14 +359,34 @@ step('ассембл: цвета со свободных орбит, шары х
          ' | разных X: ' + uniqueXs + ', Y: ' + uniqueYs +
          ((even && uniqueXs > 6 && uniqueYs > 3) ? ' ✓ хаотично' : ' ✗');
 });
-step('ассембл: занятая орбита убирает свой цвет', () => {
+step('ассембл: занятые орбиты убирают свои цвета', () => {
+  // G: лава только на орбите 0, superEarth на 3–4. Гасим и то, и другое,
+  // чтобы правило «superEarth ⇒ все 4 цвета» не возвращало лаву.
   S.starType = 'G'; S.planets = [];
-  S.planets.push({ type: 'lava', baseOrbitR: sandbox.getOrbitR(0), orbitR: sandbox.getOrbitR(0), forming: false });
+  [0, 3, 4].forEach(i => S.planets.push({
+    type: 'rocky', baseOrbitR: sandbox.getOrbitR(i), orbitR: sandbox.getOrbitR(i), forming: false,
+  }));
   sandbox.startMinigame('assemble', () => {});
   const avail = sandbox.MG.availableColors.join(',');
   const noLava = sandbox.MG.availableColors.indexOf('lava') === -1;
+  const noEarth = sandbox.MG.allowedPlanets.indexOf('superEarth') === -1;
   sandbox.endMinigame(false);
-  return 'свободные цвета: ' + avail + (noLava ? ' ✓ без лавы' : ' ✗ лава осталась');
+  return 'свободные цвета: ' + avail +
+         ((noLava && noEarth) ? ' ✓ без лавы и без Земли' : ' ✗ занятая орбита вернула цвет');
+});
+step('ассембл: свободна только орбита Земли → все 4 цвета', () => {
+  // Свободна только орбита 4 (superEarth). Иначе 4 камня сливались в rocky,
+  // а addPlanet('rocky') падал с «Не удалось разместить».
+  S.starType = 'G'; S.planets = [];
+  [0, 1, 2, 3, 5, 6, 7].forEach(i => S.planets.push({
+    type: 'rocky', baseOrbitR: sandbox.getOrbitR(i), orbitR: sandbox.getOrbitR(i), forming: false,
+  }));
+  sandbox.startMinigame('assemble', () => {});
+  const colors = sandbox.MG.availableColors.slice();
+  const hasEarth = sandbox.MG.allowedPlanets.indexOf('superEarth') !== -1;
+  sandbox.endMinigame(false);
+  return 'цвета: ' + colors.join(',') + ' | Земля: ' + hasEarth +
+         ((colors.length === 4 && hasEarth) ? ' ✓ Земля собираема' : ' ✗');
 });
 step('ассембл: 1 свободный цвет → fallback на все 4', () => {
   S.starType = 'G'; S.planets = [];
