@@ -42,13 +42,13 @@ function checkEvolution() {
 }
 
 function _canPlaceAnyPlanet() {
-  if (S.planets.length >= 8) return false;
+  const validPlanets = (S.planets || []).filter(p => p && typeof p === 'object' && isFinite(p.baseOrbitR));
+  if (validPlanets.length >= 8) return false;
   if (typeof getAllowedOrbitsForType !== 'function') return true;
   if (typeof getOrbitR !== 'function') return true;
 
-  const allTypes = ['rocky', 'lava', 'iceGiant', 'gasGiant'];
-  const gap = (typeof ORBIT_GEOMETRY !== 'undefined' && ORBIT_GEOMETRY.minGap)
-    ? ORBIT_GEOMETRY.minGap : 25;
+  const allTypes = ['rocky', 'lava', 'iceGiant', 'gasGiant', 'superEarth'];
+  const gap = (typeof ORBIT_GEOMETRY !== 'undefined' && ORBIT_GEOMETRY.minGap) ? ORBIT_GEOMETRY.minGap : 25;
 
   for (let ti = 0; ti < allTypes.length; ti++) {
     const orbits = getAllowedOrbitsForType(S.starType, allTypes[ti]);
@@ -56,8 +56,8 @@ function _canPlaceAnyPlanet() {
     for (let oi = 0; oi < orbits.length; oi++) {
       const orbitR = getOrbitR(orbits[oi]);
       let free = true;
-      for (let pi = 0; pi < S.planets.length; pi++) {
-        if (Math.abs(S.planets[pi].baseOrbitR - orbitR) < gap) { free = false; break; }
+      for (let pi = 0; pi < validPlanets.length; pi++) {
+        if (Math.abs(validPlanets[pi].baseOrbitR - orbitR) < gap) { free = false; break; }
       }
       if (free) return true;
     }

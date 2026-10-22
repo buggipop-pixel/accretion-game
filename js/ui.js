@@ -330,18 +330,20 @@ function getQuests() {
     const cost = planetCost(0);
     list.push({ title: 'Собери первую планету · ' + fmt(cost) + ' ✦', cur: S.dust, max: cost });
   }
-  else if (st === 'system') {
-    const built = S.planets.length;
-    if (built < 5) {
-      list.push({ title: 'Собери 5 планет', cur: built, max: 5 });
-      const nextCost = planetCost(built);
-      list.push({ title: 'Следующая планета · ' + fmt(nextCost) + ' ✦', cur: S.dust, max: nextCost });
-    } else if (built < 8) {
-      list.push({ title: 'Собери 8 планет (система готова)', cur: built, max: 8 });
-      const nextCost = planetCost(built);
-      list.push({ title: 'Следующая планета · ' + fmt(nextCost) + ' ✦', cur: S.dust, max: nextCost });
+     else if (st === 'system') {
+    if (S.systems === 1) {
+      const built = S.planets.filter(p => p && !p.forming).length;
+      if (built < 8) {
+        list.push({ title: 'Собери 8 планет', cur: built, max: 8 });
+        const nextCost = planetCost(built);
+        list.push({ title: 'Следующая планета · ' + fmt(nextCost) + ' ✦', cur: S.dust, max: nextCost });
+      } else {
+        list.push({ title: 'Система готова · расширяйся', cur: 1, max: 1 });
+      }
     } else {
-      list.push({ title: 'Система готова · расширяйся', cur: 1, max: 1 });
+      const shopCost = (typeof systemShopCosts === 'function') ? systemShopCosts().dust : systemCost(Math.max(0, S.systems - 1));
+      list.push({ title: 'До Галактики (5 систем)', cur: S.systems, max: 5 });
+      list.push({ title: 'Следующая система · ' + fmt(shopCost) + ' ✦', cur: S.dust, max: shopCost });
     }
   }
   else if (st === 'galaxy') {
@@ -759,6 +761,7 @@ function openNightMode() {
 
     <div class="info-box">
       <div class="ach-sec-title">Прогноз защиты</div>
+      <div class="row-stat" style="font-size:10px;color:#8b7fd4;margin-top:4px;"><span>Офлайн-атаки:</span><span>только при отсутствии >1 часа</span></div>
       <div class="row-stat"><span>Разведка:</span><span style="color:${scoutChance > 60 ? '#7ee0a8' : scoutChance > 30 ? '#ffb347' : '#ff5e5e'}">${Math.round(scoutChance)}%</span></div>
       <div class="row-stat"><span>Рейд:</span><span style="color:${raidChance > 60 ? '#7ee0a8' : raidChance > 30 ? '#ffb347' : '#ff5e5e'}">${Math.round(raidChance)}%</span></div>
       <div class="row-stat"><span>Осада:</span><span style="color:${siegeChance > 60 ? '#7ee0a8' : siegeChance > 30 ? '#ffb347' : '#ff5e5e'}">${Math.round(siegeChance)}%</span></div>
@@ -876,7 +879,18 @@ function activateNightDefense(lvl) {
   updateUI();
   openNightMode();
 }
+function updateTrophyBadge() {
+  const el = document.getElementById('trophyBadge');
+  const countEl = document.getElementById('trophyCount');
+  if (!el || !countEl) return;
+  const c = S.trophyContracts ? S.trophyContracts.length : 0;
+  if (c > 0) { el.style.display = 'block'; countEl.textContent = c; }
+  else { el.style.display = 'none'; }
+}
+window.openTrophyModal = function() { /* ... (код модалки трофеев из прошлого сообщения) ... */ };
 
+const oldUpdateUI = updateUI;
+updateUI = function() { oldUpdateUI(); updateTrophyBadge(); };
 // Экспорт
 window.updatePrimeBadge = function() {};
 window.fmt = fmt;

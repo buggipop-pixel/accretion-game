@@ -131,20 +131,22 @@ function initAssembleField() {
     gas:   'gasGiant',
   };
 
-  // Можно ли разместить планету этого типа (та же логика что в addPlanet)
-  const canPlacePlanet = function(planetKey) {
-    if (S.planets.length >= 8) return false;
-    if (typeof getAllowedOrbitsForType !== 'function' ||
-        typeof getOrbitR !== 'function') return false;
+   const canPlacePlanet = function(planetKey) {
+    if (!S.planets) return false;
+    // Отсеиваем невидимые/битые планеты, у которых нет нормальных координат
+    const validPlanets = S.planets.filter(p => p && typeof p === 'object' && isFinite(p.baseOrbitR));
+    if (validPlanets.length >= 8) return false;
+    
+    if (typeof getAllowedOrbitsForType !== 'function' || typeof getOrbitR !== 'function') return false;
     const orbits = getAllowedOrbitsForType(S.starType, planetKey);
     if (!orbits || orbits.length === 0) return false;
-    const gap = (typeof ORBIT_GEOMETRY !== 'undefined' && ORBIT_GEOMETRY.minGap)
-      ? ORBIT_GEOMETRY.minGap : 25;
+    const gap = ORBIT_GEOMETRY.minGap;
+    
     for (let oi = 0; oi < orbits.length; oi++) {
       const orbitR = getOrbitR(orbits[oi]);
       let free = true;
-      for (let pi = 0; pi < S.planets.length; pi++) {
-        if (Math.abs(S.planets[pi].baseOrbitR - orbitR) < gap) {
+      for (let pi = 0; pi < validPlanets.length; pi++) {
+        if (Math.abs(validPlanets[pi].baseOrbitR - orbitR) < gap) {
           free = false; break;
         }
       }

@@ -304,7 +304,9 @@ function addPlanet(preferredType) {
 }
 
 function _tryPlacePlanetAt(type) {
-  if (S.planets.length >= 8) return false;
+  if (!S.planets) S.planets = [];
+  const validPlanets = S.planets.filter(p => p && typeof p === 'object' && isFinite(p.baseOrbitR));
+  if (validPlanets.length >= 8) return false;
   if (!type) return false;
   const star = S.starType || 'G';
 
@@ -318,8 +320,8 @@ function _tryPlacePlanetAt(type) {
     const orbitR = (typeof getOrbitR === 'function') ? getOrbitR(idx) : 90 + idx * 50;
 
     let free = true;
-    for (let pi = 0; pi < S.planets.length; pi++) {
-      if (Math.abs(S.planets[pi].baseOrbitR - orbitR) < ORBIT_GEOMETRY.minGap) {
+    for (let pi = 0; pi < validPlanets.length; pi++) {
+      if (Math.abs(validPlanets[pi].baseOrbitR - orbitR) < ORBIT_GEOMETRY.minGap) {
         free = false; break;
       }
     }
@@ -626,7 +628,18 @@ function drawPlanets(ctx, time) {
 
     const baseSize = 7 * p.diameter * scale;
     if (!isFinite(sp.x) || !isFinite(sp.y) || !isFinite(baseSize) || baseSize <= 0) continue;
-    drawTexturedPlanet(ctx, sp.x, sp.y, baseSize, p, alpha);
+    // ★ Ищем ближайшую звезду для правильного освещения
+    const stars = getStarPositions(t);
+    let nearestStar = { x: 0, y: 0 };
+    let minD = Infinity;
+    for (let s = 0; s < stars.length; s++) {
+       const d = Math.hypot(item.wx - stars[s].x, item.wy - stars[s].y);
+       if (d < minD) { minD = d; nearestStar = stars[s]; }
+    }
+    const starSp = worldToScreen(nearestStar.x, nearestStar.y);
+    
+    // Передаем starSp в функцию
+    drawTexturedPlanet(ctx, sp.x, sp.y, baseSize, p, alpha, starSp);
 
         for (let m = 0; m < p.moons.length; m++) {
       const moon = p.moons[m];
@@ -704,9 +717,9 @@ function drawPlanets(ctx, time) {
   drawExplosions(ctx);
 }
 
-function drawTexturedPlanet(ctx, x, y, size, p, alpha) {
+function drawTexturedPlanet(ctx, x, y, size, p, alpha, starScreenPos) {
   const pt = PLANET_TYPES[p.type] || PLANET_TYPES.rocky;
-  const starPos = worldToScreen(0, 0);
+  const starPos = starScreenPos || worldToScreen(0, 0);
 
   ctx.save();
   ctx.globalAlpha = alpha;

@@ -47,12 +47,13 @@ function metalsPerSec() {
 // ─── Доход в секунду ────────────────────────────────────────────
 function dustPerSec() {
   const st = STAGES[S.stage];
-  if (!st) return 0;
-  if (S.stage === 'cloud' || S.stage === 'condense' || S.stage === 'protostar') return 0;
-  return (st.baseRate + planetRate()) * starMult() *
-         systemTypeMult() * systemMult() * gammaMult() * galaxyMult() *
-         (1 + (S.systemIncomeBonus || 0)) *
-         (typeof achIncomeMult === 'function' ? achIncomeMult() : 1);
+  if (!st || S.stage === 'cloud' || S.stage === 'condense' || S.stage === 'protostar') return 0;
+  
+  let primeMult = 1;
+  if (S.primeSystem && S.primeSystem.bonus && S.primeSystem.bonus.dustMult) primeMult += S.primeSystem.bonus.dustMult;
+  const boostMult = (S.boosters && S.boosters.incomeUntil > Date.now()) ? PREMIUM_CFG.booster.incomeMult : 1;
+
+  return (st.baseRate + planetRate()) * starMult() * systemTypeMult() * systemMult() * gammaMult() * galaxyMult() * (1 + (S.systemIncomeBonus || 0)) * primeMult * boostMult;
 }
 
 function clickGain() {
@@ -245,8 +246,9 @@ function applyOfflineProgress() {
     }
   }
 
-  // ─── 4. Вторжения ───
-  if (S.stage === 'system' || S.stage === 'galaxy') {
+  // ─── 4. Вторжения (только если офлайн > 1 часа или активен ночной режим) ───
+  const isNightActive = S.nightDefenseExpiresAt && S.nightDefenseExpiresAt > now;
+  if ((S.stage === 'system' || S.stage === 'galaxy') && (elapsedSec >= 3600 || isNightActive)) {
     simulateOfflineInvasions(elapsedSec, out);
   }
 

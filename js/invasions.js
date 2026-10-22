@@ -233,7 +233,28 @@ function tickInvasions(dt) {
   for (let i = S.invasions.length - 1; i >= 0; i--) {
     const inv = S.invasions[i];
     const tier = INVASION_CFG.tiers[inv.tierKey] || INVASION_CFG.tiers.raid;
-
+    // ★ Автооборона сбивает корабли
+    if (S.nightDefenseExpiresAt > now && inv.ships) {
+      let alive = 0;
+      for (let s = 0; s < inv.ships.length; s++) if (!inv.ships[s].destroyed) alive++;
+      if (alive > 0) {
+        inv.autoDefenseTimer = (inv.autoDefenseTimer || 0) + dt;
+        const interval = 15 / (S.nightDefenseLevel || 1); // Ур.1 — 15 сек, Ур.5 — 3 сек
+        if (inv.autoDefenseTimer >= interval) {
+          inv.autoDefenseTimer = 0;
+          for (let s = 0; s < inv.ships.length; s++) {
+            if (!inv.ships[s].destroyed) { inv.ships[s].destroyed = true; break; }
+          }
+          alive = 0;
+          for (let s = 0; s < inv.ships.length; s++) if (!inv.ships[s].destroyed) alive++;
+          if (alive === 0) {
+            toast('✓ Отбито', 'Автооборона сбила флот');
+            S.invasions.splice(i, 1);
+            continue;
+          }
+        }
+      }
+    }
     // ─── Вторжение на СИСТЕМУ ───
     if (inv.targetType === 'system') {
       if (inv.systemIdx !== S.activeSystemIdx) {

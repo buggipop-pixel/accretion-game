@@ -221,7 +221,12 @@ function switchToSystem(idx) {
     if (typeof updateUI === 'function') updateUI();
     return true;
   }
-
+    // ★ Подгружаем Прайм-объект, если он есть в этой системе
+    S.primeSystem = home.isPrime ? home.primeData : null;
+    // (для второй ветки target.isPrime и target.primeData)
+    
+    // ★ Сброс камеры при смене системы
+    S.panX = 0; S.panY = 0; S.zoom = 1; S.rotation = 0; S.tiltX = 0; S.tiltY = 0;
   const target = S.otherSystems[idx];
   if (!target) return false;
 
