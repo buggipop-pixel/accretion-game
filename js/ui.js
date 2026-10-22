@@ -1,8 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
-//  UI.JS — HUD, квесты, тосты, переключатель систем
+//  UI.JS — HUD, квесты, тосты, переключатель систем, ночной режим
 // ═══════════════════════════════════════════════════════════════
 
-// ─── Формат чисел ───────────────────────────────────────────────
 const UNITS = ['', 'К', 'М', 'Б', 'Т', 'Кв', 'Кт', 'Сх', 'Сп', 'Ок'];
 function fmt(n) {
   if (n < 1000) return Math.floor(n).toString();
@@ -14,12 +13,10 @@ function fmt(n) {
 function fmtTime(sec) {
   if (sec < 0) sec = 0;
   if (sec < 60) return Math.floor(sec) + 'с';
-  if (sec < 3600) return Math.floor(sec/60) + ':' +
-    String(Math.floor(sec%60)).padStart(2, '0');
+  if (sec < 3600) return Math.floor(sec/60) + ':' + String(Math.floor(sec%60)).padStart(2, '0');
   return Math.floor(sec/3600) + 'ч ' + Math.floor((sec%3600)/60) + 'м';
 }
 
-// ─── Тосты ──────────────────────────────────────────────────────
 function toast(title, sub) {
   const el = document.getElementById('toasts');
   if (!el) return;
@@ -61,8 +58,6 @@ function updateUI() {
 
   const civRateEl = document.getElementById('civRate');
   if (civRateEl) {
-    // Если есть логика расчета прироста цивилизации в час, здесь можно обновить
-    // Пока оставим заглушку, так как civ растет через tickCiv
     civRateEl.textContent = '+' + fmt(0) + ' / ч';
   }
 
@@ -72,8 +67,7 @@ function updateUI() {
     if (pct > 1 && S.starType) {
       gasEl.style.display = 'block';
       gasEl.textContent = '💨 Газ: ' + pct + '%';
-      gasEl.style.color = pct > 50 ? '#7ec8e3' :
-                          (pct > 20 ? '#ff9500' : '#ff5e5e');
+      gasEl.style.color = pct > 50 ? '#7ec8e3' : (pct > 20 ? '#ff9500' : '#ff5e5e');
     } else { gasEl.style.display = 'none'; }
   }
 
@@ -110,10 +104,22 @@ function updateUI() {
     if (S.stage === 'system' && S.prestigeLevel > 0) backBtn.style.display = 'block';
     else backBtn.style.display = 'none';
   }
+
+  const soundToggleBtn = document.getElementById('soundToggleBtn');
+  if (soundToggleBtn) {
+    soundToggleBtn.textContent = S.settings.sound ? 'Вкл' : 'Выкл';
+    soundToggleBtn.classList.toggle('active', S.settings.sound);
+  }
+  
   updateStorageUI();
-  //updatePrimeBadge();
+  
+  const app = document.getElementById('app');
+  if (app && S.settings) {
+    app.style.filter = `brightness(${S.settings.brightness})`;
+  }
 }
-// ─── Хранилище ресурсов (шкала и улучшение) ────────────────────────
+
+// ─── Хранилище ресурсов ───────────────────────────────────────────
 function updateStorageUI() {
   const resources = ['dust', 'energy', 'civ', 'metals'];
   resources.forEach(res => {
@@ -149,7 +155,6 @@ function updateStorageUI() {
       }
     }
 
-    // Металлы копятся без капа — шкала и апгрейд к ним не применяются
     if (!progFill) return;
 
     let cap = 1;
@@ -161,17 +166,11 @@ function updateStorageUI() {
     if (progFill) progFill.style.width = pct + '%';
 
     const isFull = current >= cap;
-    if (isFull) {
-      cell.classList.add('full');
-    } else {
-      cell.classList.remove('full');
-    }
+    if (isFull) cell.classList.add('full');
+    else cell.classList.remove('full');
 
-    if (progText) {
-      progText.textContent = fmt(current) + ' / ' + fmt(cap);
-    }
+    if (progText) progText.textContent = fmt(current) + ' / ' + fmt(cap);
 
-    // Кнопка «Улучшить» показывает, сколько уже вложено в апгрейд
     const btn = cell.querySelector('.storage-upgrade-btn');
     if (btn) {
       const lvl = S.storageLevels[res] || 1;
@@ -196,7 +195,6 @@ function openStorageModal(res) {
   const icons = { dust: '✦', energy: '⚡', civ: '🧬' };
   const lvl = S.storageLevels[res] || 1;
   const cost = STORAGE_CFG.getUpgradeCost(res, lvl);
-
   const card = document.getElementById('modalCard');
   if (!card) return;
 
@@ -250,12 +248,10 @@ function openStorageModal(res) {
       </button>
       ` : '<div style="text-align:center; color:#b9a8ff; font-weight:700; margin-top:15px;">Достигнут максимальный уровень!</div>'}
   `;
-
+  if (typeof playSFX === 'function') playSFX('ui_open');
   document.getElementById('modal').classList.add('show');
 }
 
-// ─── Вкидывание пыли в апгрейд хранилища ────────────────────────
-// part: 0.1 / 0.25 — доля стоимости уровня, 'max' — всё, что есть
 function pourStorage(res, part) {
   const lvl = S.storageLevels[res] || 1;
   if (lvl >= STORAGE_CFG.maxLevel) {
@@ -271,8 +267,8 @@ function pourStorage(res, part) {
   const amount = Math.floor(Math.min(want, remaining, S.dust));
 
   if (amount <= 0) {
-    toast('Недостаточно пыли',
-      'Осталось вложить ' + fmt(remaining) + ' ✦, а у вас ' + fmt(S.dust));
+    if (typeof playSFX === 'function') playSFX('ui_error');
+    toast('Недостаточно пыли', 'Осталось вложить ' + fmt(remaining) + ' ✦, а у вас ' + fmt(S.dust));
     return;
   }
 
@@ -282,8 +278,8 @@ function pourStorage(res, part) {
   if (S.storageProgress[res] >= cost) {
     S.storageLevels[res] = lvl + 1;
     S.storageProgress[res] = 0;
-    toast('Хранилище улучшено! 🎉',
-      namesTitle(res) + ': уровень ' + S.storageLevels[res]);
+    toast('Хранилище улучшено! 🎉', namesTitle(res) + ': уровень ' + S.storageLevels[res]);
+    if (typeof playSFX === 'function') playSFX('ui_levelup');
   }
 
   saveGame();
@@ -291,7 +287,6 @@ function pourStorage(res, part) {
   openStorageModal(res);
 }
 
-// ─── Донат: мгновенный апгрейд за Telegram Stars (заглушка) ─────
 function buyStorageWithStars(res) {
   const lvl = S.storageLevels[res] || 1;
   if (lvl >= STORAGE_CFG.maxLevel) {
@@ -301,14 +296,11 @@ function buyStorageWithStars(res) {
   const starsPrice = (CFG && CFG.storageInstantStars) || 50;
   const tg = window.Telegram && window.Telegram.WebApp;
   if (tg && typeof tg.openInvoice === 'function') {
-    // Реальная оплата появится на шаге «Монетизация (Telegram Stars)»
     toast('⭐ Оплата', 'Инвойс на ' + starsPrice + ' Stars — заглушка.');
   } else {
-    toast('⭐ Telegram Stars',
-      starsPrice + ' Stars за мгновенный апгрейд. Оплата откроется внутри Telegram.');
+    toast('⭐ Telegram Stars', starsPrice + ' Stars за мгновенный апгрейд. Оплата откроется внутри Telegram.');
   }
 }
-
 
 function namesTitle(res) {
   if (res === 'dust') return 'Пыли';
@@ -322,52 +314,32 @@ function getQuests() {
   const st = (S.prestigeLevel > 0 && S.stage === 'system') ? 'galaxy' : S.stage;
 
   if (st === 'cloud' && STAGES.cloud.goal) {
-    list.push({
-      title: 'Собери ' + fmt(STAGES.cloud.goal) + ' пылинок',
-      cur: S.dustTotal, max: STAGES.cloud.goal,
-    });
+    list.push({ title: 'Собери ' + fmt(STAGES.cloud.goal) + ' пылинок', cur: S.dustTotal, max: STAGES.cloud.goal });
   }
   else if (st === 'condense' && STAGES.condense.goal) {
-    list.push({
-      title: 'Накопи ' + fmt(STAGES.condense.goal) + ' пыли',
-      cur: S.dustTotal, max: STAGES.condense.goal,
-    });
+    list.push({ title: 'Накопи ' + fmt(STAGES.condense.goal) + ' пыли', cur: S.dustTotal, max: STAGES.condense.goal });
   }
   else if (st === 'protostar') {
-    // ★ Таймер разогрева, а не heat-процент
-    const left = (typeof getProtostarTimeLeft === 'function')
-      ? getProtostarTimeLeft() : 0;
+    const left = (typeof getProtostarTimeLeft === 'function') ? getProtostarTimeLeft() : 0;
     const b = (CFG.activeBoost && CFG.activeBoost.protostar) || {};
     const total = b.duration || 30;
     const passed = Math.max(0, total - left);
-    list.push({
-      title: '🔥 Разогрев · ' + left.toFixed(1) + 'с',
-      cur: passed, max: total,
-    });
+    list.push({ title: '🔥 Разогрев · ' + left.toFixed(1) + 'с', cur: passed, max: total });
   }
   else if (st === 'firstPlanet') {
     const cost = planetCost(0);
-    list.push({
-      title: 'Собери первую планету · ' + fmt(cost) + ' ✦',
-      cur: S.dust, max: cost,
-    });
+    list.push({ title: 'Собери первую планету · ' + fmt(cost) + ' ✦', cur: S.dust, max: cost });
   }
   else if (st === 'system') {
     const built = S.planets.length;
     if (built < 5) {
       list.push({ title: 'Собери 5 планет', cur: built, max: 5 });
       const nextCost = planetCost(built);
-      list.push({
-        title: 'Следующая планета · ' + fmt(nextCost) + ' ✦',
-        cur: S.dust, max: nextCost,
-      });
+      list.push({ title: 'Следующая планета · ' + fmt(nextCost) + ' ✦', cur: S.dust, max: nextCost });
     } else if (built < 8) {
       list.push({ title: 'Собери 8 планет (система готова)', cur: built, max: 8 });
       const nextCost = planetCost(built);
-      list.push({
-        title: 'Следующая планета · ' + fmt(nextCost) + ' ✦',
-        cur: S.dust, max: nextCost,
-      });
+      list.push({ title: 'Следующая планета · ' + fmt(nextCost) + ' ✦', cur: S.dust, max: nextCost });
     } else {
       list.push({ title: 'Система готова · расширяйся', cur: 1, max: 1 });
     }
@@ -376,32 +348,19 @@ function getQuests() {
     const systems = S.systems;
     const nextCost = systemCost(Math.max(0, systems - 1));
     if (systems < 2) {
-      list.push({
-        title: 'Основай 2-ю систему · ' + fmt(nextCost) + ' ✦',
-        cur: S.dust, max: nextCost,
-      });
+      list.push({ title: 'Основай 2-ю систему · ' + fmt(nextCost) + ' ✦', cur: S.dust, max: nextCost });
     } else {
-      // ★ Квест на престиж (проверяем доступность корректно)
       const avail = (typeof checkPrestigeAvailability === 'function') ? checkPrestigeAvailability() : 0;
       if (avail > 0) {
         list.push({ title: '💥 Престиж доступен!', cur: 1, max: 1 });
       } else {
         const reqs = (typeof prestigeRequirements === 'function') ? prestigeRequirements() : [];
         const nextReq = reqs[S.prestigeLevel || 0];
-        if (nextReq) {
-          list.push({
-            title: '💥 До престижа',
-            cur: systems, max: nextReq
-          });
-        }
+        if (nextReq) list.push({ title: '💥 До престижа', cur: systems, max: nextReq });
       }
-      list.push({
-        title: 'Следующая система · ' + fmt(nextCost) + ' ✦',
-        cur: S.dust, max: nextCost,
-      });
+      list.push({ title: 'Следующая система · ' + fmt(nextCost) + ' ✦', cur: S.dust, max: nextCost });
     }
   }
-
   return list;
 }
 
@@ -433,9 +392,7 @@ function updateSystemSwitcher() {
     const btn = document.createElement('button');
     btn.className = 'sys-btn' + (S.activeSystemIdx === sys.idx ? ' active' : '');
     btn.textContent = sys.name;
-    (function(idx) {
-      btn.onclick = function() { switchToSystem(idx); };
-    })(sys.idx);
+    (function(idx) { btn.onclick = function() { switchToSystem(idx); }; })(sys.idx);
     el.appendChild(btn);
   }
 
@@ -460,6 +417,7 @@ function initUI() {
   const questArrowEl = document.getElementById('phaseOrb');
   if (questArrowEl) {
     questArrowEl.addEventListener('click', function() {
+      if (typeof playSFX === 'function') playSFX('ui_click');
       document.getElementById('questsPanel').classList.toggle('open');
       this.classList.toggle('open');
       updateQuestPanel();
@@ -469,25 +427,16 @@ function initUI() {
   const evolveBtnEl = document.getElementById('evolveBtn');
   if (evolveBtnEl) {
     evolveBtnEl.addEventListener('click', function() {
-      // Фаза VI: планеты не собираются вручную
+      if (typeof playSFX === 'function') playSFX('ui_click');
       if (S.stage === 'galaxy') return;
       if (typeof openEvolution === 'function') openEvolution();
     });
   }
-  const turboEl = document.getElementById('turbo');
-  if (turboEl) {
-    turboEl.addEventListener('click', function() {
-      const goal = currentGoal();
-      const amount = goal ? Math.max(10000, goal * 3) : 1e12;
-      S.dust += amount; S.dustTotal += amount;
-      toast('🚀 Turbo', '+' + fmt(amount));
-    });
-  }
 
-  // ★ Кнопка «Назад в галактику» (только после престижа)
   const backBtn = document.getElementById('backToGalaxyBtn');
   if (backBtn) {
     backBtn.onclick = function() {
+      if (typeof playSFX === 'function') playSFX('ui_click');
       S.stage = 'galaxy';
       S.panX = 0; S.panY = 0; S.zoom = 1; S.rotation = 0;
       updateUI();
@@ -499,48 +448,84 @@ function initUI() {
   const resetEl = document.getElementById('resetBtn');
   if (resetEl) {
     resetEl.addEventListener('click', function() {
-      if (confirm('Сбросить прогресс?')) {
-        const ids = ['dustVal','energyVal','civVal','systemsVal'];
-        for (let i = 0; i < ids.length; i++) {
-          const e = document.getElementById(ids[i]);
-          if (e) e.textContent = '0';
-        }
-        resetGame();
-      }
+      if (confirm('Сбросить прогресс?')) resetGame();
     });
   }
-  // Add event listeners for storage upgrade buttons
+
   document.querySelectorAll('.storage-upgrade-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const res = btn.dataset.res;
-      openStorageModal(res);
+      if (typeof playSFX === 'function') playSFX('ui_click');
+      openStorageModal(btn.dataset.res);
     });
   });
 
-  // Initial update of storage UI
   updateStorageUI();
-
   setInterval(updateSystemSwitcher, 2000);
+
+  const achBtn = document.getElementById('achBtn');
+  if (achBtn) {
+    achBtn.addEventListener('click', () => {
+      if (typeof playSFX === 'function') playSFX('ui_click');
+      if (typeof openAchievements === 'function') openAchievements();
+    });
+  }
+
+  // Настройки
+  const settingsBtn = document.getElementById('settingsBtn');
+  const settingsModal = document.getElementById('settingsModal');
+  const brightnessSlider = document.getElementById('brightnessSlider');
+  const soundToggleBtn = document.getElementById('soundToggleBtn');
+  const settingsResetBtn = document.getElementById('settingsResetBtn');
+
+  if (settingsBtn && settingsModal) {
+    settingsBtn.addEventListener('click', () => {
+      if (typeof playSFX === 'function') playSFX('ui_click');
+      if (brightnessSlider) brightnessSlider.value = S.settings.brightness;
+      if (soundToggleBtn) {
+        soundToggleBtn.textContent = S.settings.sound ? 'Вкл' : 'Выкл';
+        soundToggleBtn.classList.toggle('active', S.settings.sound);
+      }
+      settingsModal.classList.add('show');
+    });
+  }
+
+  if (brightnessSlider) {
+    brightnessSlider.addEventListener('input', (e) => {
+      S.settings.brightness = parseFloat(e.target.value);
+      const app = document.getElementById('app');
+      if (app) app.style.filter = `brightness(${S.settings.brightness})`;
+    });
+  }
+
+  if (soundToggleBtn) {
+    soundToggleBtn.addEventListener('click', () => {
+      if (typeof playSFX === 'function') playSFX('ui_click');
+      const isOn = (typeof toggleSound === 'function') ? toggleSound() : !S.settings.sound;
+      soundToggleBtn.textContent = isOn ? 'Вкл' : 'Выкл';
+      soundToggleBtn.classList.toggle('active', isOn);
+    });
+  }
+
+  if (settingsResetBtn) {
+    settingsResetBtn.addEventListener('click', () => {
+      if (confirm('Вы уверены? Весь прогресс будет полностью удален.')) resetGame();
+    });
+  }
 }
-// ─── Закрытие модалки кликом снаружи или крестиком ─────────────
-// Решает проблему «мёртвого» окна, когда кнопка disabled.
+
+// ─── Закрытие модалки кликом снаружи ────────────────────────────
 (function setupModalClose() {
   function attach() {
     const modal = document.getElementById('modal');
     if (!modal) { setTimeout(attach, 200); return; }
     if (modal.dataset.closeAttached === '1') return;
     modal.dataset.closeAttached = '1';
-
-    // Клик по затемнённому фону (не по карточке) — закрывает
     modal.addEventListener('click', function(e) {
       if (e.target === modal) {
-        // Меняем флаг через evolution.js
         if (typeof closeEvolutionModal === 'function') closeEvolutionModal();
         else modal.classList.remove('show');
       }
     });
-
-    // Esc тоже закрывает
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape' && modal.classList.contains('show')) {
         if (typeof closeEvolutionModal === 'function') closeEvolutionModal();
@@ -548,24 +533,19 @@ function initUI() {
       }
     });
   }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', attach);
-  } else { attach(); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', attach);
+  else attach();
 })();
-// ─── Квесты: обновление без перерисовки innerHTML каждый кадр ──
-// Перерисовка ломает CSS transition полосок — бар выглядит пустым.
-let _lastQuestKey = '';
 
+// ─── Квесты (обновление без перерисовки) ────────────────────────
+let _lastQuestKey = '';
 function updateQuestPanel() {
   const panel = document.getElementById('questsPanel');
   if (!panel || !panel.classList.contains('open')) return;
   const quests = getQuests();
 
-  // Ключ по тексту — если состав не менялся, обновляем только ширины
   let key = '';
-  for (let i = 0; i < quests.length; i++) {
-    key += quests[i].title + '|';
-  }
+  for (let i = 0; i < quests.length; i++) key += quests[i].title + '|';
 
   if (key !== _lastQuestKey) {
     _lastQuestKey = key;
@@ -585,7 +565,6 @@ function updateQuestPanel() {
     }
     panel.innerHTML = html;
   } else {
-    // Обновляем только проценты и текст прогресса
     const items = panel.querySelectorAll('.quest-item');
     for (let i = 0; i < quests.length && i < items.length; i++) {
       const q = quests[i];
@@ -607,37 +586,299 @@ function updateQuestPanel() {
     }
   }
 }
-// ─── Плашка активного Прайм-объекта ─────────────────────────────
-function updatePrimeBadge() {
-  let el = document.getElementById('primeBadge');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'primeBadge';
-    el.className = 'prime-badge';
-    const hud = document.querySelector('.hud');
-    if (hud) hud.appendChild(el);
-    return;
+
+// ─── Вспышка Сверхновой ─────────────────────────────────────────
+function triggerSupernovaFlash() {
+  const flash = document.createElement('div');
+  flash.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:white;opacity:0;pointer-events:none;z-index:9999;';
+  document.body.appendChild(flash);
+  flash.animate([{ opacity: 0 }, { opacity: 1 }, { opacity: 0 }], { duration: 500, easing: 'ease-out' })
+    .onfinish = function() { flash.remove(); };
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  НОЧНОЙ РЕЖИМ
+// ═══════════════════════════════════════════════════════════════
+let _tempNightConfig = null;
+
+function openNightMode() {
+  const card = document.getElementById('modalCard');
+  if (!card) return;
+  
+  if (!_tempNightConfig) {
+    _tempNightConfig = JSON.parse(JSON.stringify(S.nightConfig || { mode: 'balanced', defenseEnabled: true, cometHours: 0, expeditionPercent: 0 }));
+  }
+  const nc = _tempNightConfig;
+  const presets = NIGHT_CFG.presets;
+  const curMode = nc.mode || 'balanced';
+
+  const presetsHTML = Object.keys(presets).map(function(mode) {
+    const labels = { cautious: '🛡️ Осторожный', balanced: '⚖️ Сбалансированный', aggressive: '🚀 Агрессивный', insane: '☠️ Безумный' };
+    const caps = NIGHT_CFG.lossCaps[mode];
+    const active = curMode === mode ? 'active' : '';
+    return `<button class="pour-btn ${active}" onclick="applyNightPreset('${mode}')" style="flex-direction:column;padding:8px 4px;font-size:10px; ${active ? 'background:rgba(139,127,212,0.5);border-color:#b9a8ff;' : ''}">
+      ${labels[mode]}<br><span style="font-size:9px;opacity:0.7;">потери ${Math.round(caps * 100)}%</span>
+    </button>`;
+  }).join('');
+
+  function calcPreviewChance(tierKey) {
+    const tier = INVASION_CFG.tiers[tierKey];
+    if (!tier) return 0;
+    if (S.shieldUntil && S.shieldUntil > Date.now()) return 1.0;
+    
+    const capE = Math.max(1, getResourceCap('energy'));
+    const capC = Math.max(1, getResourceCap('civ'));
+    const thresh = INVASION_CFG.resourceThresholdShare || 0.25;
+    const eF = Math.min(1, S.energy / (thresh * capE));
+    const cF = Math.min(1, S.civLevel / (thresh * capC));
+    const resFactor = Math.min(eF, cF);
+    let chance = tier.baseChance * resFactor;
+    
+    const isDefActive = S.nightDefenseExpiresAt && S.nightDefenseExpiresAt > Date.now();
+    const activeLvl = isDefActive ? (S.nightDefenseLevel || 0) : 0;
+    let bonus = 0;
+    if (activeLvl > 0 && nc.defenseEnabled) {
+      bonus = (INVASION_CFG.defenseBonusBase || 6) * Math.pow(activeLvl, INVASION_CFG.defenseBonusExp || 0.8) / 100;
+    }
+    if (S.activeTrophyEffects) {
+      for (let i = 0; i < S.activeTrophyEffects.length; i++) {
+        const e = S.activeTrophyEffects[i];
+        if (e.type === 'defense_level' && e.expiresAt > Date.now() && nc.defenseEnabled) {
+          const tmp = (INVASION_CFG.defenseBonusBase || 6) * Math.pow(e.value, INVASION_CFG.defenseBonusExp || 0.8) / 100;
+          bonus = Math.max(bonus, tmp);
+        }
+      }
+    }
+    chance += bonus;
+    
+    const pct = nc.expeditionPercent || 0;
+    const expPenalty = (pct / 100) * (NIGHT_CFG.expeditionDefensePenaltyMax || 0.30);
+    chance -= expPenalty;
+    
+    return Math.max(0, Math.min(tier.chanceCap, chance));
   }
 
-  if (!S.primeSystem) { el.style.display = 'none'; return; }
+  const isDefActive = S.nightDefenseExpiresAt && S.nightDefenseExpiresAt > Date.now();
+  const activeLvl = isDefActive ? (S.nightDefenseLevel || 0) : 0;
+  
+  function getDefBonus() {
+    if (!nc.defenseEnabled) return 0;
+    const lvl = isDefActive ? (S.nightDefenseLevel || 0) : 0;
+    let b = 0;
+    if (lvl > 0) b = (INVASION_CFG.defenseBonusBase || 6) * Math.pow(lvl, INVASION_CFG.defenseBonusExp || 0.8);
+    if (S.activeTrophyEffects) {
+      for (let i = 0; i < S.activeTrophyEffects.length; i++) {
+        const e = S.activeTrophyEffects[i];
+        if (e.type === 'defense_level' && e.expiresAt > Date.now()) {
+          const tmp = (INVASION_CFG.defenseBonusBase || 6) * Math.pow(e.value, INVASION_CFG.defenseBonusExp || 0.8);
+          b = Math.max(b, tmp);
+        }
+      }
+    }
+    return b;
+  }
+  
+  const rawBonus = getDefBonus();
+  const expPenalty = (nc.expeditionPercent / 100) * (NIGHT_CFG.expeditionDefensePenaltyMax || 0.30) * 100;
+  
+  const scoutChance = calcPreviewChance('scout') * 100;
+  const raidChance = calcPreviewChance('raid') * 100;
+  const siegeChance = calcPreviewChance('siege') * 100;
 
-  el.style.display = 'flex';
-  const obj = S.primeSystem;
-  el.innerHTML =
-    '<canvas class="prime-mini" id="primeBadgeIcon" width="40" height="40"></canvas>' +
-    '<div class="prime-info">' +
-      '<div class="prime-name">' + (obj.name || 'Прайм') + '</div>' +
-      '<div class="prime-obj">' + (obj.objectName || obj.objectKey) + '</div>' +
-    '</div>';
+  const lossCap = NIGHT_CFG.lossCaps[curMode] || 0.25;
+  const objCount = S.stage === 'galaxy' ? S.systems : S.planets.length;
+  const maxLoss = Math.floor(objCount * lossCap);
 
-  const canvas = document.getElementById('primeBadgeIcon');
-  if (canvas && typeof drawPrimeIcon === 'function') {
-    const cctx = canvas.getContext('2d');
-    cctx.clearRect(0, 0, 40, 40);
-    drawPrimeIcon(cctx, 20, 20, obj.objectIcon || obj.objectKey, performance.now() / 1000, 10);
+  const defenseButtons = [1, 2, 3, 4, 5].map(lvl => {
+    const cost = INVASION_CFG.defenseCost[lvl];
+    const bonus = (INVASION_CFG.defenseBonusBase * Math.pow(lvl, INVASION_CFG.defenseBonusExp)).toFixed(1);
+    const isCurrent = isDefActive && activeLvl === lvl;
+    return `<button class="pour-btn" style="flex-direction:column;padding:6px 2px;font-size:9px; line-height:1.2; ${isCurrent ? 'background:rgba(46,170,119,0.4);border-color:#2eaa77;' : ''}"
+      onclick="activateNightDefense(${lvl})" ${ (S.metalAmount || 0) >= cost ? '' : 'disabled' }>
+      Ур.${lvl}<br><span style="font-size:8px;">${cost}⚙</span><br>+${bonus}%
+    </button>`;
+  }).join('');
+
+  const defenseLabel = isDefActive 
+    ? `Ур.${activeLvl} · +${rawBonus.toFixed(1)}% (до ${new Date(S.nightDefenseExpiresAt).getHours()}:00)` 
+    : 'Выключена';
+
+  card.innerHTML = `
+    <div class="modal-title">🌙 Ночной режим</div>
+    <div class="modal-sub">Настрой риск и награду на время отсутствия</div>
+
+    <div class="info-box">
+      <div class="ach-sec-title">Пресеты</div>
+      <div class="pour-btn-group">${presetsHTML}</div>
+    </div>
+
+    <div class="info-box">
+      <div class="row-stat">
+        <span>🛡 Автооборона (на 24ч)</span>
+        <span style="color:${isDefActive ? '#7ee0a8' : '#ff8a8a'}">${defenseLabel}</span>
+      </div>
+      <div class="pour-btn-group" style="flex-wrap:wrap;gap:4px;margin-top:8px;">
+        ${defenseButtons}
+      </div>
+      <div class="row-stat" style="font-size:10px;color:#8b7fd4;margin-top:4px;">
+        <span>Металлы: ${fmt(S.metalAmount || 0)} ⚙</span>
+        <span>Активация съедает металл</span>
+      </div>
+      <div class="pour-btn-group" style="margin-top:4px;">
+        <button class="pour-btn" onclick="toggleNightDefense()" style="background:${nc.defenseEnabled ? 'rgba(46,170,119,0.4)' : 'rgba(255,94,94,0.2)'};border-color:${nc.defenseEnabled ? '#2eaa77' : 'rgba(255,94,94,0.5)'};">
+          ${nc.defenseEnabled ? '✓ ВКЛ' : '✕ ВЫКЛ'}
+        </button>
+      </div>
+    </div>
+
+    <div class="info-box">
+      <div class="row-stat">
+        <span>☄️ Комета на ночь</span>
+        <span>${nc.cometHours > 0 ? nc.cometHours + ' ч' : 'ВЫКЛ'}</span>
+      </div>
+      <input type="range" min="0" max="8" step="1" value="${nc.cometHours || 0}"
+        oninput="setNightComet(this.value)" style="width:100%;accent-color:#3d6dd4;">
+      <div class="row-stat" style="font-size:10px;color:#8b7fd4;">
+        <span>Стоимость: ~${Math.round((nc.cometHours || 0) * 150)} ⚙ эскорт</span>
+        <span>Без штрафа к обороне</span>
+      </div>
+    </div>
+
+    <div class="info-box">
+      <div class="row-stat">
+        <span>🚀 Экспедиция</span>
+        <span>${nc.expeditionPercent || 0}% ресурсов</span>
+      </div>
+      <input type="range" min="0" max="100" step="10" value="${nc.expeditionPercent || 0}"
+        oninput="setNightExpedition(this.value)" style="width:100%;accent-color:#2eaa77;">
+      <div class="row-stat" style="font-size:10px;color:#ffb347;">
+        <span>Штраф к обороне: −${expPenalty.toFixed(1)}%</span>
+        <span>Списывает ⚡, ⚙ и 🧬</span>
+      </div>
+    </div>
+
+    <div class="info-box">
+      <div class="ach-sec-title">Прогноз защиты</div>
+      <div class="row-stat"><span>Разведка:</span><span style="color:${scoutChance > 60 ? '#7ee0a8' : scoutChance > 30 ? '#ffb347' : '#ff5e5e'}">${Math.round(scoutChance)}%</span></div>
+      <div class="row-stat"><span>Рейд:</span><span style="color:${raidChance > 60 ? '#7ee0a8' : raidChance > 30 ? '#ffb347' : '#ff5e5e'}">${Math.round(raidChance)}%</span></div>
+      <div class="row-stat"><span>Осада:</span><span style="color:${siegeChance > 60 ? '#7ee0a8' : siegeChance > 30 ? '#ffb347' : '#ff5e5e'}">${Math.round(siegeChance)}%</span></div>
+      <div class="row-stat"><span>Макс. потерь:</span><span style="color:#ff5e5e">${maxLoss} ${S.stage === 'galaxy' ? 'систем' : 'планет'}</span></div>
+    </div>
+
+    <div class="pour-btn-group" style="margin-top:10px;">
+      <button class="pour-btn" style="background:rgba(46,170,119,0.3);border-color:#2eaa77;"
+        onclick="saveNightConfig()">
+        ✓ Готово
+      </button>
+      <button class="pour-btn" style="background:rgba(255,94,94,0.2);border-color:rgba(255,94,94,0.5);color:#ff8a8a;"
+        onclick="cancelNightConfig()">
+        ✕ Отмена
+      </button>
+    </div>
+  `;
+  document.getElementById('modal').classList.add('show');
+}
+
+function saveNightConfig() {
+  if (_tempNightConfig) {
+    const oldComet = S.nightConfig ? S.nightConfig.cometHours : 0;
+    const oldExp = S.nightConfig ? S.nightConfig.expeditionPercent : 0;
+    
+    // Проверка и списание ресурсов
+    let mCostComet = _tempNightConfig.cometHours * 100;
+    let dCostComet = Math.floor(Math.max(500000, dustPerSec() * 600));
+    let eCostExp = Math.floor(S.energy * (_tempNightConfig.expeditionPercent / 100));
+    let mCostExp = Math.floor((S.metalAmount || 0) * (_tempNightConfig.expeditionPercent / 100));
+    let cCostExp = Math.floor(S.civLevel * (_tempNightConfig.expeditionPercent / 100));
+
+    if (_tempNightConfig.cometHours > 0 && (S.metalAmount < mCostComet || S.dust < dCostComet)) {
+      toast('Ошибка', 'Не хватает на комету');
+      _tempNightConfig.cometHours = 0;
+      mCostComet = 0; dCostComet = 0;
+    }
+    if (_tempNightConfig.expeditionPercent > 0 && (eCostExp <= 0 || mCostExp <= 0 || cCostExp <= 0)) {
+      toast('Ошибка', 'Не хватает на экспедицию');
+      _tempNightConfig.expeditionPercent = 0;
+      eCostExp = 0; mCostExp = 0; cCostExp = 0;
+    }
+
+    // Списываем
+    if (mCostComet > 0) { S.metalAmount -= mCostComet; S.dust -= dCostComet; }
+    if (eCostExp > 0) { S.energy -= eCostExp; S.metalAmount -= mCostExp; S.civLevel -= cCostExp; }
+
+    S.nightConfig = JSON.parse(JSON.stringify(_tempNightConfig));
+    _tempNightConfig = null;
+    
+    saveGame();
+    document.getElementById('modal').classList.remove('show');
+    
+    let totalCostText = '';
+    if (mCostComet > 0) totalCostText += `Комета: ${mCostComet}⚙ ${fmt(dCostComet)}✦. `;
+    if (eCostExp > 0) totalCostText += `Экспедиция: ${eCostExp}⚡ ${mCostExp}⚙ ${cCostExp}🧬. `;
+    
+    if (totalCostText) {
+      toast('🌙 Ночной режим активирован', 'Списано: ' + totalCostText);
+    } else {
+      toast('🌙 Настройки сохранены', 'Ресурсы на миссии не списаны');
+    }
   }
 }
-window.updatePrimeBadge = updatePrimeBadge;
+
+function cancelNightConfig() {
+  _tempNightConfig = null;
+  document.getElementById('modal').classList.remove('show');
+}
+
+function applyNightPreset(mode) {
+  if (!NIGHT_CFG.presets[mode] || !_tempNightConfig) return;
+  const p = NIGHT_CFG.presets[mode];
+  _tempNightConfig.mode = mode;
+  _tempNightConfig.defenseEnabled = p.defense > 0;
+  _tempNightConfig.cometHours = p.cometHours;
+  _tempNightConfig.expeditionPercent = p.expPercent;
+  openNightMode();
+}
+
+function toggleNightDefense() {
+  if (!_tempNightConfig) return;
+  _tempNightConfig.defenseEnabled = !_tempNightConfig.defenseEnabled;
+  openNightMode();
+}
+
+function setNightComet(hours) {
+  if (!_tempNightConfig) return;
+  _tempNightConfig.cometHours = parseInt(hours) || 0;
+  _tempNightConfig.mode = 'custom';
+  openNightMode();
+}
+
+function setNightExpedition(pct) {
+  if (!_tempNightConfig) return;
+  _tempNightConfig.expeditionPercent = parseInt(pct) || 0;
+  _tempNightConfig.mode = 'custom';
+  openNightMode();
+}
+
+function activateNightDefense(lvl) {
+  const cost = INVASION_CFG.defenseCost[lvl];
+  if ((S.metalAmount || 0) < cost) {
+    toast('Не хватает металла', 'Нужно ' + cost + ' ⚙');
+    return;
+  }
+  S.metalAmount -= cost;
+  S.nightDefenseLevel = lvl;
+  S.nightDefenseExpiresAt = Date.now() + 24 * 3600 * 1000;
+  if (_tempNightConfig) _tempNightConfig.defenseEnabled = true;
+  S.nightConfig.defenseEnabled = true;
+  
+  toast('🛡 Оборона активирована', 'Ур.' + lvl + ' на 24 ч');
+  saveGame();
+  updateUI();
+  openNightMode();
+}
+
+// Экспорт
+window.updatePrimeBadge = function() {};
 window.fmt = fmt;
 window.fmtTime = fmtTime;
 window.toast = toast;
@@ -648,35 +889,12 @@ window.initUI = initUI;
 window.openStorageModal = openStorageModal;
 window.pourStorage = pourStorage;
 window.buyStorageWithStars = buyStorageWithStars;
-
-// ─── Вспышка Сверхновой (визуальный эффект) ─────────────────────
-function triggerSupernovaFlash() {
-  // Создаем белый flash эффект
-  const flash = document.createElement('div');
-  flash.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: white;
-    opacity: 0;
-    pointer-events: none;
-    z-index: 9999;
-  `;
-  document.body.appendChild(flash);
-  
-  // Анимация вспышки
-  flash.animate([
-    { opacity: 0 },
-    { opacity: 1 },
-    { opacity: 0 }
-  ], {
-    duration: 500,
-    easing: 'ease-out'
-  }).onfinish = function() {
-    flash.remove();
-  };
-}
-
 window.triggerSupernovaFlash = triggerSupernovaFlash;
+window.openNightMode = openNightMode;
+window.saveNightConfig = saveNightConfig;
+window.cancelNightConfig = cancelNightConfig;
+window.applyNightPreset = applyNightPreset;
+window.toggleNightDefense = toggleNightDefense;
+window.setNightComet = setNightComet;
+window.setNightExpedition = setNightExpedition;
+window.activateNightDefense = activateNightDefense;

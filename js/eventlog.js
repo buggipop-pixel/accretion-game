@@ -166,7 +166,10 @@ function initEventLog() {
   if (typeof S.eventLogUnread !== 'number') S.eventLogUnread = 0;
 
   const btn = document.getElementById('eventBtn');
-  if (btn) btn.addEventListener('click', toggleEventLog);
+  if (btn) btn.addEventListener('click', function() {
+    if (typeof playSFX === 'function') playSFX('ui_click');
+    toggleEventLog();
+  });
 
   const modal = document.getElementById('eventLogModal');
   if (modal) {

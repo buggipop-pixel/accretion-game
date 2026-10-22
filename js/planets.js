@@ -483,6 +483,8 @@ function collidePlanets(a, b, decision) {
         dist: 2.2 + Math.random() * 0.8,
       });
       toast('🌙 Луна', 'Осколок стал спутником');
+      if (typeof playSFX === 'function') playSFX('sfx_merge');
+      if (typeof playSFX === 'function') playSFX('merge');
     }
 
     const sp = worldToScreen(wmx, wmy);
@@ -490,6 +492,8 @@ function collidePlanets(a, b, decision) {
       startAt: Date.now(), endAt: Date.now() + 1500,
       size: 30 + bigMass * 3 });
     toast('💥 Столкновение', '+' + fmt(refund) + ' пыли');
+    if (typeof playSFX === 'function') playSFX('sfx_explosion');
+    if (typeof playSFX === 'function') playSFX('explosion');
     if (typeof addEvent === 'function') {
       addEvent('planet_collision', 'Столкновение разрушило 2 планеты · +' + fmt(refund) + ' ✦');
     }
@@ -534,6 +538,8 @@ function collidePlanets(a, b, decision) {
     S.explosions.push({ x: sp.x, y: sp.y, type: 'merge',
       startAt: Date.now(), endAt: Date.now() + 1000, size: 40 });
     toast('🪐 Слияние', PLANET_TYPES[survivorType].name);
+    if (typeof playSFX === 'function') playSFX('sfx_merge');
+    if (typeof playSFX === 'function') playSFX('merge');
     if (typeof addEvent === 'function') {
       addEvent('planet_merge', 'Слияние → ' + PLANET_TYPES[survivorType].name);
     }

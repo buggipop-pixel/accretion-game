@@ -98,16 +98,12 @@
 
     <div class="toasts" id="toasts"></div>
 
-    <div class="test-buttons">
-      <button class="turbo" id="turbo" title="Turbo (тест)">🚀</button>
-      <button class="reset-btn" id="resetBtn" title="Сброс прогресса">⟲</button>
-    </div>
-
     <button id="backToGalaxyBtn" style="display:none; position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:10; background:rgba(107,77,230,0.85); border:1px solid rgba(185,168,255,0.5); color:#fff; padding:8px 16px; border-radius:12px; font-weight:bold; font-family:inherit; cursor:pointer;">🌌 В галактику</button>
     <div class="system-buttons">
       <button class="event-btn" id="eventBtn" title="Журнал событий">
         📜<span class="event-badge" id="eventBadge" style="display:none">0</span>
       </button>
+      <button class="event-btn" id="achBtn" title="Достижения">🏆</button>
       <button class="settings-btn" id="settingsBtn" title="Настройки">⚙</button>
       <button class="view3d-btn" id="view3dBtn" title="3D-обзор">🌐</button>
     </div>
@@ -120,7 +116,12 @@
     <div class="modal-card">
       <div class="modal-title">⚙ Настройки</div>
       <div class="modal-sub">Настрой интерфейс под себя</div>
-      
+            <button class="pour-btn" style="width:100%; margin-top:15px;" onclick="document.getElementById('settingsModal').classList.remove('show'); openNightMode();">
+        🌙 Ночной режим
+      </button>
+      <button class="pour-btn" style="width:100%; margin-top:8px;" onclick="document.getElementById('settingsModal').classList.remove('show'); openPremiumShop();">
+        ⚙ Магазин за металлы
+      </button>
       <div class="info-box" style="margin-top: 15px;">
         <!-- Яркость -->
         <div class="row-stat" style="align-items: center;">
@@ -140,6 +141,14 @@
       </button>
       
       <button class="pour-btn" style="width: 100%; margin-top: 10px;" onclick="document.getElementById('settingsModal').classList.remove('show');">
+        Закрыть
+      </button>
+    </div>
+  </div>
+  <div class="modal" id="achModal">
+    <div class="modal-card event-log-card">
+      <div class="ach-body" id="achBody"></div>
+      <button class="pour-btn" style="width: 100%; margin-top: 10px;" onclick="document.getElementById('achModal').classList.remove('show');">
         Закрыть
       </button>
     </div>
@@ -166,11 +175,14 @@
   <script src="js/lore.js"></script>
   <script src="js/prestige.js"></script>
   <script src="js/shop.js"></script>
+  <script src="js/audio.js"></script>
   <script src="js/anticheat.js"></script>
   <script src="js/prime.js"></script>
   <script src="js/view3d.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/premium.js"></script>
   <script src="js/eventlog.js"></script>
+  <script src="js/achievements.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

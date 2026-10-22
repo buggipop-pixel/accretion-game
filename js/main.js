@@ -11,13 +11,20 @@ let fullscreenRequested = false;
 function requestFullscreen() {
   if (fullscreenRequested) return;
   fullscreenRequested = true;
-  const el = document.documentElement;
-  setTimeout(function() {
-    try {
+  
+  const tg = window.Telegram && window.Telegram.WebApp;
+  try {
+    // Если мы в Telegram — запрашиваем фуллскрин через TG API
+    if (tg && tg.requestFullscreen && (!tg.isVersionAtLeast || tg.isVersionAtLeast('8.0'))) {
+      tg.requestFullscreen();
+    } 
+    // Для браузера
+    else {
+      const el = document.documentElement;
       if (el.requestFullscreen) el.requestFullscreen().catch(function() {});
       else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-    } catch (e) {}
-  }, 50);
+    }
+  } catch (e) {}
 }
 
 // ─── Защита от жестов ───────────────────────────────────────────
@@ -132,6 +139,11 @@ canvas.addEventListener('pointerdown', function(e) {
   }
 
   if (!fullscreenRequested) requestFullscreen();
+  if (typeof unlockAudio === 'function') unlockAudio();
+  if (typeof playSFX === 'function') playSFX('click');
+  if (typeof trackDaily === 'function') trackDaily('d_click', 1);
+  if (!S.stats) S.stats = {};
+  S.stats.clicks = (S.stats.clicks || 0) + 1;
   if (typeof tryHitInvasionShip === 'function') {
     const pos = getPointerPos(e);
     if (tryHitInvasionShip(pos.x, pos.y)) return;
@@ -544,6 +556,7 @@ function loopFrame(now) {
   if (typeof updateMissions === 'function') updateMissions(dt, time);
   if (typeof tickInvasions === 'function') tickInvasions(dt);
   if (typeof checkEvolution === 'function') checkEvolution();
+  if (typeof checkAchievements === 'function') checkAchievements();
   if (typeof tickProtostar === 'function') tickProtostar(dt);
 
   // Магазин систем — подсказка
@@ -623,15 +636,14 @@ function setupTelegram() {
     if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
     if (tg.setHeaderColor) tg.setHeaderColor('#02010a');
     if (tg.setBackgroundColor) tg.setBackgroundColor('#02010a');
-    if (tg.requestFullscreen && (!tg.isVersionAtLeast || tg.isVersionAtLeast('8.0'))) {
-      tg.requestFullscreen();
-    }
+    // Не вызываем requestFullscreen здесь — он требует жеста пользователя
   } catch (e) {}
 }
 
 // ─── Старт ──────────────────────────────────────────────────────
 function start() {
   setupTelegram();
+  if (typeof initAudio === 'function') initAudio();
   loadGame();
   if (typeof acInit === 'function') acInit();
   resize();
@@ -639,9 +651,11 @@ function start() {
   initUI();
   if (typeof initPrestige === 'function') initPrestige();
   if (typeof initEventLog === 'function') initEventLog();
+  if (typeof checkDailyReset === 'function') checkDailyReset();
+  if (typeof checkAchievements === 'function') checkAchievements();
 
   const offline = applyOfflineProgress();
-  if (offline && (offline.dustEarned > 0 || offline.energyEarned > 0 || offline.civEarned > 0)) {
+  if (offline) {
     const h = Math.floor(offline.seconds / 3600);
     const m = Math.floor((offline.seconds % 3600) / 60);
     const ts = h > 0 ? h + ' ч ' + m + ' мин' : m + ' мин';
@@ -650,12 +664,22 @@ function start() {
     if (offline.dustEarned > 0) parts.push('+' + fmt(offline.dustEarned) + ' ✦');
     if (offline.energyEarned > 0) parts.push('+' + fmt(offline.energyEarned) + ' ⚡');
     if (offline.civEarned > 0) parts.push('+' + fmt(offline.civEarned) + ' 🧬');
+    if (offline.cometEarned > 0) parts.push('☄️ +' + fmt(offline.cometEarned) + ' ✦');
+    if (offline.expEarned > 0) parts.push('🚀 +' + fmt(offline.expEarned) + ' ✦');
 
     setTimeout(function() {
-      toast('Офлайн за ' + ts, parts.join(' · '));
+      if (offline.nightEnded) {
+        let msg = 'Ночной режим завершён. ';
+        if (offline.cometEarned > 0 || offline.expEarned > 0) msg += 'Миссии вернулись с частью наград. ';
+        if (offline.invasionLost > 0) msg += '⚠️ Потеряно объектов из-за старых вторжений: ' + offline.invasionLost + '. ';
+        if (parts.length > 0) msg += parts.join(' · ');
+        toast('☀️ Доброе утро!', msg);
+      } else if (parts.length > 0) {
+        toast('Офлайн за ' + ts, parts.join(' · '));
+      }
     }, 500);
 
-    if (typeof logOfflineIncome === 'function') {
+    if (typeof logOfflineIncome === 'function' && offline.dustEarned > 0) {
       logOfflineIncome(offline.seconds, offline.dustEarned);
     }
   }

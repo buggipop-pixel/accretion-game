@@ -167,11 +167,16 @@ function launchComet(sizePct) {
   toast('☄️ Комета запущена',
     'Размер: ' + Math.round(sizePct * 100) + '% · возврат через ' +
     fmtTime(flightMs / 1000));
+  if (typeof playSFX === 'function') playSFX('sfx_comet');
   if (typeof addEvent === 'function') {
     addEvent('comet_spawn',
       'Запущена комета (' + Math.round(sizePct * 100) + '%) · возврат через ' +
       fmtTime(flightMs / 1000));
   }
+  if (typeof trackDaily === 'function') trackDaily('d_dust', 100000); // Условно
+  if (!S.stats) S.stats = {};
+  S.stats.comets = (S.stats.comets || 0) + 1;
+  if (typeof checkAchievements === 'function') checkAchievements();
   return true;
 }
 
@@ -252,13 +257,19 @@ function launchExpedition() {
     reward: reward, fail: Math.random() < cfg.expeditionFailChance,
     hasColony: Math.random() < cfg.colonyChance,
   });
+    // Трофейный контракт при успешной экспедиции (ролл при возврате)
+  MISS.expeditions[MISS.expeditions.length - 1].nightMode = (S.nightConfig && S.nightConfig.mode) || 'balanced';
     toast('🚀 Экспедиция запущена',
     'Возврат через ' + fmtTime(flightMs / 1000) +
     ' · цена ' + fmt(check.cost) + '⚡');
+  if (typeof playSFX === 'function') playSFX('sfx_expedition');
   if (typeof addEvent === 'function') {
     addEvent('comet_spawn',
       'Запущена экспедиция · возврат через ' + fmtTime(flightMs / 1000));
   }
+  if (!S.stats) S.stats = {};
+  S.stats.expeditions = (S.stats.expeditions || 0) + 1;
+  if (typeof checkAchievements === 'function') checkAchievements();
   return true;
 }
 
@@ -327,6 +338,7 @@ function updateMissions() {
       } else {
         S.dust += c.reward; S.dustTotal += c.reward;
         toast('☄️ Комета вернулась', '+' + fmt(c.reward));
+        if (typeof playSFX === 'function') playSFX('sfx_comet');
         if (typeof addEvent === 'function') addEvent('comet_arrive', 'Комета вернулась · +' + fmt(c.reward) + ' ✦');
       }
       MISS.comets.splice(i, 1);
@@ -341,9 +353,12 @@ function updateMissions() {
       } else {
         S.dust += e.reward; S.dustTotal += e.reward;
         toast('🚀 Экспедиция вернулась', '+' + fmt(e.reward));
+        if (typeof playSFX === 'function') playSFX('sfx_system_form');
         if (typeof addEvent === 'function') addEvent('comet_arrive', 'Экспедиция вернулась · +' + fmt(e.reward) + ' ✦');
         if (e.hasColony) setTimeout(offerColony, 800);
       }
+      // Ролл на трофейный контракт
+        tryRollTrophy(e.nightMode || 'balanced');
       MISS.expeditions.splice(i, 1);
     }
   }
@@ -353,10 +368,24 @@ function updateMissions() {
 function openMissionDialog() {
   const cometCheck = canLaunchComet();
   const expCheck = canLaunchExpedition();
-  if (!cometCheck.ok && !expCheck.ok) {
-    toast('Миссии недоступны', cometCheck.reason || expCheck.reason || '');
+
+  // Проверяем, есть ли вообще планеты, способные запускать миссии
+  let hasCapablePlanet = false;
+  for (let i = 0; i < S.planets.length; i++) {
+    const pt = PLANET_TYPES[S.planets[i].type];
+    if (S.planets[i].type === 'iceGiant' || (pt && pt.civ)) {
+      hasCapablePlanet = true;
+      break;
+    }
+  }
+
+  if (!hasCapablePlanet) {
+    toast('Миссии недоступны', 'Нужны ледяные гиганты или обитаемые планеты');
     return;
   }
+
+  // Если планеты есть, но ресурсов не хватает — всё равно открываем модалку,
+  // чтобы игрок видел причину (кнопки будут disabled с текстом стоимости)
   const choices = [
     {
       id: 'comet', name: 'Комета',
@@ -385,32 +414,40 @@ function openMissionDialog() {
 function renderMissionButtons() {
   const container = document.getElementById('missionButtons');
   if (!container) return;
+
   const cometCheck = canLaunchComet();
   const expCheck = canLaunchExpedition();
+
+  // Проверяем, есть ли хоть одна планета для миссий
+  let hasCapablePlanet = false;
+  for (let i = 0; i < S.planets.length; i++) {
+    const pt = PLANET_TYPES[S.planets[i].type];
+    if (S.planets[i].type === 'iceGiant' || (pt && pt.civ)) {
+      hasCapablePlanet = true;
+      break;
+    }
+  }
+
   let html = '';
 
   // ★ Единая кнопка миссий
-  const hasComet = cometCheck.ok;
-  const hasExp = expCheck.ok;
-
-  if (hasComet || hasExp) {
+  if (hasCapablePlanet) {
+    // Кнопка активна, даже если ресурсов нет. Показываем подсказку.
+    const allReady = cometCheck.ok || expCheck.ok;
     html += '<button class="mission-btn missions" data-action="missions">' +
       '<div class="mb-icon">🚀</div><div>Миссии</div>' +
-      '<div class="mb-cost">Доступны</div></button>';
+      '<div class="mb-cost">' + (allReady ? 'Доступны' : 'Мало ресурсов') + '</div></button>';
   } else {
-    let reason = 'Нет доступных';
-    // Показываем причину, если она не связана с отсутствием планет
-    if (!hasComet && !hasExp) reason = 'Нет планет';
-    else if (!hasComet) reason = cometCheck.reason;
-    else if (!hasExp) reason = expCheck.reason;
-
+    // Нет подходящих планет вообще
     html += '<button class="mission-btn disabled" disabled>' +
       '<div class="mb-icon">🚀</div><div>Миссии</div>' +
-      '<div class="mb-cost">' + reason + '</div></button>';
+      '<div class="mb-cost">Нет подходящих планет</div></button>';
   }
 
-  // ─── Магазин систем (фаза «Галактика») ───
-  if (S.stage === 'galaxy' && typeof systemShopCosts === 'function') {
+  // ─── Магазин систем (фаза «Галактика» или заполненная фаза «Система») ───
+  const canBuySystems = (S.stage === 'galaxy') || (S.stage === 'system' && S.planets.length >= 8);
+
+  if (canBuySystems && typeof systemShopCosts === 'function') {
     const shopCosts = systemShopCosts();
     const canBuy = S.dust >= shopCosts.dust;
     if (canBuy) {
@@ -449,7 +486,159 @@ function renderMissionButtons() {
     document.addEventListener('DOMContentLoaded', attach);
   } else { attach(); }
 })();
+// ═══════════════════════════════════════════════════════════════
+//  ТРОФЕЙНЫЕ КОНТРАКТЫ
+// ═══════════════════════════════════════════════════════════════
 
+function tryRollTrophy(nightMode) {
+  const chance = TROPHY_CFG.dropChanceByMode[nightMode] || TROPHY_CFG.dropChanceByMode.default;
+  if (Math.random() >= chance) return null;
+  const contract = generateTrophy();
+  if (!contract) return null;
+  grantTrophy(contract);
+  return contract;
+}
+window.tryRollTrophy = tryRollTrophy;
+
+function rollRarity() {
+  const weights = TROPHY_CFG.rarityWeights;
+  const r = Math.random();
+  let acc = 0;
+  for (const key in weights) {
+    acc += weights[key];
+    if (r < acc) return key;
+  }
+  return 'common';
+}
+
+function generateTrophy() {
+  const rarity = rollRarity();
+  const rw = TROPHY_CFG.rewards[rarity];
+  if (!rw) return null;
+
+  const id = Math.random().toString(36).slice(2);
+  const createdAt = Date.now();
+
+  // Случайный тип награды
+  const types = [];
+  if (rw.systemDiscount) types.push('system_discount');
+  if (rw.systemFree) types.push('system_free');
+  if (rw.shieldHours) types.push('shield');
+  if (rw.defenseDiscount) types.push('defense_discount');
+  if (rw.freeDefenseLevel) types.push('defense_level');
+
+  if (types.length === 0) return null;
+  const type = types[Math.floor(Math.random() * types.length)];
+
+  let value = 0;
+  if (type === 'system_discount') {
+    value = rw.systemDiscount[0] + Math.random() * (rw.systemDiscount[1] - rw.systemDiscount[0]);
+  } else if (type === 'shield') {
+    value = Math.floor(rw.shieldHours[0] + Math.random() * (rw.shieldHours[1] - rw.shieldHours[0] + 1));
+  } else if (type === 'defense_discount') {
+    value = rw.defenseDiscount[0] + Math.random() * (rw.defenseDiscount[1] - rw.defenseDiscount[0]);
+  } else if (type === 'defense_level') {
+    value = Math.floor(rw.freeDefenseLevel[0] + Math.random() * (rw.freeDefenseLevel[1] - rw.freeDefenseLevel[0] + 1));
+  } else if (type === 'system_free') {
+    value = 1;
+  }
+
+  return { id, type, rarity, value, createdAt };
+}
+
+function grantTrophy(contract) {
+  if (!S.trophyContracts) S.trophyContracts = [];
+
+  const labels = {
+    system_discount: '🎫 Скидка ' + Math.round(contract.value * 100) + '% на систему',
+    system_free: '🎫 Бесплатное основание системы',
+    shield: '🎫 Щит на ' + contract.value + ' ч',
+    defense_discount: '🎫 Скидка ' + Math.round(contract.value * 100) + '% на апгрейд обороны',
+    defense_level: '🎫 Автооборона Ур.' + contract.value + ' на 12 ч',
+  };
+
+  // Временные эффекты (щит, оборона) активируются сразу
+  if (contract.type === 'shield') {
+    const hours = contract.value;
+    const until = Date.now() + hours * 3600 * 1000;
+    if (!S.shieldUntil || S.shieldUntil < until) S.shieldUntil = until;
+    if (!S.activeTrophyEffects) S.activeTrophyEffects = [];
+    S.activeTrophyEffects.push({ type: 'shield', value: hours, expiresAt: until });
+    toast('🎫 Трофей: Щит', 'Активен ' + hours + ' ч');
+  } else if (contract.type === 'defense_level') {
+    const hours = (contract.rarity === 'epic') ? 24 : 12;
+    const until = Date.now() + hours * 3600 * 1000;
+    if (!S.activeTrophyEffects) S.activeTrophyEffects = [];
+    S.activeTrophyEffects.push({ type: 'defense_level', value: contract.value, expiresAt: until });
+    toast('🎫 Трофей: Оборона Ур.' + contract.value, 'Активна ' + hours + ' ч');
+  } else {
+    // Скидки — копятся
+    S.trophyContracts.push(contract);
+    toast(labels[contract.type] || '🎫 Трофей', 'Используется в магазине');
+  }
+
+  if (typeof saveGame === 'function') saveGame();
+}
+window.grantTrophy = grantTrophy;
+
+// Получить активную скидку на систему (макс. из всех контрактов)
+function getActiveSystemDiscount() {
+  if (!S.trophyContracts) return 0;
+  let max = 0;
+  for (let i = 0; i < S.trophyContracts.length; i++) {
+    const c = S.trophyContracts[i];
+    if (c.type === 'system_free') return 1.0;
+    if (c.type === 'system_discount' && c.value > max) max = c.value;
+  }
+  return max;
+}
+window.getActiveSystemDiscount = getActiveSystemDiscount;
+
+// Израсходовать контракт на систему
+function consumeSystemContract() {
+  if (!S.trophyContracts) return 0;
+  for (let i = 0; i < S.trophyContracts.length; i++) {
+    const c = S.trophyContracts[i];
+    if (c.type === 'system_free') {
+      S.trophyContracts.splice(i, 1);
+      return 1.0;
+    }
+  }
+  for (let i = 0; i < S.trophyContracts.length; i++) {
+    const c = S.trophyContracts[i];
+    if (c.type === 'system_discount') {
+      S.trophyContracts.splice(i, 1);
+      return c.value;
+    }
+  }
+  return 0;
+}
+window.consumeSystemContract = consumeSystemContract;
+
+// Получить скидку на апгрейд обороны
+function getDefenseDiscount() {
+  if (!S.trophyContracts) return 0;
+  let max = 0;
+  for (let i = 0; i < S.trophyContracts.length; i++) {
+    const c = S.trophyContracts[i];
+    if (c.type === 'defense_discount' && c.value > max) max = c.value;
+  }
+  return max;
+}
+window.getDefenseDiscount = getDefenseDiscount;
+
+function consumeDefenseContract() {
+  if (!S.trophyContracts) return 0;
+  for (let i = 0; i < S.trophyContracts.length; i++) {
+    const c = S.trophyContracts[i];
+    if (c.type === 'defense_discount') {
+      S.trophyContracts.splice(i, 1);
+      return c.value;
+    }
+  }
+  return 0;
+}
+window.consumeDefenseContract = consumeDefenseContract;
 window.updateMissions = updateMissions;
 window.renderMissionButtons = renderMissionButtons;
 window.canLaunchComet = canLaunchComet;

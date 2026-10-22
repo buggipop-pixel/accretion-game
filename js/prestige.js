@@ -225,6 +225,11 @@ function performSupernova(level) {
     galaxyForm: GALAXY_FORMS[(GALAXY_FORMS.indexOf(S.galaxyForm || 'spiral') + 1) % GALAXY_FORMS.length],
     achievements: S.achievements || [],
     metalAmount: Math.floor((S.metalAmount || 0) * 0.5),
+    unlockedAch: S.unlockedAch || {},
+    stats: S.stats || {},
+    dailyProgress: S.dailyProgress || {},
+    dailyClaimed: S.dailyClaimed || {},
+    lastDailyReset: S.lastDailyReset || 0,
     prestigeLevel: level,
     storageLevels: Object.assign({ dust: 1, energy: 1, civ: 1 }, S.storageLevels),
     storageProgress: Object.assign({ dust: 0, energy: 0, civ: 0 }, S.storageProgress),
@@ -282,6 +287,7 @@ function performSupernova(level) {
   // 11. Визуал и логи
   if (typeof triggerSupernovaFlash === 'function') triggerSupernovaFlash();
   if (typeof logPrestige === 'function') logPrestige(S.galaxies, S.galaxyMultiplier);
+  if (typeof playSFX === 'function') playSFX('sfx_prestige');
 
   // ★ Задерживаем сброс до анимации
   setTimeout(() => {

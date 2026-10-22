@@ -11,7 +11,12 @@
 function systemShopCosts() {
   const cfg = SYSTEM_SHOP_CFG || {};
   const systemsOwned = Math.max(0, (S.systems || 1) - 1);
-  const dust = systemCost(systemsOwned);
+  let dust = systemCost(systemsOwned);
+  // Трофейный контракт — скидка
+  if (typeof getActiveSystemDiscount === 'function') {
+    const disc = getActiveSystemDiscount();
+    if (disc > 0) dust = Math.floor(dust * (1 - Math.min(1, disc)));
+  }
   return {
     dust: dust,
     energy: Math.max(1000, Math.floor(getResourceCap('energy') * (cfg.energyCapShare || 0.5))),
@@ -162,7 +167,8 @@ function createSystemFromShop() {
 
   // Ресурсы уже списаны при вкладе — обнуляем шкалы
   S.systemShopProgress = { dust: 0, energy: 0, civ: 0 };
-
+  // Трофейный контракт — расходуем
+  if (typeof consumeSystemContract === 'function') consumeSystemContract();
   if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) {
     S.otherSystems[0] = null;   // слот 0 — родная система
   }
@@ -171,11 +177,20 @@ function createSystemFromShop() {
   S.systems++;
   S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
 
+  // ★ Пятая система — переход в фазу Галактики (открывается Престиж).
+  if (S.systems >= 5 && S.stage === 'system') {
+    S.stage = 'galaxy';
+    setTimeout(function() {
+      toast('🌌 Галактика сформирована', 'Теперь доступен Престиж!');
+    }, 1000);
+  }
+
   const flavorNames = { colony: 'обитаемая', gas: 'газовая', ice: 'ледяная' };
   toast('🌌 Система основана',
     newSys.name + ' · ' + STAR_TYPES[newSys.starType].name + ' · ' +
     flavorNames[flavor] +
     (outcome.incomeBonus > 0 ? ' · доход +' + Math.round(outcome.incomeBonus * 100) + '%' : ''));
+  if (typeof playSFX === 'function') playSFX('sfx_system_form');
 
   // Автопереход на новую систему
     if (typeof switchToSystem === 'function') switchToSystem(newIdx);

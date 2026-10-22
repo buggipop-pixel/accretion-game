@@ -6,6 +6,7 @@ let evolutionModalOpen = false;
 let evolutionSuppressUntil = 0;
 let _protostarTimerStart = 0;
 let _protostarTimerActive = false;
+let _systemFullNotified = false;
 
 // ─── Проверка перехода ──────────────────────────────────────────
 function checkEvolution() {
@@ -20,7 +21,16 @@ function checkEvolution() {
   if (modal && modal.classList.contains('show')) return;
 
   if (S.stage === 'system') {
-    if (S.planets.length >= 8) { openEvolution(); return; }
+    if (S.planets.length >= 8) {
+      // ★ Система заполнена: фазу НЕ меняем — расширение через магазин систем.
+      //   Подсказку показываем один раз, чтобы не спамить каждый кадр.
+      if (!_systemFullNotified) {
+        _systemFullNotified = true;
+        toast('Система сформирована', 'Пора расширяться — купи новую систему');
+      }
+      return;
+    }
+    _systemFullNotified = false;
     if (!_canPlaceAnyPlanet()) return;
     if (S.dust >= currentGoal()) openEvolution();
     return;
@@ -113,6 +123,7 @@ function finishProtostar() {
   S.starType = starType;
 
   _ignitionFlash(starColor);
+  if (typeof playSFX === 'function') playSFX('sfx_star_ignite');
 
   if (typeof resetAllParticlesToSpiral === 'function') {
     resetAllParticlesToSpiral();
@@ -160,6 +171,7 @@ function closeEvolutionModal() {
   evolutionModalOpen = false;
   const modal = document.getElementById('modal');
   if (modal) modal.classList.remove('show');
+  if (typeof playSFX === 'function') playSFX('ui_close');
 }
 
 function tryMinigameFull(type, onSuccess, onFail) {
@@ -216,6 +228,11 @@ function _handlePlanetPlaced() {
   const wasFirst = (S.stage === 'firstPlanet');
   const preferred = (typeof MG !== 'undefined' && MG.result) ? MG.result : 'rocky';
   const placedType = addPlanet(preferred);
+  if (placedType) {
+    if (typeof trackDaily === 'function') trackDaily('d_planet', 1);
+    if (!S.stats) S.stats = {};
+    S.stats.planets = (S.stats.planets || 0) + 1;
+  }
   closeEvolutionModal();
 
   if (wasFirst && placedType) {
@@ -231,6 +248,7 @@ function _handlePlanetPlaced() {
   } else {
     toast(PLANET_TYPES[placedType].name + ' сформирована', 'Новая планета в системе');
     if (typeof logPlanetFormed === 'function') logPlanetFormed(PLANET_TYPES[placedType].name);
+    if (typeof playSFX === 'function') playSFX('sfx_planet_form');
   }
 }
 
@@ -277,6 +295,8 @@ function openEvolution() {
 
   if (stage === 'cloud') {
     S.stage = 'condense';
+    if (typeof playSFX === 'function') playSFX('sfx_evolution');
+    if (typeof playSFX === 'function') playSFX('evolution');
     S.phaseProgress.cloud = 0;
     closeEvolutionModal();
     showLoreCard('condense', function() {
@@ -289,6 +309,7 @@ function openEvolution() {
 
   if (stage === 'condense') {
     S.stage = 'protostar';
+    if (typeof playSFX === 'function') playSFX('sfx_evolution');
     S.phaseProgress.condense = 0;
     S.protostarHeat = 0.2;
     closeEvolutionModal();
@@ -309,10 +330,8 @@ function openEvolution() {
   if (stage === 'system') {
     if (S.planets.length >= 8) {
       closeEvolutionModal();
-      S.stage = 'galaxy';
-      if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) {
-        S.otherSystems[0] = null;
-      }
+      // ★ Не меняем фазу на 'galaxy' — просто сообщаем игроку.
+      //   Фаза VI наступит только после покупки 5-й системы (js/shop.js).
       setTimeout(function() {
         toast('Система сформирована', 'Пора расширяться — купи новую систему');
       }, 500);

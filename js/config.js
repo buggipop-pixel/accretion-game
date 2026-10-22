@@ -14,16 +14,18 @@ const CFG = {
     // ─── Экономика фаз IV–VI ───
     // Фиксированные капы в пыли (не зависят от дохода).
     // Скорость накопления зависит от качества систем.
-    //   planetCost(n) = 80000 × 2^n
-    //     80K, 160K, 320K, 640K, 1.28M, 2.56M, 5.12M, 10.24M
-    //   systemCost(n) = 30M × 2^n
-    //     30M, 60M, 120M, 240M (для 2,3,4,5 систем)
-    planetBaseCost: 80000,
+    //   planetCost(n) = 700000 × 2^n
+    // ★ Стоимость планет: 700K, 1.4M, 2.8M, 5.6M, 11.2M, 22.4M, 44.8M, 89.6M
+    // Сумма на все 8 планет ~ 178M пыли.
+    planetBaseCost: 700000,
     planetCostGrowth: 2.0,
 
-    systemBaseCost: 30000000,
+    //   systemCost(n) = 40M × 2^n
+    // ★ Стоимость систем: 40M, 80M, 160M, 320M.
+    // Сумма на 4 новые системы ~ 600M пыли.
+    systemBaseCost: 40000000,
     systemGrowth: 2.0,
-    systemCostMin: 30000000,
+    systemCostMin: 40000000,
 
     // Множитель дохода от количества систем (было ×0.5 — стало ×1.0)
     // 5 систем → ×5 к доходу всей галактики
@@ -320,28 +322,117 @@ function getAllowedOrbitsForType(starType, planetType) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  ВТОРЖЕНИЯ — двухфазная атака
-//  Фаза 1: грабёж пыли (45 минут)
-//  Фаза 2: уничтожение планеты (15 минут)
-//  Общая длительность: 1 час
+//  ВТОРЖЕНИЯ — трёхуровневая система сложности
 // ═══════════════════════════════════════════════════════════════
 const INVASION_CFG = {
-  intervalMin: 20 * 60 * 1000,      // 20 минут
-  intervalMax: 40 * 60 * 1000,      // 40 минут
-  chance: 0.6,                       // 60% шанс
+  intervalMin: 20 * 60 * 1000,
+  intervalMax: 40 * 60 * 1000,
+  chance: 0.6,
 
-  shipsBase: 3,                      // Базовое число кораблей
-  shipsMax: 5,                       // Максимум
+  robberyDuration: 45 * 60 * 1000,
+  destructionDuration: 15 * 60 * 1000,
+  totalDuration: 60 * 60 * 1000,
 
-  robberyDuration: 45 * 60 * 1000,      // 45 минут грабежа
-  destructionDuration: 15 * 60 * 1000,  // 15 минут уничтожения
-  totalDuration: 60 * 60 * 1000,        // 1 час всего
+  robberyMultiplier: 4,
+  planetMaxHP: 100,
+  hitRadius: 20,
 
-  robberyMultiplier: 4,              // dustPerSec × 4 × корабли в секунду
-  planetMaxHP: 100,                  // HP планеты
-  hitRadius: 20,                     // Радиус клика по кораблю (px)
+  // ★ Три уровня сложности
+  tiers: {
+    scout:  { weight: 0.60, baseChance: 0.70, planets: 1, energyDrain: 0.03, civDrain: 0.05, lootMult: 1.0, chanceCap: 0.90, label: 'Разведка' },
+    raid:   { weight: 0.30, baseChance: 0.50, planets: 2, energyDrain: 0.06, civDrain: 0.10, lootMult: 1.5, chanceCap: 0.80, label: 'Рейд' },
+    siege:  { weight: 0.10, baseChance: 0.25, planets: 3, energyDrain: 0.10, civDrain: 0.15, lootMult: 2.5, chanceCap: 0.65, label: 'Осада' },
+  },
+
+  resourceThresholdShare: 0.25,   // 25% капа для полного ресурсного фактора
+
+  // ★ Автооборона
+  defenseBonusBase: 6,            // bonus = 6 * level^0.8
+  defenseBonusExp: 0.8,
+  defenseDrainReduction: 0.05,    // 5% за уровень, макс 25%
+  defenseCost: [0, 300, 700, 1500, 3000, 6000],  // [0] не используется
+
+  // ★ Штраф за активную экспедицию
+  expeditionDefensePenalty: 0.15,
+
+  // ★ Офлайн-атаки
+  offlineAttackInterval: 2 * 60 * 60 * 1000,
+  offlineAttackMax: 5,
+  offlineAttackPerSystems: 3,
 };
 
+// ═══════════════════════════════════════════════════════════════
+//  НОЧНОЙ РЕЖИМ — 4 пресета
+// ═══════════════════════════════════════════════════════════════
+const NIGHT_CFG = {
+  lossCaps: {
+    cautious:    0.05,
+    balanced:    0.25,
+    aggressive:  0.50,
+    insane:      0.75,
+  },
+
+  damagePerHit: {
+    cautious:    { planets: 1, systems: 0 },
+    balanced:    { planets: 2, systems: 1 },
+    aggressive:  { planets: 3, systems: 2 },
+    insane:      { planets: 5, systems: 3 },
+  },
+
+  presets: {
+    cautious:     { defense: 5, cometHours: 0, expPercent: 0 },
+    balanced:     { defense: 3, cometHours: 3, expPercent: 30 },
+    aggressive:   { defense: 0, cometHours: 6, expPercent: 70 },
+    insane:       { defense: 0, cometHours: 8, expPercent: 100 },
+  },
+
+  expeditionDefensePenaltyMax: 0.30,
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  ТРОФЕЙНЫЕ КОНТРАКТЫ
+// ═══════════════════════════════════════════════════════════════
+const TROPHY_CFG = {
+  dropChanceByMode: {
+    cautious:    0.10,
+    balanced:    0.20,
+    aggressive:  0.35,
+    insane:      0.50,
+    default:     0.15,
+  },
+
+  rarityWeights: { common: 0.60, rare: 0.30, epic: 0.10 },
+
+  rewards: {
+    common: {
+      systemDiscount:   [0.30, 0.40],
+      shieldHours:      [1, 3],
+      defenseDiscount:  [0.25, 0.35],
+    },
+    rare: {
+      systemDiscount:   [0.45, 0.50],
+      shieldHours:      [4, 6],
+      freeDefenseLevel: [3, 4],
+      freeDefenseHours: 12,
+    },
+    epic: {
+      systemFree:       true,
+      shieldHours:      [8, 9],
+      freeDefenseLevel: [5, 5],
+      freeDefenseHours: 24,
+    },
+  },
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  ПРЕМИУМ (за металл)
+// ═══════════════════════════════════════════════════════════════
+const PREMIUM_CFG = {
+  shield: {
+    hours: 8,
+    costMetals: 1000,
+  },
+};
 // ═══════════════════════════════════════════════════════════════
 //  ПРЕСТИЖ (Сверхновая)
 // ═══════════════════════════════════════════════════════════════
@@ -489,10 +580,38 @@ const SYS_NAMES = ['Кентавра','Центавра','Ориона','Леб�
 const SYS_SUFFIXES = ['',' I',' II',' III',' IV',' V',' A',' B'];
 
 function generateSystemName() {
-  const prefix = SYS_PREFIXES[Math.floor(Math.random() * SYS_PREFIXES.length)];
-  const name = SYS_NAMES[Math.floor(Math.random() * SYS_NAMES.length)];
-  const suffix = SYS_SUFFIXES[Math.floor(Math.random() * SYS_SUFFIXES.length)];
-  return prefix + ' ' + name + suffix;
+  let generatedName = '';
+  let attempts = 0;
+  const maxAttempts = 100; // Защита от бесконечного цикла
+
+  while (attempts < maxAttempts) {
+    const prefix = SYS_PREFIXES[Math.floor(Math.random() * SYS_PREFIXES.length)];
+    const base = SYS_NAMES[Math.floor(Math.random() * SYS_NAMES.length)];
+    const suffix = SYS_SUFFIXES[Math.floor(Math.random() * SYS_SUFFIXES.length)];
+    generatedName = prefix + ' ' + base + suffix;
+
+    let isDuplicate = false;
+
+    // Проверяем родную систему
+    if (typeof S !== 'undefined' && S.systemName === generatedName) {
+      isDuplicate = true;
+    }
+
+    // Проверяем другие системы
+    if (!isDuplicate && typeof S !== 'undefined' && S.otherSystems) {
+      for (let i = 0; i < S.otherSystems.length; i++) {
+        if (S.otherSystems[i] && S.otherSystems[i].name === generatedName) {
+          isDuplicate = true;
+          break;
+        }
+      }
+    }
+
+    if (!isDuplicate) break;
+    attempts++;
+  }
+
+  return generatedName;
 }
 
 // ─── Экспорт ────────────────────────────────────────────────────
@@ -520,3 +639,6 @@ window.planetMass = planetMass;
 window.planetDiameter = planetDiameter;
 window.STORAGE_CFG = STORAGE_CFG;
 window.SYSTEM_SHOP_CFG = SYSTEM_SHOP_CFG;
+window.NIGHT_CFG = NIGHT_CFG;
+window.TROPHY_CFG = TROPHY_CFG;
+window.PREMIUM_CFG = PREMIUM_CFG;

@@ -793,3 +793,28 @@ body.mg-active .toasts {
   border-color: #2eaa77 !important;
   color: #7ee0a8 !important;
 }
+
+/* ─── Достижения ─── */
+.ach-section { margin-bottom: 15px; }
+.ach-sec-title {
+  font-size: 11px; font-weight: 800; color: #b9a8ff;
+  text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;
+}
+.ach-item {
+  display: flex; justify-content: space-between; align-items: center;
+  background: rgba(15,10,32,.5); border: 1px solid rgba(139,127,212,.15);
+  border-radius: 10px; padding: 10px; margin-bottom: 6px;
+}
+.ach-item.unlocked { border-color: rgba(126, 224, 168, 0.3); background: rgba(126, 224, 168, 0.05); }
+.ach-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.ach-name { font-size: 12px; font-weight: 700; color: #e8e2ff; }
+.ach-item.unlocked .ach-name { color: #7ee0a8; }
+.ach-desc { font-size: 10px; color: #a89ce0; }
+.ach-prog { font-size: 10px; color: #8b7fd4; font-weight: 600; }
+.ach-btn {
+  background: rgba(107, 77, 230, 0.2); border: 1px solid rgba(139,127,212,.3);
+  color: #8b7fd4; padding: 6px 10px; border-radius: 8px; font-size: 11px; font-weight: 700; font-family: inherit;
+}
+.ach-btn.ready { background: linear-gradient(135deg, #6b4de6, #8b5cf6); color: #fff; border: none; cursor: pointer; }
+.ach-btn.claimed { background: transparent; border: none; color: #7ee0a8; font-size: 14px; }
+.ach-reward { font-size: 12px; font-weight: 700; color: #ffd700; }

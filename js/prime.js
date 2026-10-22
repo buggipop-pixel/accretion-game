@@ -30,6 +30,13 @@ function generatePrimeName() {
 function createPrimeSystem(objectKey) {
   const obj = PRIME_OBJECTS[objectKey];
   if (!obj) return null;
+  if (typeof playSFX === 'function') {
+    if (objectKey === 'pulsar') playSFX('sfx_pulsar');
+    else if (objectKey === 'blackHole' || objectKey === 'massiveBH' ||
+             objectKey === 'superBH' || objectKey === 'primeBH') playSFX('sfx_blackhole_hum');
+    else if (objectKey === 'wormhole') playSFX('sfx_wormhole');
+    else if (objectKey === 'quasar') playSFX('sfx_quasar');
+  }
   return {
     name: generatePrimeName(),
     objectKey: objectKey,

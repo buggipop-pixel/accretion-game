@@ -69,6 +69,13 @@ const S = {
   achievements: [],
   metalAmount: 0,
 
+  // ─── Достижения и ежедневные задания ───
+  unlockedAch: {},
+  stats: { comets: 0, expeditions: 0, invasionsDefeated: 0, clicks: 0, planets: 0, dailyClaims: 0 },
+  dailyProgress: {},
+  dailyClaimed: {},
+  lastDailyReset: 0,
+
   // ─── Таймеры ───
   lastTick: Date.now(),
   eventTimer: 0, collisionTimer: 0,
@@ -97,11 +104,25 @@ const S = {
   primeSystem: null,
   primeCandidates: [],
 
+  // ─── Автооборона и ночной режим ───
+  defenseLevel: 0,
+  nightDefenseLevel: 0,
+  nightDefenseExpiresAt: 0,
+  nightConfig: { mode: 'balanced', defenseEnabled: true, cometHours: 0, expeditionPercent: 0 },
+  trophyContracts: [],
+  activeTrophyEffects: [],
+  offlineAttacksDone: 0,
+  shieldUntil: 0,
+
   // ─── 3D-обзор ───
   viewMode: 'normal',   // normal | free | tour
   tiltX: 0,
   tiltY: 0,
-
+  // ─── Настройки ───
+  settings: {
+    brightness: 1.0,
+    sound: true,
+  },
   // ─── Визуал ───
   vis: { collapse: 0 },
 };
@@ -111,6 +132,8 @@ let isResetting = false;
 
 // ─── Сброс к начальным значениям ────────────────────────────────
 function resetStateValues() {
+  S.nightDefenseLevel = 0;
+  S.nightDefenseExpiresAt = 0;
   S.stage = 'cloud';
   S.phaseProgress = { cloud: 0, condense: 0, protostar: 0 };
   S.lastIgnitionQuality = 0.5;
@@ -131,6 +154,11 @@ function resetStateValues() {
   S.invasions = []; S.lastInvasionCheck = 0;
   S.prestigeLevel = 0; S.galaxies = 1; S.galaxyForm = 'spiral';
   S.galaxyMultiplier = 1; S.achievements = []; S.metalAmount = 0;
+  S.unlockedAch = {};
+  S.stats = { comets: 0, expeditions: 0, invasionsDefeated: 0, clicks: 0, planets: 0, dailyClaims: 0 };
+  S.dailyProgress = {};
+  S.dailyClaimed = {};
+  S.lastDailyReset = 0;
   S.seenLore = [];
   S.eventLog = [];
   S.eventLogUnread = 0;
@@ -138,6 +166,12 @@ function resetStateValues() {
   S.anticheat = { flags: 0, reasons: [], ts: 0, prestiges: [] };
   S.sessionStart = Date.now();
   S.primeCandidates = [];
+  S.defenseLevel = 0;
+  S.nightConfig = { mode: 'balanced', defenseEnabled: true, cometHours: 0, expeditionPercent: 0 };
+  S.trophyContracts = [];
+  S.activeTrophyEffects = [];
+  S.offlineAttacksDone = 0;
+  S.shieldUntil = 0;
   S.viewMode = 'normal';
   S.tiltX = 0;
   S.tiltY = 0;
@@ -152,6 +186,7 @@ function resetStateValues() {
   S.eventTimer = 0; S.collisionTimer = 0; S.gammaDebuff = 0;
   S.gasDensity = 1;
   S.activeMinigame = null;
+  S.settings = { brightness: 1.0, sound: true };
   S.vis = { collapse: 0 };
 }
 
@@ -232,20 +267,38 @@ function saveGame() {
       missions: S.missions, comets: S.comets, expeditions: S.expeditions,
       gasDensity: S.gasDensity,
       lastTick: S.lastTick,
+      settings: S.settings || { brightness: 1.0, sound: true },
       // Вторжения
       invasions: S.invasions, lastInvasionCheck: S.lastInvasionCheck,
       // Престиж
       prestigeLevel: S.prestigeLevel, galaxies: S.galaxies,
       galaxyForm: S.galaxyForm, galaxyMultiplier: S.galaxyMultiplier,
       achievements: S.achievements, metalAmount: S.metalAmount,
+      unlockedAch: S.unlockedAch || {},
+      stats: S.stats || {},
+      dailyProgress: S.dailyProgress || {},
+      dailyClaimed: S.dailyClaimed || {},
+      lastDailyReset: S.lastDailyReset || 0,
       // Обучающие карточки и миниигры
       seenLore: S.seenLore || [],
       eventLog: S.eventLog || [],
       eventLogUnread: S.eventLogUnread || 0,
       seenMinigame: S.seenMinigame || {},
-      // Античит и Прайм
+        // Античит и Прайм
       anticheat: S.anticheat || null,
       primeSystem: S.primeSystem || null,
+      defenseLevel: S.defenseLevel || 0,
+      nightConfig: S.nightConfig || { mode: 'balanced', defenseEnabled: true, cometHours: 0, expeditionPercent: 0 },
+      trophyContracts: S.trophyContracts || [],
+      activeTrophyEffects: S.activeTrophyEffects || [],
+      offlineAttacksDone: S.offlineAttacksDone || 0,
+      shieldUntil: S.shieldUntil || 0,
+      
+      // ★ ДОБАВИТЬ ВОТ ЭТИ ДВЕ СТРОКИ СЮДА:
+      nightDefenseLevel: S.nightDefenseLevel || 0,
+      nightDefenseExpiresAt: S.nightDefenseExpiresAt || 0,
+      // ★
+
       primeCandidates: S.primeCandidates || [],
       // MISS из missions.js
       missComets: (typeof MISS !== 'undefined') ? MISS.comets : [],
@@ -299,6 +352,19 @@ function loadGame() {
     if (!Array.isArray(S.achievements)) S.achievements = [];
     if (typeof S.metalAmount !== 'number') S.metalAmount = 0;
 
+    // Достижения и ежедневные задания
+    if (!S.unlockedAch || typeof S.unlockedAch !== 'object' || Array.isArray(S.unlockedAch)) S.unlockedAch = {};
+    if (!S.stats || typeof S.stats !== 'object' || Array.isArray(S.stats)) S.stats = {};
+    if (typeof S.stats.comets !== 'number') S.stats.comets = 0;
+    if (typeof S.stats.expeditions !== 'number') S.stats.expeditions = 0;
+    if (typeof S.stats.invasionsDefeated !== 'number') S.stats.invasionsDefeated = 0;
+    if (typeof S.stats.clicks !== 'number') S.stats.clicks = 0;
+    if (typeof S.stats.planets !== 'number') S.stats.planets = 0;
+    if (typeof S.stats.dailyClaims !== 'number') S.stats.dailyClaims = 0;
+    if (!S.dailyProgress || typeof S.dailyProgress !== 'object' || Array.isArray(S.dailyProgress)) S.dailyProgress = {};
+    if (!S.dailyClaimed || typeof S.dailyClaimed !== 'object' || Array.isArray(S.dailyClaimed)) S.dailyClaimed = {};
+    if (typeof S.lastDailyReset !== 'number') S.lastDailyReset = 0;
+
     // Лор и миниигры
     if (!Array.isArray(S.seenLore)) S.seenLore = [];
     if (!Array.isArray(S.eventLog)) S.eventLog = [];
@@ -309,11 +375,34 @@ function loadGame() {
     if (!S.anticheat) S.anticheat = { flags: 0, reasons: [], ts: 0, prestiges: [] };
     if (!Array.isArray(S.primeCandidates)) S.primeCandidates = [];
 
+    // Автооборона и ночной режим
+    if (typeof S.defenseLevel !== 'number') S.defenseLevel = 0;
+    S.defenseLevel = Math.max(0, Math.min(5, S.defenseLevel));
+    
+    if (!S.nightConfig || typeof S.nightConfig !== 'object') {
+      S.nightConfig = { mode: 'balanced', defenseEnabled: true, cometHours: 0, expeditionPercent: 0 };
+    }
+    if (typeof S.nightConfig.mode !== 'string') S.nightConfig.mode = 'balanced';
+    if (typeof S.nightConfig.defenseEnabled !== 'boolean') S.nightConfig.defenseEnabled = true;
+    if (typeof S.nightConfig.cometHours !== 'number') S.nightConfig.cometHours = 0;
+    if (typeof S.nightConfig.expeditionPercent !== 'number') S.nightConfig.expeditionPercent = 0;
+
+    // ★ Вот эти две строки мы добавили:
+    if (typeof S.nightDefenseLevel !== 'number') S.nightDefenseLevel = 0;
+    if (typeof S.nightDefenseExpiresAt !== 'number') S.nightDefenseExpiresAt = 0;
+
+    if (!Array.isArray(S.trophyContracts)) S.trophyContracts = [];
+    if (!Array.isArray(S.activeTrophyEffects)) S.activeTrophyEffects = [];
+    if (typeof S.offlineAttacksDone !== 'number') S.offlineAttacksDone = 0;
+    if (typeof S.shieldUntil !== 'number') S.shieldUntil = 0;
     // 3D-обзор
     if (typeof S.viewMode !== 'string') S.viewMode = 'normal';
     if (typeof S.tiltX !== 'number') S.tiltX = 0;
     if (typeof S.tiltY !== 'number') S.tiltY = 0;
     if (typeof S.sessionStart !== 'number') S.sessionStart = Date.now();
+    if (!S.settings) S.settings = { brightness: 1.0, sound: true };
+    if (typeof S.settings.brightness !== 'number') S.settings.brightness = 1.0;
+    if (typeof S.settings.sound !== 'boolean') S.settings.sound = true;
 
     // Магазин систем
     if (typeof S.systemIncomeBonus !== 'number') S.systemIncomeBonus = 0;
@@ -371,12 +460,10 @@ function loadGame() {
 
      // ★ Автокоррекция залипшего stage:
     //   - 'firstPlanet' с уже существующими планетами → 'system'
-    //   - 'system' с 8+ планетами → 'galaxy' (уже перешли)
+     //   - 'system' с 8+ планетами ОСТАЁТСЯ 'system'
+     //     (в 'galaxy' переходим только после покупки 5-й системы, js/shop.js)
     if (S.stage === 'firstPlanet' && S.planets && S.planets.length > 0) {
       S.stage = 'system';
-    }
-    if (S.stage === 'system' && S.planets && S.planets.length >= 8) {
-      S.stage = 'galaxy';
     }
     // ★ Старые сейвы: престиж уже был, но stage остался 'system' —
     // переключаем в мета-цикл (сборка планет отключена).
