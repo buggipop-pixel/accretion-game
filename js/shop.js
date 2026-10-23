@@ -6,13 +6,10 @@ function systemShopCosts() {
   const cfg = SYSTEM_SHOP_CFG || {};
   const systemsOwned = Math.max(0, (S.systems || 1) - 1);
   let dust = systemCost(systemsOwned);
-  
-  // Скидка от трофейного контракта
   if (typeof getActiveSystemDiscount === 'function') {
     const disc = getActiveSystemDiscount();
     if (disc > 0) dust = Math.floor(dust * (1 - Math.min(1, disc)));
   }
-  
   return {
     dust: dust,
     energy: Math.max(1000, Math.floor(getResourceCap('energy') * (cfg.energyCapShare || 0.5))),
@@ -93,51 +90,53 @@ function generateShopSystem(flavor, outcome) {
     systemShopAddPlanet(sys);
   }
   sys.incomeBonus = outcome.incomeBonus;
-  
-  // ★ РОЛЛ ПРАЙМ-ОБЪЕКТА
-  if (Math.random() < SYSTEM_SHOP_CFG.primeChance && typeof createPrimeSystem === 'function') {
-    const keys = Object.keys(PRIME_OBJECTS);
-    const pKey = keys[Math.floor(Math.random() * keys.length)];
-    sys.isPrime = true;
-    sys.primeData = createPrimeSystem(pKey);
-  }
-  
   return sys;
 }
 
 function createSystemFromShop() {
-  if (systemShopFill('dust') < 1) return false;
+  try {
+    const dustFill = systemShopFill('dust');
+    if (dustFill < 1) {
+      toast('Не хватает пыли', 'Шкала пыли должна быть заполнена на 100%');
+      return false;
+    }
 
-  const outcome = systemShopOutcome();
-  const roll = Math.random();
-  let flavor = 'ice';
-  if (roll < outcome.colony) flavor = 'colony';
-  else if (roll < outcome.colony + outcome.gas) flavor = 'gas';
+    const outcome = systemShopOutcome();
+    const roll = Math.random();
+    let flavor = 'ice';
+    if (roll < outcome.colony) flavor = 'colony';
+    else if (roll < outcome.colony + outcome.gas) flavor = 'gas';
 
-  const newSys = generateShopSystem(flavor, outcome);
-  S.systemShopProgress = { dust: 0, energy: 0, civ: 0 };
+    const newSys = generateShopSystem(flavor, outcome);
+    S.systemShopProgress = { dust: 0, energy: 0, civ: 0 };
 
-  if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) S.otherSystems[0] = null;
-  const newIdx = S.otherSystems.length;
-  S.otherSystems.push(newSys);
-  S.systems++;
-  S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
+    if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) S.otherSystems[0] = null;
+    const newIdx = S.otherSystems.length;
+    S.otherSystems.push(newSys);
+    S.systems++;
+    S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
 
-  if (S.systems >= 5 && S.stage === 'system') {
-    S.stage = 'galaxy';
-    setTimeout(function() { toast('🌌 Галактика сформирована', 'Теперь доступен Престиж!'); }, 1000);
+    if (S.systems >= 5 && S.stage === 'system') {
+      S.stage = 'galaxy';
+      setTimeout(function() { toast('🌌 Галактика сформирована', 'Теперь доступен Престиж!'); }, 1000);
+    }
+
+    let toastMsg = newSys.name + ' · ' + STAR_TYPES[newSys.starType].name;
+    toast('🌌 Система основана', toastMsg);
+    
+    if (typeof consumeSystemContract === 'function') consumeSystemContract();
+
+    if (typeof switchToSystem === 'function') switchToSystem(newIdx);
+    
+    document.getElementById('modal').classList.remove('show');
+    saveGame(); updateUI(); updateSystemSwitcher();
+    return true;
+    
+  } catch(e) {
+    alert('ОШИБКА ПРИ СОЗДАНИИ: ' + e.message);
+    console.error(e);
+    return false;
   }
-
-  let toastMsg = newSys.name + ' · ' + STAR_TYPES[newSys.starType].name;
-  if (newSys.isPrime) toastMsg += ' · 🌟 ПРАЙМ-ОБЪЕКТ!';
-  
-  toast('🌌 Система основана', toastMsg);
-  if (typeof consumeSystemContract === 'function') consumeSystemContract();
-
-  if (typeof switchToSystem === 'function') switchToSystem(newIdx);
-  document.getElementById('modal').classList.remove('show');
-  saveGame(); updateUI(); updateSystemSwitcher();
-  return true;
 }
 
 function cancelSystemCreation() {
@@ -187,10 +186,10 @@ function openSystemShop() {
       ${row('energy', '⚡', 'Энергия', costs.energy, 'Бонус: +' + out.extraPlanets + ' планет, +' + Math.round(out.incomeBonus * 100) + '%', S.energy)}
       ${row('civ', '🧬', 'Цивилизация', costs.civ, 'Шанс жизни: ' + Math.round(out.colony * 100) + '%', S.civLevel)}
     </div>
-    <div class="info-box">
-      <div class="row-stat"><span>Шанс Прайм-объекта:</span><span style="color:#ffcc55">${SYSTEM_SHOP_CFG.primeChance * 100}%</span></div>
-    </div>
-    ${dustOk ? `<button class="stars-btn" style="background:linear-gradient(135deg,#6b4de6,#b9a8ff);color:#fff;" onclick="createSystemFromShop()">🌌 Создать систему</button>` : `<div class="modal-sub" style="color:#ffb347;">Заполни шкалу пыли</div>`}
+    <button class="stars-btn" style="background:linear-gradient(135deg,#6b4de6,#b9a8ff);color:#fff; opacity:${dustOk ? '1' : '0.5'};" 
+      onclick="createSystemFromShop()">
+      🌌 Создать систему ${dustOk ? '' : '(Заполни пыль)'}
+    </button>
     <button class="pour-btn" style="width:100%;margin-top:10px;background:rgba(255,94,94,0.2);border-color:rgba(255,94,94,0.5);color:#ff8a8a;" onclick="cancelSystemCreation()">✕ Отмена</button>
   `;
   document.getElementById('modal').classList.add('show');

@@ -4,16 +4,54 @@
 // ═══════════════════════════════════════════════════════════════
 
 const CFG = {
-  // ─── Офлайн и симуляция ───
+  // ─── Общие настройки ───
   offlineCapHours: 8,
   offlineEfficiency: 1.0,
   offlineAttackMinSec: 3600,  // Офлайн-вторжения срабатывают только если игрок отсутствовал > 1 часа
+  eventInterval: 200,
+  eventChance: 0.5,
+  formationDuration: 600,     // Время формирования планеты после слияния (сек)
+  civGrowthPerPlanet: 0.02,   // Скорость роста цивилизации с одной планеты
+  civClickBoost: 0.0,
 
   // ─── Экономика планет и систем ───
   planetBaseCost: 700000, planetCostGrowth: 2.0,
   systemBaseCost: 40000000, systemGrowth: 2.0, systemCostMin: 40000000,
   systemIncomeMultPerSystem: 1.0,
   storageInstantStars: 50,
+
+  // ═════════════════════════════════════════════════════════════
+  //  АКТИВНЫЕ ФАЗЫ I–III (Восстановлено)
+  // ═════════════════════════════════════════════════════════════
+  activeBoost: {
+    cloud: {
+      vRef: 25, radialSpeed: 25,
+      holdBoost: 2.5, twistBoost: 1.0, twistThreshold: 999,
+      dustPerParticle: 1,
+    },
+    condense: {
+      vRef: 30, radialSpeed: 45,
+      holdBoost: 2.0, twistBoost: 3.5, twistScale: 0.7, twistThreshold: 0.05,
+      dustPerParticle: 2,
+      diskRadius: 40, diskWidth: 12, diskOrbitSec: 3,
+      diskSpinSpeed: 3.0, diskFormSec: 14,
+    },
+    protostar: {
+      vRef: 20, radialSpeed: 35,
+      dustPerParticle: 1,
+      diskRadius: 70, diskWidth: 20, diskOrbitSec: 5,
+      diskSpinSpeed: 6.0,
+      duration: 30,
+      heatDecayBase: 0.10, heatDecayAccel: 0.15, heatTapBoost: 0.09,
+      starThresholds: [
+        { q: 0.90, star: 'M', color: '#ff3030' },
+        { q: 0.70, star: 'B', color: '#5577ff' },
+        { q: 0.45, star: 'K', color: '#ff9944' },
+        { q: 0.25, star: 'A', color: '#ccccff' },
+        { q: 0.00, star: 'G', color: '#ffcc55' },
+      ],
+    },
+  },
 };
 
 // ─── ХРАНИЛИЩЕ ───
@@ -75,11 +113,9 @@ const PLANET_TYPES = {
 };
 
 const PHYS = { refRadius: 100, refTemp: 280, refPeriod: 8 };
-
 const ORBIT_GEOMETRY = { baseR: 170, ratio: 1.22, minGap: 30, maxR: 750 };
 function getOrbitR(index) { return ORBIT_GEOMETRY.baseR * Math.pow(ORBIT_GEOMETRY.ratio, index); }
 
-// ─── МАТРИЦА ОРБИТ ───
 const ORBIT_PLANET_MATRIX = {
   M: [['rocky'], ['rocky'], ['rocky'], ['rocky', 'gasGiant'], ['gasGiant'], ['gasGiant'], ['iceGiant'], ['iceGiant']],
   K: [['lava'], ['rocky'], ['rocky', 'superEarth'], ['rocky', 'superEarth'], ['rocky', 'superEarth'], ['gasGiant'], ['gasGiant'], ['iceGiant']],
@@ -135,7 +171,7 @@ const TROPHY_CFG = {
 // ─── ПРЕМИУМ (Металлы) ───
 const PREMIUM_CFG = {
   shield: { hours: 8, costMetals: 1000 },
-  booster: { hours: 2, costMetals: 1000, incomeMult: 2.0 }, // Бустер дохода
+  booster: { hours: 2, costMetals: 1000, incomeMult: 2.0 },
 };
 
 // ─── МИССИИ ───
@@ -154,14 +190,26 @@ const SYSTEM_SHOP_CFG = {
   dustSeconds: 1800, energyCapShare: 0.5, civCapShare: 0.4,
   energyBonusPlanets: 2, energyBonusIncome: 0.5,
   colonyChanceFull: 0.60, gasChance: 0.30,
-  primeChance: 0.05, // 5% шанс Прайм-объекта
+  primeChance: 0,
 };
 
 const PRESTIGE_CFG = { firstRequirement: 5, stepMultiplier: 2, multiplierPerGalaxy: 2.0 };
 const METALS_CFG = { expeditionCostMetals: 200, cometBoostCostMetals: 100, cometBoostSurvival: 0.3, colonyCostMetals: 500 };
 const STAR_WEIGHTS = { M: 60, K: 15, G: 10, A: 10, B: 5 };
+
+// ─── СУНДУКИ ───
+const CHEST_CFG = {
+  costStars: 100,
+  lootTable: [
+    { key: 'blackHole', weight: 20 }, { key: 'pulsar', weight: 20 }, { key: 'wormhole', weight: 20 },
+    { key: 'quasar', weight: 10 }, { key: 'magnetar', weight: 10 }, { key: 'gravLens', weight: 10 },
+    { key: 'massiveBH', weight: 4 }, { key: 'superBH', weight: 2 }, { key: 'darkMatter', weight: 2 },
+    { key: 'quarkVoid', weight: 1 }, { key: 'primeBH', weight: 1 },
+  ]
+};
+
 // ═══════════════════════════════════════════════════════════════
-//  ГЕНЕРАТОРЫ СИСТЕМ И ЗВЕЗД (восстановлено)
+//  ГЕНЕРАТОРЫ СИСТЕМ И ЗВЕЗД
 // ═══════════════════════════════════════════════════════════════
 const SYS_PREFIXES = ['Альфа','Бета','Гамма','Дельта','Эпсилон','Дзета','Эта','Тета','Йота','Каппа','Лямбда','Мю','Ню','Кси','Омикрон','Пи','Ро','Сигма','Тау','Ипсилон','Фи','Хи','Пси','Омега'];
 const SYS_NAMES = ['Кентавра','Центавра','Ориона','Лебедя','Лира','Дракона','Феникса','Кита','Гидры','Пегаса','Кассиопеи','Персея','Андромеды','Волопаса','Геркулеса','Змееносца','Ворона','Орла','Павлина','Журавля','Тукана','Единорога'];
@@ -192,7 +240,7 @@ function generateSystemName() {
 }
 
 function rollStarType() {
-  const weights = { M: 60, K: 15, G: 10, A: 10, B: 5 };
+  const weights = STAR_WEIGHTS;
   let total = 100;
   let r = Math.random() * total;
   for (const key in weights) {
@@ -228,16 +276,10 @@ function generateRandomSystem(opts) {
     const type = pool[Math.floor(Math.random() * pool.length)];
     const orbitR = getOrbitR(i);
     planets.push({
-      type: type,
-      angle: Math.random() * Math.PI * 2,
-      speed: 0.2 / Math.pow(orbitR / 90, 1.5),
-      baseOrbitR: orbitR, orbitR: orbitR,
-      driftPhase: Math.random() * Math.PI * 2,
-      rotation: Math.random() * Math.PI * 2,
-      seed: Math.random() * 1e6,
-      forming: false, formUntil: 0,
-      mass: planetMass(type),
-      diameter: planetDiameter(type),
+      type: type, angle: Math.random() * Math.PI * 2, speed: 0.2 / Math.pow(orbitR / 90, 1.5),
+      baseOrbitR: orbitR, orbitR: orbitR, driftPhase: Math.random() * Math.PI * 2,
+      rotation: Math.random() * Math.PI * 2, seed: Math.random() * 1e6,
+      forming: false, formUntil: 0, mass: planetMass(type), diameter: planetDiameter(type),
       moons: [], precession: 0, trueAnomaly: 0,
     });
   }
@@ -272,10 +314,31 @@ function planetDiameter(type) {
   return d[type] || 1.0;
 }
 
-// Экспорт (если у тебя в конце config.js есть экспорты через window, добавь эти строки):
+// Экспорт
+window.CFG = CFG;
+window.STAGES = STAGES;
+window.STAR_TYPES = STAR_TYPES;
+window.SYSTEM_TYPES = SYSTEM_TYPES;
+window.PLANET_TYPES = PLANET_TYPES;
+window.PHYS = PHYS;
+window.ORBIT_GEOMETRY = ORBIT_GEOMETRY;
+window.INVASION_CFG = INVASION_CFG;
+window.NIGHT_CFG = NIGHT_CFG;
+window.TROPHY_CFG = TROPHY_CFG;
+window.PREMIUM_CFG = PREMIUM_CFG;
+window.MISSIONS_CFG = MISSIONS_CFG;
+window.SYSTEM_SHOP_CFG = SYSTEM_SHOP_CFG;
+window.PRESTIGE_CFG = PRESTIGE_CFG;
+window.METALS_CFG = METALS_CFG;
+window.STAR_WEIGHTS = STAR_WEIGHTS;
+window.STORAGE_CFG = STORAGE_CFG;
+window.CHEST_CFG = CHEST_CFG;
+window.getOrbitR = getOrbitR;
 window.generateSystemName = generateSystemName;
 window.rollStarType = rollStarType;
 window.rollSystemType = rollSystemType;
 window.generateRandomSystem = generateRandomSystem;
 window.getAllowedTypesAtOrbit = getAllowedTypesAtOrbit;
 window.getAllowedOrbitsForType = getAllowedOrbitsForType;
+window.planetMass = planetMass;
+window.planetDiameter = planetDiameter;

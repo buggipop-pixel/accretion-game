@@ -14,12 +14,9 @@ function requestFullscreen() {
   
   const tg = window.Telegram && window.Telegram.WebApp;
   try {
-    // Если мы в Telegram — запрашиваем фуллскрин через TG API
     if (tg && tg.requestFullscreen && (!tg.isVersionAtLeast || tg.isVersionAtLeast('8.0'))) {
       tg.requestFullscreen();
-    } 
-    // Для браузера
-    else {
+    } else {
       const el = document.documentElement;
       if (el.requestFullscreen) el.requestFullscreen().catch(function() {});
       else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
@@ -27,7 +24,7 @@ function requestFullscreen() {
   } catch (e) {}
 }
 
-// ─── Защита от жестов ───────────────────────────────────────────
+// ─── Защита от жестов (скролл страницы и т.д.) ───────────────────
 document.addEventListener('touchmove', function(e) {
   const target = e.target;
   if (target && target.closest && target.closest('.modal-card')) return;
@@ -37,10 +34,6 @@ document.addEventListener('touchmove', function(e) {
 
 document.addEventListener('gesturestart', function(e) { e.preventDefault(); }, { passive: false });
 document.addEventListener('gesturechange', function(e) { e.preventDefault(); }, { passive: false });
-
-document.addEventListener('touchstart', function(e) {
-  window._lastTouchY = e.touches[0].clientY;
-}, { passive: true });
 
 // ─── Resize ─────────────────────────────────────────────────────
 function resize() {
@@ -80,6 +73,13 @@ function sanitizeView() {
   if (!isFinite(S.panX)) S.panX = 0;
   if (!isFinite(S.panY)) S.panY = 0;
   if (!isFinite(S.rotation)) S.rotation = 0;
+  if (!isFinite(S.tiltX)) S.tiltX = 0;
+  if (!isFinite(S.tiltY)) S.tiltY = 0;
+
+  // Ограничиваем панораму, чтобы не улететь в пустоту
+  const maxPan = 2000;
+  S.panX = Math.max(-maxPan, Math.min(maxPan, S.panX));
+  S.panY = Math.max(-maxPan, Math.min(maxPan, S.panY));
 }
 
 function rotateCamera(delta) {
@@ -89,7 +89,7 @@ function rotateCamera(delta) {
 }
 window.rotateCamera = rotateCamera;
 
-// ─── Wheel ──────────────────────────────────────────────────────
+// ─── Wheel (зум колесиком) ──────────────────────────────────────
 canvas.addEventListener('wheel', function(e) {
   e.preventDefault();
   const isMouseWheel = e.ctrlKey || e.deltaMode !== 0 ||
@@ -110,7 +110,7 @@ canvas.addEventListener('wheel', function(e) {
   }
 }, { passive: false });
 
-// ─── Ввод ───────────────────────────────────────────────────────
+// ─── Ввод (Pointer Events) ──────────────────────────────────────
 function getPointerPos(e) {
   const rect = canvas.getBoundingClientRect();
   const t = e.touches ? e.touches[0] : e;
@@ -144,6 +144,7 @@ canvas.addEventListener('pointerdown', function(e) {
   if (typeof trackDaily === 'function') trackDaily('d_click', 1);
   if (!S.stats) S.stats = {};
   S.stats.clicks = (S.stats.clicks || 0) + 1;
+  
   if (typeof tryHitInvasionShip === 'function') {
     const pos = getPointerPos(e);
     if (tryHitInvasionShip(pos.x, pos.y)) return;
@@ -165,7 +166,6 @@ canvas.addEventListener('pointerdown', function(e) {
   if (pointers.size === 1) {
     const pos = getPointerPos(e);
 
-    // 3D-обзор (свободная камера) — приоритетнее галактического клика
     if (S.viewMode === 'free') {
       isPanning = true;
       panStartX = pos.x;
@@ -175,7 +175,6 @@ canvas.addEventListener('pointerdown', function(e) {
       return;
     }
 
-    // ★ Галактика: клик по системе или панорама
     if (S.stage === 'galaxy') {
       const clicked = handleGalaxyClick(pos.x, pos.y);
       if (!clicked) {
@@ -188,7 +187,6 @@ canvas.addEventListener('pointerdown', function(e) {
       return;
     }
 
-    // После выбора звезды — панорама
     if (S.starType) {
       isPanning = true;
       panStartX = pos.x;
@@ -198,7 +196,6 @@ canvas.addEventListener('pointerdown', function(e) {
       return;
     }
 
-    // До звезды — drag частиц
     handleParticleDrag(pos.x, pos.y, true);
 
     if (S.stage === 'protostar' && typeof registerProtostarTap === 'function') {
@@ -269,7 +266,7 @@ canvas.addEventListener('pointerleave', onPointerRelease);
 canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
 
 // ═══════════════════════════════════════════════════════════════
-//  ГАЛАКТИКА
+//  ГАЛАКТИКА (Позиции и отрисовка)
 // ═══════════════════════════════════════════════════════════════
 function galaxySystemPos(i, total, time) {
   const form = S.galaxyForm || 'spiral';
@@ -289,6 +286,7 @@ function galaxySystemPos(i, total, time) {
     const r = 35 + ((i * 47) % 140) + Math.sin(i * 1.7) * 30;
     bx = Math.cos(angle) * r * 1.3; by = Math.sin(angle) * r * 0.8;
   } else {
+    // Спиральная
     const arm = Math.floor(i / 3), idx = i % 3;
     const angle = arm * Math.PI / 2 + idx * 0.5 + t * 0.02;
     const dist = 60 + arm * 80 + idx * 25;
@@ -296,7 +294,7 @@ function galaxySystemPos(i, total, time) {
   }
 
   // Анимация престижа
-  if (S.vis.prestigeAnim) {
+  if (S.vis && S.vis.prestigeAnim) {
     const el = performance.now() - S.vis.prestigeAnim.start;
     if (S.vis.prestigeAnim.phase === 'pull') {
       const p = Math.min(1, el / 1500);
@@ -311,13 +309,11 @@ function galaxySystemPos(i, total, time) {
     }
   }
 
-  // Применяем зум и вращение камеры
   const rot = S.rotation || 0;
   const cosR = Math.cos(rot), sinR = Math.sin(rot);
   const x1 = bx * cosR - by * sinR;
   const y1 = bx * sinR + by * cosR;
 
-  // 3D-проекция (yaw + pitch)
   const yaw = S.tiltY || 0;
   const pitch = S.tiltX || 0;
   const cyw = Math.cos(yaw), syw = Math.sin(yaw);
@@ -335,7 +331,7 @@ function galaxySystemPos(i, total, time) {
 }
 
 function handleGalaxyClick(x, y) {
-  if (S.vis.prestigeAnim) return false;
+  if (S.vis && S.vis.prestigeAnim) return false;
   const total = S.totalSystemsCreated || 1;
   const t = performance.now() / 1000;
   const hitR = 30 * (S.zoom || 1);
@@ -395,23 +391,34 @@ function drawGalaxyView(time) {
     ctx.restore();
   }
 
-  // Сами системы
+  // ★ СИСТЕМЫ (С ОПТИМИЗАЦИЕЙ LOD)
   for (let i = 0; i < positions.length; i++) {
     const pos = positions[i];
+    
+    // Отсечение за пределами экрана
+    if (pos.x < -50 || pos.x > (window.CANVAS_W || 400) + 50 || pos.y < -50 || pos.y > (window.CANVAS_H || 700) + 50) continue;
+
     const isActive = pos.idx === S.activeSystemIdx;
     const isPrime = S.primeSystem && pos.idx === S.activeSystemIdx;
-    
-    // Размер как у обычной системы
     const size = isActive ? 10 : 6;
+    
+    // Упрощение графики (LOD) при >50 систем
+    const isLowDetail = (total > 50 && !isActive && !isPrime);
+
+    if (isLowDetail) {
+      ctx.fillStyle = 'rgba(200, 190, 255, 0.4)';
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, 2, 0, Math.PI * 2);
+      ctx.fill();
+      continue;
+    }
+
     const hue = isPrime ? 45 : (50 + (pos.idx * 37) % 100);
 
-    // Аккуратный визуал Прайм-системы
     if (isPrime) {
       const pulse = 1 + 0.1 * Math.sin(time * 2);
-      
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      
       const extGlow = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, size * 3.5 * pulse);
       extGlow.addColorStop(0, 'rgba(255, 200, 50, 0.35)');
       extGlow.addColorStop(0.6, 'rgba(255, 150, 0, 0.1)');
@@ -420,7 +427,6 @@ function drawGalaxyView(time) {
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, size * 3.5 * pulse, 0, Math.PI * 2);
       ctx.fill();
-      
       ctx.restore();
 
       if (typeof drawPrimeIcon === 'function') {
@@ -432,7 +438,6 @@ function drawGalaxyView(time) {
         ctx.fill();
       }
     } else {
-      // Обычное свечение для остальных
       const g = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, size * 3);
       g.addColorStop(0, 'hsla(' + hue + ', 90%, 80%, 1)');
       g.addColorStop(0.5, 'hsla(' + hue + ', 80%, 60%, 0.5)');
@@ -449,17 +454,19 @@ function drawGalaxyView(time) {
     }
 
     // Подпись
-    let nm = pos.idx === 0 ? S.systemName : (S.otherSystems[pos.idx] ? S.otherSystems[pos.idx].name : 'С-ма ' + (pos.idx + 1));
-    if (isPrime) nm = '👑 ' + nm;
+    if (total <= 50 || isActive || isPrime) {
+       let nm = pos.idx === 0 ? S.systemName : (S.otherSystems[pos.idx] ? S.otherSystems[pos.idx].name : 'С-ма ' + (pos.idx + 1));
+       if (isPrime) nm = '👑 ' + nm;
 
-    ctx.fillStyle = isPrime ? '#ffe8a0' : (isActive ? '#fff' : 'rgba(200, 190, 255, 0.7)');
-    ctx.font = (isActive || isPrime ? 'bold ' : '') + (isPrime ? '13px' : '11px') + ' -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(nm, pos.x, pos.y + size * 2.5);
+       ctx.fillStyle = isPrime ? '#ffe8a0' : (isActive ? '#fff' : 'rgba(200, 190, 255, 0.7)');
+       ctx.font = (isActive || isPrime ? 'bold ' : '') + (isPrime ? '13px' : '11px') + ' -apple-system, sans-serif';
+       ctx.textAlign = 'center';
+       ctx.fillText(nm, pos.x, pos.y + size * 2.5);
+    }
   }
 
   // Вспышка при взрыве престижа
-  if (S.vis.prestigeAnim && S.vis.prestigeAnim.phase === 'explode') {
+  if (S.vis && S.vis.prestigeAnim && S.vis.prestigeAnim.phase === 'explode') {
     const el = performance.now() - S.vis.prestigeAnim.start - 1500;
     const p = Math.min(1, el / 500);
     ctx.fillStyle = 'rgba(255, 255, 255, ' + (1 - p) + ')';
@@ -636,7 +643,6 @@ function setupTelegram() {
     if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
     if (tg.setHeaderColor) tg.setHeaderColor('#02010a');
     if (tg.setBackgroundColor) tg.setBackgroundColor('#02010a');
-    // Не вызываем requestFullscreen здесь — он требует жеста пользователя
   } catch (e) {}
 }
 
@@ -671,7 +677,7 @@ function start() {
       if (offline.nightEnded) {
         let msg = 'Ночной режим завершён. ';
         if (offline.cometEarned > 0 || offline.expEarned > 0) msg += 'Миссии вернулись с частью наград. ';
-        if (offline.invasionLost > 0) msg += '⚠️ Потеряно объектов из-за старых вторжений: ' + offline.invasionLost + '. ';
+        if (offline.invasionLost > 0) msg += '⚠️ Потеряно объектов: ' + offline.invasionLost + '. ';
         if (parts.length > 0) msg += parts.join(' · ');
         toast('☀️ Доброе утро!', msg);
       } else if (parts.length > 0) {
