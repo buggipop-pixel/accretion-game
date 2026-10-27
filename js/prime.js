@@ -13,7 +13,9 @@ const PRIME_OBJECTS = {
   quasar:     { name: 'Квазар',               icon: 'quasar',     bonus: { allMult: 0.30 },    absorbRadius: 130 },
   pulsar:     { name: 'Пульсар',              icon: 'pulsar',     bonus: { energyMult: 0.50 }, absorbRadius: 100 },
   magnetar:   { name: 'Магнетар',             icon: 'magnetar',   bonus: { planetHP: 2.0 },    absorbRadius: 120 },
-  wormhole:   { name: 'Кротовая нора',        icon: 'wormhole',   bonus: { keepSystems: 0.5 }, absorbRadius: 90  },
+  wormhole:   { name: 'Малая кротовая нора', icon: 'wormhole', bonus: { keepSystems: 0.2 }, absorbRadius: 90  },
+  wormhole2:  { name: 'Кротовая нора', icon: 'wormhole', bonus: { keepSystems: 0.3 }, absorbRadius: 120 },
+  wormhole3:  { name: 'Гигантская кротовая нора', icon: 'wormhole', bonus: { keepSystems: 0.5 }, absorbRadius: 150 },
   darkMatter: { name: 'Тёмная материя',       icon: 'darkMatter', bonus: { incomePerHour: 0.005 }, absorbRadius: 0 },
   gravLens:   { name: 'Гравитационная линза', icon: 'gravLens',   bonus: { autoClick: 2 },     absorbRadius: 0 },
   quarkVoid:  { name: 'Кварковый войд',       icon: 'quarkVoid',  bonus: { offlineMult: 2.0, capPenalty: 0.2 }, absorbRadius: 220 },
@@ -34,7 +36,7 @@ function createPrimeSystem(objectKey) {
     if (objectKey === 'pulsar') playSFX('sfx_pulsar');
     else if (objectKey === 'blackHole' || objectKey === 'massiveBH' ||
              objectKey === 'superBH' || objectKey === 'primeBH') playSFX('sfx_blackhole_hum');
-    else if (objectKey === 'wormhole') playSFX('sfx_wormhole');
+    else if (objectKey.indexOf('wormhole') === 0) playSFX('sfx_wormhole');
     else if (objectKey === 'quasar') playSFX('sfx_quasar');
   }
   return {
@@ -119,7 +121,7 @@ function drawPrimeIcon(ctx, x, y, objectKey, time, size) {
       ctx.lineTo(Math.cos(a) * size * 1.2, Math.sin(a) * size * 1.2);
       ctx.stroke();
     }
-  } else if (objectKey === 'wormhole') {
+  } else if (objectKey.indexOf('wormhole') === 0) {
     ctx.rotate(t * 1.2);
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2;
@@ -579,7 +581,7 @@ function drawPrimeMain(ctx, cx, cy, z, time, objectKey) {
   // ═════════════════════════════════════════════════════════════
   //  КРОТОВАЯ НОРА — горловина с искажением
   // ═════════════════════════════════════════════════════════════
-  if (objectKey === 'wormhole') {
+  if (objectKey.indexOf('wormhole') === 0) {
     const baseR = 15 * z;
 
     // Искажение пространства — концентрические кольца, «втягивающиеся»

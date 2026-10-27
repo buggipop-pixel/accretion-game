@@ -36,6 +36,7 @@ const S = {
   
   // ─── Прайм-система ───
   primeSystem: null,
+  primeLastHealedAt: 0,
   primeCandidates: [],
 
   // ─── Ночной режим и защита ───
@@ -121,6 +122,7 @@ function resetStateValues() {
   S.systemShopProgress = { dust: 0, energy: 0, civ: 0 };
   
   S.primeSystem = null;
+  S.primeLastHealedAt = 0;
   S.primeCandidates = [];
 
   S.nightConfig = { mode: 'balanced', defenseEnabled: true, cometHours: 0, expeditionPercent: 0 };
@@ -249,6 +251,7 @@ function saveGame() {
       systems: S.systems, totalSystemsCreated: S.totalSystemsCreated,
       systemIncomeBonus: S.systemIncomeBonus, systemShopProgress: S.systemShopProgress,
       primeSystem: S.primeSystem, primeCandidates: S.primeCandidates,
+      primeLastHealedAt: S.primeLastHealedAt,
 
       // Ночной режим и защита
       nightConfig: S.nightConfig, nightDefenseLevel: S.nightDefenseLevel,
@@ -356,6 +359,7 @@ function loadGame() {
     if (!S.anticheat) S.anticheat = { flags: 0, reasons: [], ts: 0, prestiges: [] };
     if (!Array.isArray(S.primeCandidates)) S.primeCandidates = [];
     if (!S.primeSystem) S.primeSystem = null;
+    if (typeof S.primeLastHealedAt !== 'number') S.primeLastHealedAt = 0;
         // ★ Лечим старые сейвы: если Прайм есть, но данные потерялись — восстанавливаем
     for (let i = 1; i < S.otherSystems.length; i++) {
       const sys = S.otherSystems[i];
@@ -438,7 +442,7 @@ function loadGame() {
         if (typeof p.forming !== 'boolean') p.forming = false;
         if (!isFinite(p.mass) || p.mass <= 0) p.mass = 1.0;
         if (!isFinite(p.diameter) || p.diameter <= 0) p.diameter = 1.0;
-        if (!isFinite(p.angle)) p.angle = Math.random() * Math.PI * 2;
+        if (!isFinite(p.angle) || p.angle === 0) p.angle = Math.random() * Math.PI * 2;
         if (!isFinite(p.speed) || p.speed <= 0) p.speed = 0.2 / Math.pow((p.baseOrbitR || 100) / 90, 1.5);
         if (!p.moons) p.moons = [];
         if (!isFinite(p.precession)) p.precession = 0;

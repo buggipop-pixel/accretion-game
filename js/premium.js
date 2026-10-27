@@ -62,33 +62,54 @@ function openPremiumShop() {
 
 // ─── ГЕНЕРАЦИЯ ИДЕАЛЬНОЙ СИСТЕМЫ ДЛЯ ПРАЙМА ─────────────────────
 function generatePerfectPrimeSystem(primeData) {
-  let starType = 'G'; // Идеальная звезда для жизни
-  let systemType = 'single'; // Без хаоса
+  // Идеальная звезда для жизни
+  let starType = 'G'; 
+  let systemType = 'single';
   let planets = [];
   
-  // Заполняем ВСЕ 8 орбит
+  // ★ Строгий пул планет: 2 Лавы, 2 Земли, 2 Газа, 2 Льда
+  // Расставлены от центра к краю (по орбитам 0-7)
+  const perfectPlanets = [
+    'lava',       // Орбита 0
+    'lava',       // Орбита 1
+    'superEarth', // Орбита 2
+    'superEarth', // Орбита 3
+    'gasGiant',   // Орбита 4
+    'gasGiant',   // Орбита 5
+    'iceGiant',   // Орбита 6
+    'iceGiant'    // Орбита 7
+  ];
+  
   for (let i = 0; i < 8; i++) {
-    let pool = getAllowedTypesAtOrbit(starType, i);
-    if (pool.length === 0) continue;
-    
-    // Сортируем доступные планеты по базовому доходу (выбираем лучшую)
-    pool.sort((a, b) => PLANET_TYPES[b].rate - PLANET_TYPES[a].rate);
-    const type = pool[0];
-    
+    const type = perfectPlanets[i];
     const orbitR = getOrbitR(i);
+    
     planets.push({
-      type: type, angle: Math.random() * Math.PI * 2, speed: 0.2 / Math.pow(orbitR / 90, 1.5),
-      baseOrbitR: orbitR, orbitR: orbitR, driftPhase: Math.random() * Math.PI * 2,
-      rotation: Math.random() * Math.PI * 2, seed: Math.random() * 1e6,
-      forming: false, formUntil: 0, mass: planetMass(type), diameter: planetDiameter(type),
-      moons: [], precession: 0, trueAnomaly: 0,
+      type: type, 
+      angle: Math.random() * Math.PI * 2, 
+      speed: 0.2 / Math.pow(orbitR / 90, 1.5),
+      baseOrbitR: orbitR, 
+      orbitR: orbitR, 
+      driftPhase: Math.random() * Math.PI * 2,
+      rotation: Math.random() * Math.PI * 2, 
+      seed: Math.random() * 1e6,
+      forming: false, 
+      formUntil: 0, 
+      mass: planetMass(type), 
+      diameter: planetDiameter(type),
+      moons: [], 
+      precession: 0, 
+      trueAnomaly: 0,
     });
   }
   
   const sys = {
-    name: generateSystemName(), // Больше не добавляем сюда 👑, так как иконка рисуется отдельно
-    starType: starType, systemType: systemType, planets: planets,
-    isPrime: true, primeData: primeData,
+    name: generateSystemName(),
+    starType: starType, 
+    systemType: systemType, 
+    planets: planets,
+    isPrime: true, 
+    primeData: primeData,
   };
   
   return sys;
@@ -242,54 +263,127 @@ function startChestRoulette() {
 }
 
 function showChestResult(prime) {
-  const newSys = generatePerfectPrimeSystem(prime);
-  
-  if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) S.otherSystems[0] = null;
-  const newIdx = S.otherSystems.length;
-  S.otherSystems.push(newSys);
-  S.systems++;
-  S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
+  let isUpgrade = false;
+  let upgradeText = '';
+  let oldPrimeKey = prime.objectKey;
+  let newPrimeKey = null;
+  let targetSysIdx = -1;
+
+  // Ищем дубль ТОЛЬКО среди уже существующих Прайм-объектов
+  if (S.primeSystem && S.primeSystem.objectKey === prime.objectKey) {
+    targetSysIdx = S.activeSystemIdx;
+  } else {
+    for (let i = 1; i < S.otherSystems.length; i++) {
+      const sys = S.otherSystems[i];
+      if (sys && sys.primeData && sys.primeData.objectKey === prime.objectKey) {
+        targetSysIdx = i;
+        break;
+      }
+    }
+  }
+
+  if (targetSysIdx !== -1) {
+    if (prime.objectKey === 'blackHole') newPrimeKey = 'massiveBH';
+    else if (prime.objectKey === 'massiveBH') newPrimeKey = 'superBH';
+    else if (prime.objectKey === 'wormhole') newPrimeKey = 'wormhole2';
+    else if (prime.objectKey === 'wormhole2') newPrimeKey = 'wormhole3';
+    
+    if (newPrimeKey) {
+      const nextObj = PRIME_OBJECTS[newPrimeKey];
+      const updatedData = { 
+        ...prime, 
+        objectKey: newPrimeKey, 
+        objectName: nextObj.name, 
+        objectIcon: nextObj.icon, 
+        bonus: nextObj.bonus, 
+        absorbRadius: nextObj.absorbRadius 
+      };
+      
+      // Обновляем в зависимости от того, где нашли
+      if (targetSysIdx === S.activeSystemIdx) {
+        S.primeSystem = updatedData;
+      } else {
+        S.otherSystems[targetSysIdx].primeData = updatedData;
+      }
+      
+      isUpgrade = true;
+      upgradeText = 'Слияние: ' + PRIME_OBJECTS[oldPrimeKey].name + ' → ' + nextObj.name;
+    }
+  }
+
+  if (!isUpgrade) {
+    const newSys = generatePerfectPrimeSystem(prime);
+    if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) S.otherSystems[0] = null;
+    S.otherSystems.push(newSys);
+    S.systems++;
+    S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
+  }
 
   saveGame();
-
   const card = document.getElementById('modalCard');
   card.innerHTML = `
     <div class="modal-title">🎁 Сундук открыт!</div>
-    <div class="info-box" style="text-align:center; padding:20px;">
-      <canvas id="resultPrimeCanvas" class="result-canvas" width="240" height="240"></canvas>
-      <div class="choice-name" style="color:#ffcc55; font-size:22px; margin-top:10px; margin-bottom:4px;">${prime.objectName}</div>
-      <div class="choice-desc" style="margin-bottom:10px;">${prime.name}</div>
-      <div class="row-stat" style="justify-content:center; border:none; color:#7ee0a8; font-weight:bold;">
-         <span>Создана идеальная система!</span>
-      </div>
+    <div class="info-box" style="text-align:center; padding:20px; position:relative;">
+      <canvas id="chestCanvas" style="width:200px; height:200px; margin:0 auto;"></canvas>
+      <div class="choice-name" style="color:#ffcc55; font-size:22px; margin-top:10px;" id="chestTitle">${isUpgrade ? 'Слияние!' : prime.objectName}</div>
+      <div class="choice-desc" style="margin-top:4px;" id="chestDesc">${isUpgrade ? upgradeText : prime.name}</div>
     </div>
-    <button class="stars-btn" style="background:linear-gradient(135deg,#6b4de6,#b9a8ff); color:#fff;" 
-      onclick="document.getElementById('modal').classList.remove('show'); switchToSystem(${newIdx}); S.stage='system'; updateUI(); updateSystemSwitcher();">
-      Перейти в систему
-    </button>
+    <button class="stars-btn" onclick="document.getElementById('modal').classList.remove('show'); updateUI();">Отлично</button>
   `;
-  
   document.getElementById('modal').classList.add('show');
-  
-  // Анимация большого визуала
-  let resActive = true;
-  function animateResult(time) {
-    if (!resActive) return;
-    const c = document.getElementById('resultPrimeCanvas');
-    if (!c) return;
-    const ctx = c.getContext('2d');
-    const t = time / 1000;
-    ctx.clearRect(0, 0, c.width, c.height);
-    // drawPrimeMain рисует большой объект. Сдвигаем в центр и скейлим.
-    ctx.save();
-    ctx.translate(c.width/2, c.height/2);
-    ctx.scale(1.5, 1.5);
-    drawPrimeMain(ctx, 0, 0, 1, t, prime.objectKey);
-    ctx.restore();
-    requestAnimationFrame(animateResult);
-  }
-  requestAnimationFrame(animateResult);
 
+  const canvas = document.getElementById('chestCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  
+  const startTime = performance.now();
+  let animActive = true;
+
+  function drawAnim(time) {
+    if (!animActive) return;
+    const t = (time - startTime) / 1000;
+    const w = 200, h = 200;
+    
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if (canvas.width !== w * dpr) {
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      ctx.scale(dpr, dpr);
+    }
+
+    ctx.clearRect(0, 0, w, h);
+    
+    if (!isUpgrade) {
+      ctx.save(); ctx.translate(w/2, h/2); ctx.scale(1.2, 1.2);
+      drawPrimeMain(ctx, 0, 0, 1, t, prime.objectKey);
+      ctx.restore();
+    } else {
+      if (t < 2.0) {
+        const progress = Math.min(1, t / 2.0);
+        const ease = 1 - Math.pow(1 - progress, 3);
+        const offset = 60 * (1 - ease);
+        
+        ctx.save(); ctx.translate(w/2 - offset, h/2); ctx.scale(0.8, 0.8);
+        drawPrimeMain(ctx, 0, 0, 1, t, oldPrimeKey);
+        ctx.restore();
+        
+        ctx.save(); ctx.translate(w/2 + offset, h/2); ctx.scale(0.8, 0.8);
+        drawPrimeMain(ctx, 0, 0, 1, t, oldPrimeKey);
+        ctx.restore();
+        
+        if (progress === 1) {
+           ctx.fillStyle = `rgba(255,255,255,${Math.sin(t*10)*0.5+0.5})`;
+           ctx.fillRect(0, 0, w, h);
+        }
+            } else {
+        const scale = 1 + Math.sin((t-2) * 2) * 0.1;
+        ctx.save(); ctx.translate(w/2, h/2); ctx.scale(1.2 * scale, 1.2 * scale);
+        drawPrimeMain(ctx, 0, 0, 1, t, newPrimeKey);
+        ctx.restore();
+      }
+    }
+    requestAnimationFrame(drawAnim);
+  }
+  requestAnimationFrame(drawAnim);
   if (typeof playSFX === 'function') playSFX('ui_levelup');
 }
 

@@ -183,7 +183,9 @@ function getAllowedOrbitsForType(starType, planetType) {
 
 // ─── ВТОРЖЕНИЯ ───
 const INVASION_CFG = {
-  intervalMin: 20 * 60 * 1000, intervalMax: 40 * 60 * 1000, chance: 0.6,
+  intervalMin: 60 * 60 * 1000,  // 1 час
+  intervalMax: 5 * 60 * 60 * 1000, // 5 часов
+  chance: 0.6,
   robberyDuration: 45 * 60 * 1000, destructionDuration: 15 * 60 * 1000, totalDuration: 60 * 60 * 1000,
   robberyMultiplier: 4, planetMaxHP: 100, hitRadius: 20,
   tiers: {

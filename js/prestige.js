@@ -127,12 +127,22 @@ function activateSupernova() {
   const nextForm = GALAXY_FORMS[(GALAXY_FORMS.indexOf(curForm) + 1) % GALAXY_FORMS.length];
 
   // Предпросмотр сохранения
-  const keepPreview = calculateKeepCount();
-  const otherSystems = Math.max(0, (S.systems || 1) - 1);
-  const wormholeNote = (S.primeSystem && S.primeSystem.objectKey === 'wormhole')
-    ? '<div class="row-stat"><span>🌀 Кротовая нора:</span><span>+50% систем</span></div>'
-    : '';
+ function calculateKeepCount(regularCount) {
+  if (regularCount <= 0) return 0;
 
+  let minTotal = Math.max(1, Math.floor(Math.sqrt(regularCount) * 1.5));
+  let maxTotal = regularCount;
+
+  // Бонусы кротовых нор (20%, 30%, 50%)
+  if (S.primeSystem) {
+    if (S.primeSystem.objectKey === 'wormhole')  minTotal = Math.max(minTotal, Math.ceil(regularCount * 0.2));
+    if (S.primeSystem.objectKey === 'wormhole2') minTotal = Math.max(minTotal, Math.ceil(regularCount * 0.3));
+    if (S.primeSystem.objectKey === 'wormhole3') minTotal = Math.max(minTotal, Math.ceil(regularCount * 0.5));
+  }
+
+  minTotal = Math.min(minTotal, maxTotal);
+  return minTotal + Math.floor(Math.random() * (maxTotal - minTotal + 1));
+}
   const info = `
     <div class="info-box">
       <div class="row-stat"><span>Галактик:</span><span>${S.galaxies || 1} ➔ ${(S.galaxies || 1) + 1}</span></div>

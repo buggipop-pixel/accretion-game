@@ -138,11 +138,37 @@ function tickInvasions(dt) {
     }
   }
 
+  // ★ АВТОВОССТАНОВЛЕНИЕ ПРАЙМ-СИСТЕМЫ
+  if (S.primeSystem && S.planets.length < 8 && !hasActiveInvasions()) {
+    if (!S.primeLastHealedAt) S.primeLastHealedAt = now;
+    if (now - S.primeLastHealedAt > 30 * 60 * 1000) { // 30 минут
+      S.primeLastHealedAt = now;
+      S.planets = [];
+      for (let i = 0; i < 8; i++) {
+        const orbitR = getOrbitR(i);
+        const allowed = getAllowedTypesAtOrbit('G', i); // Для Прайма всегда G
+        if (allowed.length > 0) {
+          const type = allowed[0];
+          S.planets.push({
+            type: type, angle: Math.random() * Math.PI * 2, speed: 0.2 / Math.pow(orbitR / 90, 1.5),
+            baseOrbitR: orbitR, orbitR: orbitR, driftPhase: Math.random() * Math.PI * 2,
+            rotation: Math.random() * Math.PI * 2, seed: Math.random() * 1e6,
+            forming: false, formUntil: 0, mass: planetMass(type), diameter: planetDiameter(type),
+            moons: [], precession: 0, trueAnomaly: 0,
+          });
+        }
+      }
+      if (typeof toast === 'function') toast('🌟 Прайм-система восстановлена', 'Идеальное состояние');
+    }
+  } else if (S.planets.length >= 8) {
+    S.primeLastHealedAt = now;
+  }
+
   for (let i = S.invasions.length - 1; i >= 0; i--) {
     const inv = S.invasions[i];
     const tier = INVASION_CFG.tiers[inv.tierKey] || INVASION_CFG.tiers.raid;
 
-    // ★ Автооборона (сбивает корабли)
+    // Автооборона
     if (S.nightDefenseExpiresAt > now && inv.ships) {
       let alive = 0;
       for (let s = 0; s < inv.ships.length; s++) if (!inv.ships[s].destroyed) alive++;
@@ -210,7 +236,9 @@ function tickInvasions(dt) {
       }
 
       const robbingDone = now >= inv.robberyEndsAt || S.dust <= 0;
-      if (robbingDone) {
+      
+      // ★ ФИКС: Разрушение только если живы корабли
+      if (robbingDone && aliveShips > 0) {
         const hpDrain = inv.maxHp / (INVASION_CFG.destructionDuration / 1000);
         inv.hp -= hpDrain * dt;
         
@@ -259,7 +287,7 @@ function tickInvasions(dt) {
     }
 
     const robbingDone = now >= inv.robberyEndsAt || S.dust <= 0;
-    if (robbingDone) {
+    if (robbingDone && aliveShips > 0) {
       const hpDrainPerSec = inv.maxHp / (INVASION_CFG.destructionDuration / 1000);
       inv.hp -= hpDrainPerSec * dt;
       if (inv.hp <= 0 || now >= inv.destructionEndsAt) {

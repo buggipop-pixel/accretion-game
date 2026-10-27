@@ -188,7 +188,8 @@ function updateStorageUI() {
       } else if (res === 'civ') {
         rateEl.textContent = '+' + fmt(civPerSec() * 3600) + ' / час';
       } else if (res === 'metals') {
-        rateEl.textContent = '+' + fmt(metalsPerSec()) + ' / сек';
+        const mRate = metalsPerSec();
+        rateEl.textContent = '+' + (mRate < 10 ? mRate.toFixed(1) : fmt(mRate)) + ' / сек';
       }
     }
 

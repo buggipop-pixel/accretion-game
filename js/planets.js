@@ -173,10 +173,15 @@ function getPlanetWorldPos(p, timeSec) {
   const st = SYSTEM_TYPES[S.systemType || 'single'];
   const e = st.eccentricity || 0;
   const a = p.baseOrbitR || 100;
-  const theta = (p.angle || 0) + timeSec * (p.speed || 0.15);
+  
+  // ★ ИСПОЛЬЗУЕМ РЕАЛЬНОЕ ВРЕМЯ, а не время с момента загрузки страницы
+  const absoluteTime = Date.now() / 1000;
+  const theta = (p.angle || 0) + absoluteTime * (p.speed || 0.15);
+  
   let r;
   if (e < 0.001) r = a;
   else r = a * (1 - e * e) / (1 + e * Math.cos(theta));
+  
   const finalAngle = theta + (p.precession || 0);
   return { x: Math.cos(finalAngle) * r, y: Math.sin(finalAngle) * r * VIEW_COS, r: r };
 }

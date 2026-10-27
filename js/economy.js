@@ -93,19 +93,46 @@ function clickGain() {
 }
 
 // ─── Цивилизация: подсчет обитаемых планет ──────────────────────
+// ─── Цивилизация: подсчет обитаемых планет ──────────────────────
 function civPlanetCount() {
-  if (!S.starType || !STAR_TYPES[S.starType].civ) return 0;
   let n = 0;
   for (let i = 0; i < S.planets.length; i++) {
+    // ★ Убрана проверка на STAR_TYPES.civ, чтобы планеты на любых звездах давали жизнь
     if (PLANET_TYPES[S.planets[i].type].civ && !S.planets[i].forming) n++;
   }
   return n;
 }
 window.civPlanetCount = civPlanetCount;
 
-// ─── Доход энергии (Абсолютная защита от NaN) ───
+// ─── Рост цивилизации ───────────────────────────────────────────
+function civPerSec() {
+  const c = civPlanetCount();
+  if (c === 0) {
+    // ★ Фоллбек: если планет нет, даем минимальный рост для восстановления
+    return 0.005 * (1 + (S.techLevels?.cyber || 0) * 0.20);
+  }
+  const sysType = S.systemType || 'single';
+  let mult = SYSTEM_TYPES[sysType].civPassiveMult;
+  for (let i = 0; i < S.planets.length; i++) {
+    const p = S.planets[i];
+    if (p.forming) continue;
+    const pt = PLANET_TYPES[p.type];
+    if (pt.bonus && pt.bonus.type === 'civ') mult *= (pt.bonus.civMult || 1);
+  }
+  let finalRate = CFG.civGrowthPerPlanet * c * mult * (1 + (S.techLevels?.cyber || 0) * 0.20);
+  if (S.activeEvent && typeof EVENT_CFG !== 'undefined' && Array.isArray(EVENT_CFG.types)) {
+    const evt = EVENT_CFG.types.find(t => t.id === S.activeEvent.id);
+    if (evt && evt.globalIncomeMult) finalRate *= evt.globalIncomeMult;
+  }
+  return isFinite(finalRate) ? finalRate : 0;
+}
+
+// ─── Доход энергии ───
 function energyPerSec() {
-  if (S.civLevel < 4) return 0;
+  if (S.civLevel < 4) {
+    // ★ Фоллбек: если цив < 4, но планеты есть, даем минимальный приток энергии
+    return S.planets.length > 0 ? 0.1 : 0;
+  }
   const c = civPlanetCount();
   if (c === 0) return 0;
   const levels = S.storageLevels || { energy: 1 };
@@ -129,22 +156,23 @@ function energyPerSec() {
   return (isFinite(finalRate) && !isNaN(finalRate)) ? Math.max(0, finalRate) : 0;
 }
 
-// ─── Стоимости ──────────────────────────────────────────────────
+// ─── Стоимости (Динамический баланс) ────────────────────────────
 function planetCost(n) {
-  const base = CFG.planetBaseCost   || 80000;
+  // База растет от текущего дохода (10 минут дохода)
+  const base = Math.max(CFG.planetBaseCost || 80000, dustPerSec() * 600);
   const grw  = CFG.planetCostGrowth || 2.0;
   return Math.floor(base * Math.pow(grw, n || 0));
 }
 
 function systemCost(n) {
-  const base   = CFG.systemBaseCost || 1e8;
+  // База растет от дохода (1 час дохода)
+  const base   = Math.max(CFG.systemBaseCost || 1e8, dustPerSec() * 3600);
   const growth = CFG.systemGrowth   || 3.0;
   const min    = CFG.systemCostMin  || 1e6;
   const cost   = base * Math.pow(growth, n || 0);
   const discount = 1 - (S.techLevels?.eng || 0) * 0.05;
   return Math.max(min, Math.floor(cost * discount));
 }
-
 // ─── Цель текущей фазы ──────────────────────────────────────────
 function currentGoal() {
   const st = STAGES[S.stage];
