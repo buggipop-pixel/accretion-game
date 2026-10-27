@@ -4,11 +4,7 @@
 
 const VIEW_COS = 0.5;
 
-// ═══════════════════════════════════════════════════════════════
-//  ПРОЦЕДУРНЫЕ ТЕКСТУРЫ ПЛАНЕТ
-//  Offscreen canvas + FBM-шум → реалистичный вид
-// ═══════════════════════════════════════════════════════════════
-
+// ─── Шум Перлина-подобный ───
 function _phash(n) {
   const s = Math.sin(n * 12.9898) * 43758.5453;
   return s - Math.floor(s);
@@ -71,7 +67,6 @@ function _getPlanetTexture(p) {
       const idx = (y * SIZE + x) * 4;
       let r = 0, g = 0, b = 0, a = 255;
 
-      // ═══ ЗЕМЛЯ ═══
       if (p.type === 'superEarth') {
         const continent = _pfbm(nx * 2.5, ny * 2.5, seed);
         const detail = _pfbm(nx * 8, ny * 8, seed + 50);
@@ -97,8 +92,6 @@ function _getPlanetTexture(p) {
           r = r * (1 - cloudA) + 255 * cloudA; g = g * (1 - cloudA) + 255 * cloudA; b = b * (1 - cloudA) + 255 * cloudA;
         }
       }
-
-      // ═══ КАМЕННАЯ ═══
       else if (p.type === 'rocky') {
         const h = _pfbm(nx * 4, ny * 4, seed);
         const detail = _pfbm(nx * 12, ny * 12, seed + 20);
@@ -109,8 +102,6 @@ function _getPlanetTexture(p) {
           r = r * (1 - polar) + 240 * polar; g = g * (1 - polar) + 240 * polar; b = b * (1 - polar) + 245 * polar;
         }
       }
-
-      // ═══ ЛЕДЯНОЙ ГИГАНТ ═══
       else if (p.type === 'iceGiant') {
         const band = Math.sin(ny * 12 + _pfbm(nx * 3, ny * 3, seed) * 2);
         r = 80 + band * 20; g = 170 + band * 40; b = 210 + band * 30;
@@ -120,8 +111,6 @@ function _getPlanetTexture(p) {
           r = r * (1 - polar) + 240 * polar; g = g * (1 - polar) + 250 * polar; b = b * (1 - polar) + 255 * polar;
         }
       }
-
-      // ═══ ГАЗОВЫЙ ГИГАНТ ═══
       else if (p.type === 'gasGiant') {
         const bandPos = ny * 18 + _pfbm(nx * 2, ny * 6, seed) * 4;
         const band = Math.sin(bandPos);
@@ -136,8 +125,6 @@ function _getPlanetTexture(p) {
           r = r * (1 - spotStrong) + 220 * spotStrong; g = g * (1 - spotStrong) + 90 * spotStrong; b = b * (1 - spotStrong) + 60 * spotStrong;
         }
       }
-
-      // ═══ ЛАВА ═══
       else if (p.type === 'lava') {
         const crust = _pfbm(nx * 3, ny * 3, seed);
         const crack = _pfbm(nx * 8, ny * 8, seed + 100);
@@ -197,43 +184,39 @@ window.getPlanetWorldPos = getPlanetWorldPos;
 
 function addPlanet(preferredType) {
   if (_tryPlacePlanetAt(preferredType)) return preferredType;
-  const allTypes = ['lava', 'rocky', 'iceGiant', 'gasGiant', 'superEarth'];
-  for (let i = 0; i < allTypes.length; i++) {
-    const t = allTypes[i];
-    if (t === preferredType) continue;
-    if (_tryPlacePlanetAt(t)) return t;
-  }
   return false;
 }
 
 function _tryPlacePlanetAt(type) {
   if (!S.planets) S.planets = [];
-  const validPlanets = S.planets.filter(p => p && typeof p === 'object' && isFinite(p.baseOrbitR));
-  if (validPlanets.length >= 8) return false;
+  if (S.planets.length >= 8) return false;
   if (!type) return false;
-  const star = S.starType || 'G';
 
-  const allowedOrbits = (typeof getAllowedOrbitsForType === 'function') ? getAllowedOrbitsForType(star, type) : [0, 1, 2, 3, 4, 5, 6, 7];
-  if (!allowedOrbits || allowedOrbits.length === 0) return false;
-
-  for (let oi = 0; oi < allowedOrbits.length; oi++) {
-    const idx = allowedOrbits[oi];
-    const orbitR = (typeof getOrbitR === 'function') ? getOrbitR(idx) : 90 + idx * 50;
-
+  const allowed = (typeof getAllowedOrbitsForType === 'function') 
+    ? getAllowedOrbitsForType(S.starType || 'G', type) 
+    : [0,1,2,3,4,5,6,7];
+  
+  for (let oi = 0; oi < allowed.length; oi++) {
+    const idx = allowed[oi];
+    const orbitR = getOrbitR(idx);
+    
     let free = true;
-    for (let pi = 0; pi < validPlanets.length; pi++) {
-      if (Math.abs(validPlanets[pi].baseOrbitR - orbitR) < ORBIT_GEOMETRY.minGap) { free = false; break; }
+    for (let pi = 0; pi < S.planets.length; pi++) {
+      if (Math.abs(S.planets[pi].baseOrbitR - orbitR) < ORBIT_GEOMETRY.minGap) {
+        free = false; break;
+      }
     }
-    if (!free) continue;
-
-    S.planets.push({
-      type: type, angle: Math.random() * Math.PI * 2, speed: 0.2 / Math.pow(orbitR / 90, 1.5),
-      baseOrbitR: orbitR, orbitR: orbitR, driftPhase: Math.random() * Math.PI * 2,
-      rotation: Math.random() * Math.PI * 2, seed: Math.random() * 1e6,
-      forming: false, formUntil: 0, mass: planetMass(type), diameter: planetDiameter(type),
-      moons: [], precession: 0, trueAnomaly: 0,
-    });
-    return true;
+    
+    if (free) {
+      S.planets.push({
+        type: type, angle: Math.random() * Math.PI * 2, speed: 0.2 / Math.pow(orbitR / 90, 1.5),
+        baseOrbitR: orbitR, orbitR: orbitR, driftPhase: Math.random() * Math.PI * 2,
+        rotation: Math.random() * Math.PI * 2, seed: Math.random() * 1e6,
+        forming: false, formUntil: 0, mass: planetMass(type), diameter: planetDiameter(type),
+        moons: [], precession: 0, trueAnomaly: 0,
+      });
+      return true;
+    }
   }
   return false;
 }
@@ -391,7 +374,6 @@ function collidePlanets(a, b, decision) {
   }
 }
 
-// ─── Рендеринг планет ───────────────────────────────────────────
 function drawPlanets(ctx, time) {
   const t = time;
   const z = (isFinite(S.zoom) && S.zoom > 0) ? S.zoom : 1;

@@ -109,14 +109,30 @@ function updateUI() {
     else if (S.planets.length >= 8) ready = false;
     else if (goal !== null && S.dust >= goal) ready = true;
 
-    if (ready && !S.activeMinigame) btn.classList.add('show');
-    else btn.classList.remove('show');
+    // ★ Проверяем кулдаун сборки
+    const cooldownLeft = Math.ceil(((S.assemblyCooldownUntil || 0) - Date.now()) / 1000);
+    const isCooldown = cooldownLeft > 0;
+
+    if (isCooldown) {
+      btn.classList.add('show');
+      btn.textContent = '⏳ Перезарядка ' + cooldownLeft + 'с';
+      btn.style.opacity = '0.6';
+      btn.style.background = 'linear-gradient(135deg, #555, #333)';
+    } else {
+      btn.textContent = 'Эволюция';
+      btn.style.opacity = '1';
+      btn.style.background = 'linear-gradient(135deg, #6b4de6, #8b5cf6)';
+      
+      if (ready && !S.activeMinigame) btn.classList.add('show');
+      else btn.classList.remove('show');
+    }
   }
 
-  // Кнопка возврата в галактику (если это не родная система)
-  const backBtn = document.getElementById('backToGalaxyBtn');
+   const backBtn = document.getElementById('backToGalaxyBtn');
   if (backBtn) {
-    if (S.stage === 'system' && S.prestigeLevel > 0) backBtn.style.display = 'block';
+    // Показываем кнопку "В галактику", если мы в системе и у нас больше 1 системы (до престижа)
+    // Или если мы после престижа
+    if (S.stage === 'system' && (S.prestigeLevel > 0 || S.systems > 1)) backBtn.style.display = 'block';
     else backBtn.style.display = 'none';
   }
 
@@ -385,54 +401,97 @@ function getQuests() {
 //  ПЕРЕКЛЮЧАТЕЛЬ СИСТЕМ
 // ═══════════════════════════════════════════════════════════════
 function updateSystemSwitcher() {
-  const el = document.getElementById('systemSwitcher');
-  if (!el) return;
-  if (S.prestigeLevel > 0 || S.stage === 'galaxy' || S.totalSystemsCreated < 2) {
-    el.style.display = 'none';
+  const btn = document.getElementById('systemSwitcherBtn');
+  const dropdown = document.getElementById('systemDropdown');
+  if (!btn || !dropdown) return;
+
+  // Меню работает до престижа и только если у нас больше 1 системы
+  if (S.prestigeLevel > 0 || S.totalSystemsCreated < 2) {
+    btn.style.display = 'none';
+    dropdown.style.display = 'none';
     return;
   }
-  el.style.display = 'flex';
+  btn.style.display = 'block';
+  btn.textContent = '🌌 ' + (S.stage === 'galaxy' ? 'Галактика' : S.systemName);
 
   const list = [];
-  if (S.activeSystemIdx === 0) list.push({ idx: 0, name: S.systemName });
-  else if (S.otherSystems[0]) list.push({ idx: 0, name: S.otherSystems[0].name });
-  else list.push({ idx: 0, name: 'Родная' });
+  if (S.activeSystemIdx === 0) list.push({ idx: 0, name: S.systemName, isPrime: !!S.primeSystem, primeData: S.primeSystem });
+  else if (S.otherSystems[0]) list.push({ idx: 0, name: S.otherSystems[0].name, isPrime: S.otherSystems[0].isPrime, primeData: S.otherSystems[0].primeData });
+  else list.push({ idx: 0, name: 'Родная', isPrime: false });
 
   for (let i = 1; i < S.otherSystems.length; i++) {
-    if (S.otherSystems[i]) list.push({ idx: i, name: S.otherSystems[i].name });
-  }
-
-  let key = '';
-  for (let i = 0; i < list.length; i++) key += list[i].idx + ':' + list[i].name + '|';
-  if (el.dataset.key === key) return;
-  el.dataset.key = key;
-
-  el.innerHTML = '';
-  for (let i = 0; i < list.length; i++) {
-    const sys = list[i];
-    const btn = document.createElement('button');
-    btn.className = 'sys-btn' + (S.activeSystemIdx === sys.idx ? ' active' : '');
-    btn.textContent = sys.name;
-    (function(idx) { btn.onclick = function() { switchToSystem(idx); }; })(sys.idx);
-    el.appendChild(btn);
-  }
-
-  const renameBtn = document.createElement('button');
-  renameBtn.className = 'sys-btn rename';
-  renameBtn.textContent = '✎';
-  renameBtn.onclick = function() {
-    const newName = prompt('Новое имя системы:', S.systemName);
-    if (newName && newName.trim()) {
-      S.systemName = newName.trim().slice(0, 16);
-      if (S.activeSystemIdx > 0 && S.otherSystems[S.activeSystemIdx]) {
-        S.otherSystems[S.activeSystemIdx].name = S.systemName;
-      }
-      document.getElementById('systemSwitcher').dataset.key = '';
+    if (S.otherSystems[i]) {
+      list.push({ idx: i, name: S.otherSystems[i].name, isPrime: S.otherSystems[i].isPrime, primeData: S.otherSystems[i].primeData });
     }
-  };
-  el.appendChild(renameBtn);
-}
+  }
+  // ★ Убираем дублирующиеся короны из названий (для старых сейвов)
+  for (let i = 0; i < list.length; i++) {
+    if (list[i].name && list[i].name.indexOf('👑 ') === 0) {
+      list[i].name = list[i].name.replace('👑 ', '');
+    }
+  }
 
+  let html = '';
+  for (let s of list) {
+    let iconHTML = '';
+    if (s.idx === 0) {
+      iconHTML = '<div class="dd-icon-wrap" style="font-size:18px;">🏠</div>';
+    } else if (s.isPrime && s.primeData) {
+      iconHTML = `<div class="dd-icon-wrap" style="font-size:14px;">👑</div>
+                  <canvas class="dd-prime-canvas" data-key="${s.primeData.objectKey}" width="24" height="24"></canvas>`;
+    } else {
+      iconHTML = '<div class="dd-icon-wrap"></div>';
+    }
+
+    // При клике переключаемся на систему и закрываем меню
+    const action = `switchToSystem(${s.idx}); S.stage='system'; S.panX=0; S.panY=0; S.zoom=1; S.rotation=0; S.tiltX=0; S.tiltY=0; updateUI(); updateSystemSwitcher(); document.getElementById('systemDropdown').style.display='none';`;
+
+    html += `<button class="sys-dropdown-item ${S.activeSystemIdx === s.idx && S.stage === 'system' ? 'active' : ''}" onclick="${action}">
+      ${iconHTML}
+      <span style="flex:1; text-align:left;">${s.name}</span>
+    </button>`;
+  }
+
+  // Если мы внутри системы — добавляем кнопку возврата на карту
+  if (S.stage === 'system') {
+    html += `<button class="sys-dropdown-item" style="color:#7ee0a8; border-top:1px solid rgba(139,127,212,0.2); margin-top:4px;" 
+      onclick="S.stage='galaxy'; S.panX=0; S.panY=0; S.zoom=1; S.rotation=0; S.tiltX=0; S.tiltY=0; updateUI(); updateSystemSwitcher(); document.getElementById('systemDropdown').style.display='none';">
+      <div class="dd-icon-wrap" style="font-size:16px;">🌌</div>
+      <span style="flex:1; text-align:left;">Карта галактики</span>
+    </button>`;
+  }
+
+  html += `<button class="sys-dropdown-item" style="color:#8b7fd4;border-top:1px solid rgba(139,127,212,0.2);margin-top:4px;" 
+    onclick="renameCurrentSystem(); document.getElementById('systemDropdown').style.display='none';">
+    <div class="dd-icon-wrap"></div><span style="flex:1; text-align:left;">✎ Переименовать</span>
+  </button>`;
+
+  dropdown.innerHTML = html;
+
+  if (!btn.dataset.bound) {
+    btn.dataset.bound = '1';
+    btn.onclick = function(e) {
+      e.stopPropagation();
+      const isHidden = dropdown.style.display === 'none' || !dropdown.style.display;
+      dropdown.style.display = isHidden ? 'flex' : 'none';
+      if (isHidden && typeof startDropdownAnimation === 'function') startDropdownAnimation();
+    };
+    document.addEventListener('click', function(e) {
+      if (!dropdown.contains(e.target) && e.target !== btn) dropdown.style.display = 'none';
+    });
+  }
+}
+function renameCurrentSystem() {
+  const newName = prompt('Новое имя системы:', S.systemName);
+  if (newName && newName.trim()) {
+    S.systemName = newName.trim().slice(0, 16);
+    if (S.activeSystemIdx > 0 && S.otherSystems[S.activeSystemIdx]) {
+      S.otherSystems[S.activeSystemIdx].name = S.systemName;
+    }
+    updateSystemSwitcher();
+  }
+}
+window.renameCurrentSystem = renameCurrentSystem;
 // ═══════════════════════════════════════════════════════════════
 //  ИНИЦИАЛИЗАЦИЯ UI
 // ═══════════════════════════════════════════════════════════════
@@ -953,10 +1012,149 @@ function activateNightDefense(lvl) {
   updateUI();
   openNightMode();
 }
+// ═══════════════════════════════════════════════════════════════
+//  ЕЖЕДНЕВНЫЕ НАГРАДЫ
+// ═══════════════════════════════════════════════════════════════
+
+function getDailyRewardData(day) {
+  // Динамический подсчет наград
+  const dustReward = Math.floor(Math.max(50000, dustPerSec() * 3600 * 4)); // 4 часа дохода
+  const energyReward = Math.floor(Math.max(1000, energyPerSec() * 3600 * 4));
+  const civReward = Math.floor(Math.max(10, civPerSec() * 3600 * 8));
+  const metalReward = Math.floor(1000 * Math.max(1, S.systems)); // Масштабируется от систем
+
+  const rewards = [
+    { icon: '✦', name: 'Пыль', amount: dustReward, type: 'dust' },
+    { icon: '⚡', name: 'Энергия', amount: energyReward, type: 'energy' },
+    { icon: '🧬', name: 'Цивилизация', amount: civReward, type: 'civ' },
+    { icon: '⚙', name: 'Металлы', amount: metalReward, type: 'metal' },
+    { icon: '🛡', name: 'Оборона', amount: 'Ур.3', type: 'defense' },
+    { icon: '🌐', name: 'Щит', amount: '8ч', type: 'shield' },
+    { icon: '🎫', name: 'Трофей', amount: 'Случайный', type: 'trophy' }
+  ];
+  
+  return rewards[day];
+}
+
+function checkDailyRewards() {
+  const now = Date.now();
+  const last = S.dailyReward.lastClaimed || 0;
+  const day = S.dailyReward.day || 0;
+
+  // Если прошло больше 48 часов (пропустил день) — сбрасываем на 1-й день
+  if (last > 0 && (now - last) > 48 * 3600 * 1000) {
+    S.dailyReward.day = 0;
+  }
+  
+  // Если прошло больше 24 часов с последнего получения — можно забрать
+  if (last === 0 || (now - last) >= 24 * 3600 * 1000) {
+    setTimeout(() => { openDailyRewards(); }, 1500);
+  }
+}
+
+function openDailyRewards() {
+  const modal = document.getElementById('dailyModal');
+  const grid = document.getElementById('dailyGrid');
+  if (!modal || !grid) return;
+
+  let html = '';
+  const currentDay = S.dailyReward.day || 0;
+  const now = Date.now();
+  const last = S.dailyReward.lastClaimed || 0;
+  const canClaim = (last === 0 || (now - last) >= 24 * 3600 * 1000);
+
+  for (let i = 0; i < 7; i++) {
+    const rw = getDailyRewardData(i);
+    let stateClass = '';
+    
+    if (i < currentDay) stateClass = 'claimed';
+    else if (i === currentDay && canClaim) stateClass = 'active';
+
+    let rwText = typeof rw.amount === 'number' ? fmt(rw.amount) : rw.amount;
+    const dayClass = i === 6 ? 'day-7' : '';
+
+    html += `
+      <div class="daily-item ${stateClass} ${dayClass}" ${i === currentDay && canClaim ? 'onclick="claimDailyReward()"' : ''} style="${i === currentDay && canClaim ? 'cursor:pointer;' : ''}">
+        <div class="daily-day">День ${i + 1}</div>
+        <div class="daily-icon">${rw.icon}</div>
+        <div class="daily-reward-text">${rwText} ${rw.name !== 'Оборона' && rw.name !== 'Щит' && rw.name !== 'Трофей' ? rw.name : ''}</div>
+      </div>
+    `;
+  }
+
+  grid.innerHTML = html;
+  modal.classList.add('show');
+}
+
+function claimDailyReward() {
+  const day = S.dailyReward.day || 0;
+  if (day >= 7) return;
+
+  const rw = getDailyRewardData(day);
+
+  if (rw.type === 'dust') { S.dust += rw.amount; S.dustTotal += rw.amount; toast('Награда!', '+' + fmt(rw.amount) + ' ✦'); }
+  else if (rw.type === 'energy') { S.energy += rw.amount; toast('Награда!', '+' + fmt(rw.amount) + ' ⚡'); }
+  else if (rw.type === 'civ') { S.civLevel += rw.amount; toast('Награда!', '+' + fmt(rw.amount) + ' 🧬'); }
+  else if (rw.type === 'metal') { S.metalAmount += rw.amount; toast('Награда!', '+' + fmt(rw.amount) + ' ⚙'); }
+  else if (rw.type === 'defense') { 
+    S.nightDefenseLevel = 3; 
+    S.nightDefenseExpiresAt = Date.now() + 24 * 3600 * 1000; 
+    toast('Награда!', 'Автооборона Ур.3 на 24ч'); 
+  }
+  else if (rw.type === 'shield') { 
+    S.shieldUntil = Math.max(S.shieldUntil || 0, Date.now() + 8 * 3600 * 1000); 
+    toast('Награда!', 'Щит на 8ч'); 
+  }
+  else if (rw.type === 'trophy') { 
+    if (typeof tryRollTrophy === 'function') tryRollTrophy('insane'); 
+    toast('Джекпот!', 'Трофейный контракт'); 
+  }
+
+  S.dailyReward.lastClaimed = Date.now();
+  S.dailyReward.day = day + 1;
+  
+  if (S.dailyReward.day >= 7) {
+    S.dailyReward.day = 0; // Цикл завершен, начинаем заново
+  }
+
+  saveGame();
+  updateUI();
+  
+  if (typeof playSFX === 'function') playSFX('ui_purchase');
+  
+  // Перерисовываем окно
+  openDailyRewards();
+  
+  // Если забрали всё, закрываем через секунду
+  setTimeout(() => {
+    const modal = document.getElementById('dailyModal');
+    if (modal) modal.classList.remove('show');
+  }, 1500);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  ПЕРВЫЙ ЩИТ
+// ═══════════════════════════════════════════════════════════════
+function checkFirstNightShield(offlineSec) {
+  // Если офлайн > 2 часов и щит еще не выдавался
+  if (offlineSec > 2 * 3600 && !S.firstNightShieldUsed) {
+    S.firstNightShieldUsed = true;
+    S.shieldUntil = Math.max(S.shieldUntil || 0, Date.now() + 8 * 3600 * 1000);
+    saveGame();
+    
+    setTimeout(() => {
+      document.getElementById('welcomeShieldModal').classList.add('show');
+    }, 2000);
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 //  ЭКСПОРТ
 // ═══════════════════════════════════════════════════════════════
+window.openDailyRewards = openDailyRewards;
+window.claimDailyReward = claimDailyReward;
+window.checkDailyRewards = checkDailyRewards;
+window.checkFirstNightShield = checkFirstNightShield;
 window.fmt = fmt;
 window.fmtTime = fmtTime;
 window.toast = toast;

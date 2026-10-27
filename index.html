@@ -26,7 +26,8 @@
 
       <div class="quests-panel" id="questsPanel"></div>
       <div class="missions" id="missions"></div>
-      <div id="systemSwitcher"></div>
+      <button id="systemSwitcherBtn" class="sys-dropdown-btn" style="display:none;">🌌 Системы</button>
+      <div id="systemDropdown" class="sys-dropdown-list" style="display:none;"></div>
       <div id="gasIndicator" style="
         position:absolute;
         top:80px;
@@ -112,6 +113,37 @@
   <div class="modal" id="modal">
     <div class="modal-card" id="modalCard"></div>
   </div>
+    <!-- Модалка Ежедневных наград -->
+  <div class="modal" id="dailyModal">
+    <div class="modal-card">
+      <div class="modal-title">📅 Ежедневные награды</div>
+      <div class="modal-sub">Заходите каждый день, чтобы получить ценные призы!</div>
+      
+      <div class="daily-grid" id="dailyGrid">
+        <!-- Заполняется через JS -->
+      </div>
+      
+      <button class="pour-btn" style="width:100%; margin-top:10px;" onclick="document.getElementById('dailyModal').classList.remove('show');">
+        Закрыть
+      </button>
+    </div>
+  </div>
+
+  <!-- Модалка Первого Щита -->
+  <div class="modal" id="welcomeShieldModal">
+    <div class="modal-card" style="text-align:center;">
+      <div style="font-size:48px; margin-bottom:10px;">🛡</div>
+      <div class="modal-title">Добро пожаловать!</div>
+      <div class="info-box" style="margin-top:15px; font-size:12px; line-height:1.6;">
+        Пока вы отсутствовали, вашу систему пытались атаковать!<br><br>
+        Мы выдали вам <b>единоразовый Щит на 8 часов</b>.<br><br>
+        Приобрести новый можете в магазине за ⭐ Звезды в меню настроек, а также можете активировать <b>Ночной режим</b> для автоматической обороны за внутриигровые ресурсы.
+      </div>
+      <button class="stars-btn" style="margin-top:15px;" onclick="document.getElementById('welcomeShieldModal').classList.remove('show');">
+        Понятно
+      </button>
+    </div>
+  </div>
   <div class="modal" id="settingsModal">
     <div class="modal-card">
       <div class="modal-title">⚙ Настройки</div>
@@ -120,7 +152,7 @@
         🌙 Ночной режим
       </button>
       <button class="pour-btn" style="width:100%; margin-top:8px;" onclick="document.getElementById('settingsModal').classList.remove('show'); openPremiumShop();">
-        ⚙ Магазин за металлы
+        ⚙ Премиум магазин
       </button>
       <div class="info-box" style="margin-top: 15px;">
         <!-- Яркость -->

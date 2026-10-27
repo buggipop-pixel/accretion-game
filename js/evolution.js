@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  EVOLUTION.JS — переходы фаз, heat-таймер III, сборка планет
+//  EVOLUTION.JS — Переходы фаз, таймер зажигания, сборка планет
 // ═══════════════════════════════════════════════════════════════
 
 let evolutionModalOpen = false;
@@ -8,7 +8,9 @@ let _protostarTimerStart = 0;
 let _protostarTimerActive = false;
 let _systemFullNotified = false;
 
-// ─── Проверка перехода ──────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+//  ПРОВЕРКА ПЕРЕХОДА ФАЗ
+// ═══════════════════════════════════════════════════════════════
 function checkEvolution() {
   if (evolutionModalOpen) return;
   if (performance.now() < evolutionSuppressUntil) return;
@@ -16,14 +18,16 @@ function checkEvolution() {
   if (S.stage === 'protostar') return;
   if (S.stage === 'galaxy') return;
   if (S.stage === 'system' && S.prestigeLevel > 0) return;
+  
+  // ★ Если игрок недавно провалил сборку — не высовываемся
+  if (S.evolutionPopupSuspended) return; 
+  if (Date.now() < (S.assemblyCooldownUntil || 0)) return;
 
   const modal = document.getElementById('modal');
   if (modal && modal.classList.contains('show')) return;
 
   if (S.stage === 'system') {
     if (S.planets.length >= 8) {
-      // ★ Система заполнена: фазу НЕ меняем — расширение через магазин систем.
-      //   Подсказку показываем один раз, чтобы не спамить каждый кадр.
       if (!_systemFullNotified) {
         _systemFullNotified = true;
         toast('Система сформирована', 'Пора расширяться — купи новую систему');
@@ -31,7 +35,6 @@ function checkEvolution() {
       return;
     }
     _systemFullNotified = false;
-    if (!_canPlaceAnyPlanet()) return;
     if (S.dust >= currentGoal()) openEvolution();
     return;
   }
@@ -41,31 +44,67 @@ function checkEvolution() {
   if (S.dust >= goal) openEvolution();
 }
 
-function _canPlaceAnyPlanet() {
-  const validPlanets = (S.planets || []).filter(p => p && typeof p === 'object' && isFinite(p.baseOrbitR));
-  if (validPlanets.length >= 8) return false;
-  if (typeof getAllowedOrbitsForType !== 'function') return true;
-  if (typeof getOrbitR !== 'function') return true;
+// ═══════════════════════════════════════════════════════════════
+//  ДИСПЕТЧЕР ЭВОЛЮЦИИ
+// ═══════════════════════════════════════════════════════════════
+function openEvolution() {
+  if (evolutionModalOpen) return;
+  if (S.activeMinigame) return;
+  if (S.stage === 'protostar') return;
+  if (S.stage === 'galaxy') return;
+  if (S.stage === 'system' && S.prestigeLevel > 0) return;
 
-  const allTypes = ['rocky', 'lava', 'iceGiant', 'gasGiant', 'superEarth'];
-  const gap = (typeof ORBIT_GEOMETRY !== 'undefined' && ORBIT_GEOMETRY.minGap) ? ORBIT_GEOMETRY.minGap : 25;
-
-  for (let ti = 0; ti < allTypes.length; ti++) {
-    const orbits = getAllowedOrbitsForType(S.starType, allTypes[ti]);
-    if (!orbits || orbits.length === 0) continue;
-    for (let oi = 0; oi < orbits.length; oi++) {
-      const orbitR = getOrbitR(orbits[oi]);
-      let free = true;
-      for (let pi = 0; pi < validPlanets.length; pi++) {
-        if (Math.abs(validPlanets[pi].baseOrbitR - orbitR) < gap) { free = false; break; }
-      }
-      if (free) return true;
-    }
+  // ★ Проверка кулдауна
+  if (Date.now() < (S.assemblyCooldownUntil || 0)) {
+    toast('Перезарядка', 'Подождите ' + Math.ceil((S.assemblyCooldownUntil - Date.now()) / 1000) + 'с');
+    return;
   }
-  return false;
+  // ... дальше идет старый код
+  const stage = S.stage;
+
+  if (stage === 'cloud') {
+    S.stage = 'condense';
+    if (typeof playSFX === 'function') playSFX('evolution');
+    S.phaseProgress.cloud = 0;
+    closeEvolutionModal();
+    if (typeof showLoreCard === 'function') showLoreCard('condense', function() {
+      setTimeout(function() { toast('Коллапс начался', 'Гравитация сжимает облако'); }, 5000);
+    });
+    return;
+  }
+
+  if (stage === 'condense') {
+    S.stage = 'protostar';
+    if (typeof playSFX === 'function') playSFX('evolution');
+    S.phaseProgress.condense = 0;
+    S.protostarHeat = 0.2;
+    closeEvolutionModal();
+    startProtostarTimer();
+    if (typeof showLoreCard === 'function') showLoreCard('protostar', function() {
+      setTimeout(function() { toast('Протозвезда', 'Тапай по экрану — держи жар!'); }, 5000);
+    });
+    return;
+  }
+
+  if (stage === 'firstPlanet') {
+    _buildPlanetModal(1, 'Сборка первой планеты');
+    return;
+  }
+
+  if (stage === 'system') {
+    if (S.planets.length >= 8) {
+      closeEvolutionModal();
+      setTimeout(function() { toast('Система сформирована', 'Пора расширяться'); }, 500);
+      return;
+    }
+    _buildPlanetModal(S.planets.length + 1);
+    return;
+  }
 }
 
-// ─── Таймер фазы III ────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+//  ТАЙМЕР ФАЗЫ III (ПРОТОЗВЕЗДА)
+// ═══════════════════════════════════════════════════════════════
 function tickProtostar(dt) {
   if (S.stage !== 'protostar') { _protostarTimerActive = false; return; }
   if (!_protostarTimerActive) {
@@ -76,8 +115,7 @@ function tickProtostar(dt) {
 
   const b = (CFG.activeBoost && CFG.activeBoost.protostar) || {};
   const elapsed = (performance.now() - _protostarTimerStart) / 1000;
-  const decay = (b.heatDecayBase || 0.10) *
-                (1 + elapsed * (b.heatDecayAccel || 0.18));
+  const decay = (b.heatDecayBase || 0.10) * (1 + elapsed * (b.heatDecayAccel || 0.18));
 
   S.protostarHeat = Math.max(0, (S.protostarHeat || 0) - decay * dt);
 
@@ -112,6 +150,7 @@ function finishProtostar() {
     { q: 0.25, star: 'A', color: '#ccccff' },
     { q: 0.00, star: 'G', color: '#ffcc55' },
   ];
+  
   let starType = 'G', starColor = '#ffcc55';
   for (let i = 0; i < thresholds.length; i++) {
     if (heat >= thresholds[i].q) {
@@ -123,30 +162,22 @@ function finishProtostar() {
   S.starType = starType;
 
   _ignitionFlash(starColor);
-  if (typeof playSFX === 'function') playSFX('sfx_star_ignite');
-
-  if (typeof resetAllParticlesToSpiral === 'function') {
-    resetAllParticlesToSpiral();
-  }
+  if (typeof playSFX === 'function') playSFX('star_ignite');
+  if (typeof resetAllParticlesToSpiral === 'function') resetAllParticlesToSpiral();
 
   S.systemType = (typeof rollSystemType === 'function') ? rollSystemType() : 'single';
-
   if (typeof resetGas === 'function') resetGas();
 
   setTimeout(function() {
     S.stage = 'firstPlanet';
     const st = STAR_TYPES[starType];
     const sysSt = SYSTEM_TYPES[S.systemType];
-
     toast('★ ' + st.name, sysSt.name + ' система · доход ×' + st.rateMult);
 
     setTimeout(function() {
       if (typeof showLoreCard === 'function') {
         showLoreCard('firstPlanet', function() {
-          setTimeout(function() {
-            toast('Диск остывает',
-              'Накопи ' + fmt(planetCost(0)) + ' пыли для первой планеты');
-          }, 5000);
+          setTimeout(function() { toast('Диск остывает', 'Накопи ' + fmt(planetCost(0)) + ' пыли для первой планеты'); }, 5000);
         });
       }
     }, 10000);
@@ -155,9 +186,7 @@ function finishProtostar() {
 
 function _ignitionFlash(color) {
   const f = document.createElement('div');
-  f.style.cssText =
-    'position:fixed;inset:0;background:' + color + ';opacity:0;' +
-    'pointer-events:none;z-index:9998;transition:opacity 0.15s ease;';
+  f.style.cssText = 'position:fixed;inset:0;background:' + color + ';opacity:0;pointer-events:none;z-index:9998;transition:opacity 0.15s ease;';
   document.body.appendChild(f);
   requestAnimationFrame(function() { f.style.opacity = '0.7'; });
   setTimeout(function() {
@@ -166,14 +195,173 @@ function _ignitionFlash(color) {
   }, 400);
 }
 
-// ─── Модалка ────────────────────────────────────────────────────
-function closeEvolutionModal() {
-  evolutionModalOpen = false;
-  const modal = document.getElementById('modal');
-  if (modal) modal.classList.remove('show');
-  if (typeof playSFX === 'function') playSFX('ui_close');
+// ═══════════════════════════════════════════════════════════════
+//  СБОРКА ПЛАНЕТ (ЛОГИКА КУЛДАУНА И ПРОВАЛА)
+// ═══════════════════════════════════════════════════════════════
+function _handlePlanetPlaced() {
+  const wasFirst = (S.stage === 'firstPlanet');
+  const preferred = (typeof MG !== 'undefined' && MG.result) ? MG.result : 'rocky';
+  const placedType = (typeof addPlanet === 'function') ? addPlanet(preferred) : false;
+
+  closeEvolutionModal();
+
+  if (placedType) {
+    // ★ УСПЕХ: снимаем блокировку (на следующую планету всё будет норм)
+    S.evolutionPopupSuspended = false;
+    
+    if (typeof trackDaily === 'function') trackDaily('d_planet', 1);
+    if (!S.stats) S.stats = {};
+    S.stats.planets = (S.stats.planets || 0) + 1;
+    if (wasFirst) S.stage = 'system';
+    
+    toast(PLANET_TYPES[placedType].name + ' сформирована', 'Новая планета в системе');
+    if (typeof logPlanetFormed === 'function') logPlanetFormed(PLANET_TYPES[placedType].name);
+    if (typeof playSFX === 'function') playSFX('planet_form');
+  } else {
+    // ★ ПРОВАЛ: блокируем авто-вызов
+    S.evolutionPopupSuspended = true;
+    
+    const cost = planetCost(S.planets.length);
+    S.dust += cost;
+    S.assemblyCooldownUntil = Date.now() + 30000;
+    toast('⚠ Неверная планета', 'Нет места. Возврат ' + fmt(cost) + ' ✦. Перезарядка 30с.');
+  }
+  saveGame();
+  if (typeof updateUI === 'function') updateUI();
 }
 
+function initAssembleField() {
+  const W = window.CANVAS_W || 400;
+  const H = window.CANVAS_H || 700;
+  MG.fieldHalfW = W / 2 - 25;
+  MG.fieldHalfH = H / 2 - 140;
+  MG.startDistMin = Math.min(MG.fieldHalfW, MG.fieldHalfH) * 0.40;
+  MG.startDistMax = Math.min(MG.fieldHalfW, MG.fieldHalfH) * 0.95;
+
+  MG.fieldParticles = [];
+  MG.result = null;
+  MG.resultLabel = null;
+  MG.elapsedSec = 0;
+  MG.finishAt = 0;
+
+  const star = S.starType || 'G';
+  const validPlanets = (S.planets || []).filter(p => p && typeof p === 'object' && isFinite(p.baseOrbitR));
+  
+  // 1. Находим свободные орбиты
+  const freeOrbitIndices = [];
+  for (let i = 0; i < 8; i++) {
+    const orbitR = getOrbitR(i);
+    let free = true;
+    for (let pi = 0; pi < validPlanets.length; pi++) {
+      if (Math.abs(validPlanets[pi].baseOrbitR - orbitR) < ORBIT_GEOMETRY.minGap) {
+        free = false; break;
+      }
+    }
+    if (free) freeOrbitIndices.push(i);
+  }
+
+  // 2. Смотрим, какие планеты туда можно поставить
+  const availableTypes = [];
+  for (let i = 0; i < freeOrbitIndices.length; i++) {
+    const types = getAllowedTypesAtOrbit(star, freeOrbitIndices[i]);
+    for (let t of types) {
+      if (availableTypes.indexOf(t) === -1) availableTypes.push(t);
+    }
+  }
+
+  MG.allowedPlanets = availableTypes; // ★ Честная подсказка
+  MG.availableColors = ['ice', 'lava', 'stone', 'gas']; // ★ Всегда 4 цвета для игры
+
+  const types = MG.availableColors;
+  const total = types.length * MG_ASSEMBLE.colorsPerType;
+  const margin = 30;
+  const innerW = (MG.fieldHalfW - margin) * 0.9;
+  const innerH = (MG.fieldHalfH - margin) * 0.9;
+
+  const placed = [];
+  let attempts = 0;
+  const maxAttempts = 500;
+
+  for (let i = 0; i < total; i++) {
+    let x = 0, y = 0, ok = false;
+    while (!ok && attempts < maxAttempts) {
+      attempts++;
+      x = (Math.random() * 2 - 1) * innerW;
+      y = (Math.random() * 2 - 1) * innerH;
+      ok = true;
+      for (let k = 0; k < placed.length; k++) {
+        const dx = x - placed[k].x, dy = y - placed[k].y;
+        if (dx * dx + dy * dy < 55 * 55) { ok = false; break; }
+      }
+    }
+    placed.push({ x: x, y: y });
+    const colorKey = types[Math.floor(i / MG_ASSEMBLE.colorsPerType)];
+    const cc = {}; cc[colorKey] = 1;
+    MG.fieldParticles.push({
+      x: x, y: y, vx: 0, vy: 0,
+      r: MG_ASSEMBLE.baseRadius,
+      colors: [colorKey],
+      colorCounts: cc,
+      mass: 1,
+      fixed: false,
+    });
+  }
+}
+function _buildPlanetModal(stepNumber, titleOverride) {
+  if (S.stage === 'galaxy') return;
+  if (S.prestigeLevel > 0) return;
+
+  const cost = planetCost(S.planets.length);
+  const canAfford = S.dust >= cost;
+  const zone = getOrbitHint();
+  const title = titleOverride || (stepNumber === 1 ? 'Сборка первой планеты' : ('Сборка планеты №' + stepNumber));
+  
+  // Проверяем перезарядку
+  const cooldownLeft = Math.ceil(((S.assemblyCooldownUntil || 0) - Date.now()) / 1000);
+  const isCooldown = cooldownLeft > 0;
+  
+  let btnName = 'Начать сборку';
+  let btnDesc = canAfford ? 'Собери планету из частиц' : 'Не хватает ' + fmt(cost - S.dust);
+  
+  if (isCooldown) {
+    btnName = 'Перезарядка ' + cooldownLeft + 'с';
+    btnDesc = 'Подождите перед новой попыткой';
+  }
+
+  setModal(buildModal(title,
+    'Стоимость: ' + fmt(cost) + ' пыли.' + assembleRulesHTML(),
+    [{ id:'go', name: btnName,
+      desc: btnDesc,
+      stats: zone.hint,
+      color:'#6b4de6', icon:'🪐', disabled: !canAfford || isCooldown }]),
+    { go: function() {
+        if (S.dust < cost) return;
+        if (isCooldown) return;
+        
+        S.dust -= cost;
+        tryMinigameFull('assemble',
+          _handlePlanetPlaced,
+          function() {
+            // Если время вышло (провал)
+            S.dust += cost;
+            S.assemblyCooldownUntil = Date.now() + 30000;
+            S.evolutionPopupSuspended = true; // Блокируем авто-вызов
+            evolutionSuppressUntil = performance.now() + 3000;
+            toast('Сборка не удалась', 'Возврат ' + fmt(cost) + ' пыли. Перезарядка 30с.');
+            saveGame();
+            if (typeof updateUI === 'function') updateUI();
+          }
+        );
+      }
+    });
+    
+  // Если кулдаун идет, обновляем модалку каждую секунду
+  if (isCooldown) {
+    setTimeout(function() {
+      if (evolutionModalOpen) _buildPlanetModal(stepNumber, titleOverride);
+    }, 1000);
+  }
+}
 function tryMinigameFull(type, onSuccess, onFail) {
   closeEvolutionModal();
   if (typeof startMinigame === 'function') {
@@ -187,34 +375,40 @@ function tryMinigameFull(type, onSuccess, onFail) {
   } else { onSuccess(); }
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  UI ИНТЕРФЕЙС МОДАЛКИ
+// ═══════════════════════════════════════════════════════════════
 function getOrbitHint() {
   const star = S.starType || 'G';
   const allTypes = (typeof getAllowedTypesForSystem === 'function')
     ? getAllowedTypesForSystem(star) : ['rocky', 'gasGiant', 'iceGiant'];
   const freeTypes = [];
+  
   for (let i = 0; i < 8; i++) {
     const orbitR = (typeof getOrbitR === 'function') ? getOrbitR(i) : 90 + i * 50;
     let occupied = false;
     for (let pi = 0; pi < S.planets.length; pi++) {
-      if (Math.abs(S.planets[pi].baseOrbitR - orbitR) < 25) { occupied = true; break; }
+      if (Math.abs(S.planets[pi].baseOrbitR - orbitR) < ORBIT_GEOMETRY.minGap) { occupied = true; break; }
     }
     if (occupied) continue;
+    
     const allowed = (typeof getAllowedTypesAtOrbit === 'function')
       ? getAllowedTypesAtOrbit(star, i) : allTypes;
     for (let ai = 0; ai < allowed.length; ai++) {
       if (freeTypes.indexOf(allowed[ai]) === -1) freeTypes.push(allowed[ai]);
     }
   }
+  
   const names = freeTypes.map(function(t) {
     return PLANET_TYPES[t] ? PLANET_TYPES[t].name : t;
   });
+  
   return {
     label: 'Свободные орбиты',
     hint: names.length > 0 ? 'Доступно: ' + names.join(', ') : 'Все орбиты заполнены',
     types: freeTypes,
   };
 }
-window.getOrbitHint = getOrbitHint;
 
 function assembleRulesHTML() {
   return '<div style="margin-top:10px;font-size:11px;line-height:1.6;color:#b9a8ff;text-align:left">' +
@@ -223,135 +417,14 @@ function assembleRulesHTML() {
     '</div>';
 }
 
-// ─── Общий обработчик успеха сборки ─────────────────────────────
-function _handlePlanetPlaced() {
-  const wasFirst = (S.stage === 'firstPlanet');
-  const preferred = (typeof MG !== 'undefined' && MG.result) ? MG.result : 'rocky';
-  const placedType = addPlanet(preferred);
-  if (placedType) {
-    if (typeof trackDaily === 'function') trackDaily('d_planet', 1);
-    if (!S.stats) S.stats = {};
-    S.stats.planets = (S.stats.planets || 0) + 1;
-  }
-  closeEvolutionModal();
-
-  if (wasFirst && placedType) {
-    S.stage = 'system';
-  }
-
-  if (!placedType) {
-    toast('⚠ Система заполнена', 'Все орбиты заняты планетами');
-  } else if (placedType !== preferred) {
-    toast(PLANET_TYPES[placedType].name + ' (вместо ' + PLANET_TYPES[preferred].name + ')',
-          'Орбита для ' + PLANET_TYPES[preferred].name + ' была занята');
-    if (typeof logPlanetFormed === 'function') logPlanetFormed(PLANET_TYPES[placedType].name);
-  } else {
-    toast(PLANET_TYPES[placedType].name + ' сформирована', 'Новая планета в системе');
-    if (typeof logPlanetFormed === 'function') logPlanetFormed(PLANET_TYPES[placedType].name);
-    if (typeof playSFX === 'function') playSFX('sfx_planet_form');
-  }
-}
-
-function _buildPlanetModal(stepNumber, titleOverride) {
-  if (S.stage === 'galaxy') return;
-  if (S.prestigeLevel > 0) return;
-
-  const cost = planetCost(S.planets.length);
-  const canAfford = S.dust >= cost;
-  const zone = getOrbitHint();
-  const title = titleOverride
-    || (stepNumber === 1 ? 'Сборка первой планеты' : ('Сборка планеты №' + stepNumber));
-
-  setModal(buildModal(title,
-    'Стоимость: ' + fmt(cost) + ' пыли.' + assembleRulesHTML(),
-    [{ id:'go', name:'Начать сборку',
-      desc: canAfford ? 'Собери планету из частиц' : 'Не хватает ' + fmt(cost - S.dust),
-      stats: zone.hint,
-      color:'#6b4de6', icon:'🪐', disabled: !canAfford }]),
-    { go: function() {
-        if (S.dust < cost) return;
-        S.dust -= cost;
-        tryMinigameFull('assemble',
-          _handlePlanetPlaced,
-          function() {
-            S.dust += cost;
-            evolutionSuppressUntil = performance.now() + 3000;
-            toast('Сборка не удалась', 'Возврат ' + fmt(cost) + ' пыли');
-          }
-        );
-      }
-    });
-}
-
-// ─── Диспетчер ──────────────────────────────────────────────────
-function openEvolution() {
-  if (evolutionModalOpen) return;
-  if (S.activeMinigame) return;
-  if (S.stage === 'protostar') return;
-  if (S.stage === 'galaxy') return;
-  if (S.stage === 'system' && S.prestigeLevel > 0) return;
-
-  const stage = S.stage;
-
-  if (stage === 'cloud') {
-    S.stage = 'condense';
-    if (typeof playSFX === 'function') playSFX('sfx_evolution');
-    if (typeof playSFX === 'function') playSFX('evolution');
-    S.phaseProgress.cloud = 0;
-    closeEvolutionModal();
-    showLoreCard('condense', function() {
-      setTimeout(function() {
-        toast('Коллапс начался', 'Гравитация сжимает облако');
-      }, 5000);
-    });
-    return;
-  }
-
-  if (stage === 'condense') {
-    S.stage = 'protostar';
-    if (typeof playSFX === 'function') playSFX('sfx_evolution');
-    S.phaseProgress.condense = 0;
-    S.protostarHeat = 0.2;
-    closeEvolutionModal();
-    startProtostarTimer();
-    showLoreCard('protostar', function() {
-      setTimeout(function() {
-        toast('Протозвезда', 'Тапай по экрану — держи жар!');
-      }, 5000);
-    });
-    return;
-  }
-
-  if (stage === 'firstPlanet') {
-    _buildPlanetModal(1, 'Сборка первой планеты');
-    return;
-  }
-
-  if (stage === 'system') {
-    if (S.planets.length >= 8) {
-      closeEvolutionModal();
-      // ★ Не меняем фазу на 'galaxy' — просто сообщаем игроку.
-      //   Фаза VI наступит только после покупки 5-й системы (js/shop.js).
-      setTimeout(function() {
-        toast('Система сформирована', 'Пора расширяться — купи новую систему');
-      }, 500);
-      return;
-    }
-    _buildPlanetModal(S.planets.length + 1);
-    return;
-  }
-}
-
 function buildModal(title, sub, choices) {
   let html = '<div class="modal-title">' + title + '</div>';
   if (sub) html += '<div class="modal-sub">' + sub + '</div>';
   html += '<div class="choices">';
   for (let i = 0; i < choices.length; i++) {
     const c = choices[i];
-    html += '<button class="choice" data-id="' + c.id + '"' +
-            (c.disabled ? ' disabled' : '') + '>';
-    html += '<div class="choice-icon" style="background:' + c.color +
-            ';box-shadow:0 0 20px ' + c.color + '80">' + (c.icon || '') + '</div>';
+    html += '<button class="choice" data-id="' + c.id + '"' + (c.disabled ? ' disabled' : '') + '>';
+    html += '<div class="choice-icon" style="background:' + c.color + ';box-shadow:0 0 20px ' + c.color + '80">' + (c.icon || '') + '</div>';
     html += '<div class="choice-body">';
     html += '<div class="choice-name">' + c.name + '</div>';
     if (c.desc) html += '<div class="choice-desc">' + c.desc + '</div>';
@@ -365,9 +438,12 @@ function buildModal(title, sub, choices) {
 function setModal(html, handlers) {
   const modal = document.getElementById('modal');
   const card = document.getElementById('modalCard');
+  if (!modal || !card) return;
+  
   card.innerHTML = html;
   modal.classList.add('show');
   evolutionModalOpen = true;
+  
   const buttons = card.querySelectorAll('.choice');
   for (let i = 0; i < buttons.length; i++) {
     buttons[i].addEventListener('click', function() {
@@ -379,32 +455,37 @@ function setModal(html, handlers) {
   }
 }
 
+function closeEvolutionModal() {
+  evolutionModalOpen = false;
+  const modal = document.getElementById('modal');
+  if (modal) modal.classList.remove('show');
+  if (typeof playSFX === 'function') playSFX('ui_close');
+}
+
+// Глобальное закрытие модалки
 (function setupModalClose() {
   function attach() {
     const modal = document.getElementById('modal');
     if (!modal) { setTimeout(attach, 200); return; }
     if (modal.dataset.closeAttached === '1') return;
     modal.dataset.closeAttached = '1';
+    
     modal.addEventListener('click', function(e) {
-      if (e.target === modal) {
-        if (typeof closeEvolutionModal === 'function') closeEvolutionModal();
-        else modal.classList.remove('show');
-      }
+      if (e.target === modal) closeEvolutionModal();
     });
     document.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape' && modal.classList.contains('show')) {
-        if (typeof closeEvolutionModal === 'function') closeEvolutionModal();
-        else modal.classList.remove('show');
-      }
+      if (e.key === 'Escape' && modal.classList.contains('show')) closeEvolutionModal();
     });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', attach);
   else attach();
 })();
 
+// ─── Экспорт ────────────────────────────────────────────────────
 window.checkEvolution = checkEvolution;
 window.openEvolution = openEvolution;
 window.closeEvolutionModal = closeEvolutionModal;
 window.tickProtostar = tickProtostar;
 window.startProtostarTimer = startProtostarTimer;
 window.getProtostarTimeLeft = getProtostarTimeLeft;
+window.getOrbitHint = getOrbitHint;

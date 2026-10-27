@@ -21,7 +21,7 @@ const CFG = {
   storageInstantStars: 50,
 
   // ═════════════════════════════════════════════════════════════
-  //  АКТИВНЫЕ ФАЗЫ I–III (Восстановлено)
+  //  АКТИВНЫЕ ФАЗЫ I–III
   // ═════════════════════════════════════════════════════════════
   activeBoost: {
     cloud: {
@@ -116,6 +116,7 @@ const PHYS = { refRadius: 100, refTemp: 280, refPeriod: 8 };
 const ORBIT_GEOMETRY = { baseR: 170, ratio: 1.22, minGap: 30, maxR: 750 };
 function getOrbitR(index) { return ORBIT_GEOMETRY.baseR * Math.pow(ORBIT_GEOMETRY.ratio, index); }
 
+// ─── МАТРИЦА ОРБИТ (Зависит от типа звезды) ───
 const ORBIT_PLANET_MATRIX = {
   M: [['rocky'], ['rocky'], ['rocky'], ['rocky', 'gasGiant'], ['gasGiant'], ['gasGiant'], ['iceGiant'], ['iceGiant']],
   K: [['lava'], ['rocky'], ['rocky', 'superEarth'], ['rocky', 'superEarth'], ['rocky', 'superEarth'], ['gasGiant'], ['gasGiant'], ['iceGiant']],
@@ -123,6 +124,62 @@ const ORBIT_PLANET_MATRIX = {
   A: [['lava'], ['lava'], ['lava', 'rocky'], ['rocky'], ['gasGiant'], ['gasGiant'], ['gasGiant'], ['iceGiant']],
   B: [['lava'], ['lava'], ['lava'], ['lava'], ['gasGiant'], ['gasGiant'], ['gasGiant'], ['iceGiant']],
 };
+
+// ★ СТАНДАРТНАЯ МАТРИЦА (для фаз ручной сборки: IV и V)
+// Гарантирует, что у игрока всегда будет место под собранную планету.
+const STANDARD_ORBIT_MATRIX = [
+  ['lava'],
+  ['lava'],
+  ['lava', 'superEarth'],
+  ['superEarth', 'rocky'],
+  ['superEarth', 'rocky'],
+  ['rocky', 'gasGiant'],
+  ['gasGiant', 'iceGiant'],
+  ['gasGiant', 'iceGiant']
+];
+
+function getAllowedTypesAtOrbit(starType, orbitIdx) {
+  // Если игрок в фазе ручной сборки, используем стандарт
+  if (typeof S !== 'undefined' && (S.stage === 'firstPlanet' || S.stage === 'system')) {
+    if (orbitIdx < 0 || orbitIdx >= STANDARD_ORBIT_MATRIX.length) return [];
+    return STANDARD_ORBIT_MATRIX[orbitIdx].slice();
+  }
+  // Иначе используем матрицу звезды
+  const matrix = ORBIT_PLANET_MATRIX[starType] || ORBIT_PLANET_MATRIX.G;
+  if (orbitIdx < 0 || orbitIdx >= matrix.length) return [];
+  return matrix[orbitIdx].slice();
+}
+
+function getAllowedTypesForSystem(starType) {
+  if (typeof S !== 'undefined' && (S.stage === 'firstPlanet' || S.stage === 'system')) {
+    const set = {};
+    for (let i = 0; i < STANDARD_ORBIT_MATRIX.length; i++) {
+      for (let j = 0; j < STANDARD_ORBIT_MATRIX[i].length; j++) set[STANDARD_ORBIT_MATRIX[i][j]] = true;
+    }
+    return Object.keys(set);
+  }
+  const matrix = ORBIT_PLANET_MATRIX[starType] || ORBIT_PLANET_MATRIX.G;
+  const set = {};
+  for (let i = 0; i < matrix.length; i++) {
+    for (let j = 0; j < matrix[i].length; j++) set[matrix[i][j]] = true;
+  }
+  return Object.keys(set);
+}
+
+function getAllowedOrbitsForType(starType, planetType) {
+  const orbits = [];
+  if (typeof S !== 'undefined' && (S.stage === 'firstPlanet' || S.stage === 'system')) {
+    for (let i = 0; i < STANDARD_ORBIT_MATRIX.length; i++) {
+      if (STANDARD_ORBIT_MATRIX[i].indexOf(planetType) !== -1) orbits.push(i);
+    }
+    return orbits;
+  }
+  const matrix = ORBIT_PLANET_MATRIX[starType] || ORBIT_PLANET_MATRIX.G;
+  for (let i = 0; i < matrix.length; i++) {
+    if (matrix[i].indexOf(planetType) !== -1) orbits.push(i);
+  }
+  return orbits;
+}
 
 // ─── ВТОРЖЕНИЯ ───
 const INVASION_CFG = {
@@ -264,14 +321,20 @@ function generateRandomSystem(opts) {
   const systemType = rollSystemType();
   const planets = [];
   
+  // Реалистичное распределение: у звезды планеты есть чаще, на окраинах — реже
+  const spawnChances = [0.95, 0.85, 0.70, 0.50, 0.40, 0.25, 0.15, 0.05];
+
   for (let i = 0; i < 8; i++) {
     let pool = getAllowedTypesAtOrbit(starType, i);
+    
     if (isColony) {
       pool = pool.filter(function(t) { return PLANET_TYPES[t] && PLANET_TYPES[t].civ; });
       if (pool.length === 0) continue;
     }
     if (pool.length === 0) continue;
-    if (Math.random() > 0.65) continue;
+    
+    // Бросаем кубик на появление планеты
+    if (Math.random() > spawnChances[i]) continue;
     
     const type = pool[Math.floor(Math.random() * pool.length)];
     const orbitR = getOrbitR(i);
@@ -283,27 +346,28 @@ function generateRandomSystem(opts) {
       moons: [], precession: 0, trueAnomaly: 0,
     });
   }
+
+  // Если вдруг вообще ничего не выпало (шанс ~0.1%), даем хотя бы одну планету у звезды
+  if (planets.length === 0) {
+    const orbitR = getOrbitR(0);
+    const pool = getAllowedTypesAtOrbit(starType, 0);
+    if (pool.length > 0) {
+      const type = pool[0];
+      planets.push({
+        type: type, angle: Math.random() * Math.PI * 2, speed: 0.2 / Math.pow(orbitR / 90, 1.5),
+        baseOrbitR: orbitR, orbitR: orbitR, driftPhase: Math.random() * Math.PI * 2,
+        rotation: Math.random() * Math.PI * 2, seed: Math.random() * 1e6,
+        forming: false, formUntil: 0, mass: planetMass(type), diameter: planetDiameter(type),
+        moons: [], precession: 0, trueAnomaly: 0,
+      });
+    }
+  }
+  
   return {
     name: generateSystemName(),
     starType: starType, systemType: systemType, planets: planets,
   };
 }
-
-function getAllowedTypesAtOrbit(starType, orbitIdx) {
-  const matrix = ORBIT_PLANET_MATRIX[starType] || ORBIT_PLANET_MATRIX.G;
-  if (orbitIdx < 0 || orbitIdx >= matrix.length) return [];
-  return matrix[orbitIdx].slice();
-}
-
-function getAllowedOrbitsForType(starType, planetType) {
-  const matrix = ORBIT_PLANET_MATRIX[starType] || ORBIT_PLANET_MATRIX.G;
-  const orbits = [];
-  for (let i = 0; i < matrix.length; i++) {
-    if (matrix[i].indexOf(planetType) !== -1) orbits.push(i);
-  }
-  return orbits;
-}
-
 function planetMass(type) {
   const m = { rocky:1.0, superEarth:2.5, iceGiant:4.0, gasGiant:8.0, lava:1.5 };
   return m[type] || 1.0;
@@ -339,6 +403,7 @@ window.rollStarType = rollStarType;
 window.rollSystemType = rollSystemType;
 window.generateRandomSystem = generateRandomSystem;
 window.getAllowedTypesAtOrbit = getAllowedTypesAtOrbit;
+window.getAllowedTypesForSystem = getAllowedTypesForSystem;
 window.getAllowedOrbitsForType = getAllowedOrbitsForType;
 window.planetMass = planetMass;
 window.planetDiameter = planetDiameter;

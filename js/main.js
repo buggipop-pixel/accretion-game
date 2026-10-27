@@ -399,8 +399,20 @@ function drawGalaxyView(time) {
     if (pos.x < -50 || pos.x > (window.CANVAS_W || 400) + 50 || pos.y < -50 || pos.y > (window.CANVAS_H || 700) + 50) continue;
 
     const isActive = pos.idx === S.activeSystemIdx;
-    const isPrime = S.primeSystem && pos.idx === S.activeSystemIdx;
     const size = isActive ? 10 : 6;
+    
+    // ★ ПРОВЕРКА ПРАЙМА ДЛЯ ВСЕХ СИСТЕМ
+    let isPrime = false;
+    let primeData = null;
+    
+    if (pos.idx === S.activeSystemIdx) {
+      // Если это активная система, берем глобальные данные
+      if (S.primeSystem) { isPrime = true; primeData = S.primeSystem; }
+    } else if (S.otherSystems[pos.idx] && S.otherSystems[pos.idx].isPrime) {
+      // Если это другая система, проверяем её сохраненные данные
+      isPrime = true;
+      primeData = S.otherSystems[pos.idx].primeData;
+    }
     
     // Упрощение графики (LOD) при >50 систем
     const isLowDetail = (total > 50 && !isActive && !isPrime);
@@ -429,8 +441,9 @@ function drawGalaxyView(time) {
       ctx.fill();
       ctx.restore();
 
-      if (typeof drawPrimeIcon === 'function') {
-        drawPrimeIcon(ctx, pos.x, pos.y, S.primeSystem.objectIcon, time, size * 1.0);
+      if (typeof drawPrimeIcon === 'function' && primeData) {
+        const iconKey = primeData.objectIcon || primeData.objectKey;
+        drawPrimeIcon(ctx, pos.x, pos.y, iconKey, time, size * 1.0);
       } else {
         ctx.fillStyle = '#ffe8a0';
         ctx.beginPath();
@@ -455,7 +468,12 @@ function drawGalaxyView(time) {
 
     // Подпись
     if (total <= 50 || isActive || isPrime) {
-       let nm = pos.idx === 0 ? S.systemName : (S.otherSystems[pos.idx] ? S.otherSystems[pos.idx].name : 'С-ма ' + (pos.idx + 1));
+         let nm;
+       if (pos.idx === 0) {
+           nm = (S.activeSystemIdx === 0) ? S.systemName : (S.otherSystems[0] ? S.otherSystems[0].name : 'Родная');
+       } else {
+           nm = S.otherSystems[pos.idx] ? S.otherSystems[pos.idx].name : 'С-ма ' + (pos.idx + 1);
+       }
        if (isPrime) nm = '👑 ' + nm;
 
        ctx.fillStyle = isPrime ? '#ffe8a0' : (isActive ? '#fff' : 'rgba(200, 190, 255, 0.7)');
@@ -691,6 +709,13 @@ function start() {
   }
 
   setTimeout(resize, 200);
+    // ★ Проверка Ежедневных наград
+  if (typeof checkDailyRewards === 'function') checkDailyRewards();
+  
+  // ★ Проверка Первого Щита (если игрок отсутствовал)
+  if (offline && typeof checkFirstNightShield === 'function') {
+    checkFirstNightShield(offline.seconds);
+  }
   updateUI();
   updateSystemSwitcher();
 

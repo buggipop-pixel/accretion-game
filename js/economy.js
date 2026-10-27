@@ -44,16 +44,39 @@ function metalsPerSec() {
   return sum;
 }
 
-// ─── Доход в секунду ────────────────────────────────────────────
+// ─── Доход в секунду (Исправлен NaN) ───
 function dustPerSec() {
   const st = STAGES[S.stage];
-  if (!st || S.stage === 'cloud' || S.stage === 'condense' || S.stage === 'protostar') return 0;
+  if (!st) return 0;
+  if (S.stage === 'cloud' || S.stage === 'condense' || S.stage === 'protostar') return 0;
   
   let primeMult = 1;
-  if (S.primeSystem && S.primeSystem.bonus && S.primeSystem.bonus.dustMult) primeMult += S.primeSystem.bonus.dustMult;
+  if (S.primeSystem && S.primeSystem.bonus) {
+    if (S.primeSystem.bonus.dustMult) primeMult += S.primeSystem.bonus.dustMult;
+    if (S.primeSystem.bonus.allMult) primeMult += S.primeSystem.bonus.allMult; // Квазар и т.д.
+  }
   const boostMult = (S.boosters && S.boosters.incomeUntil > Date.now()) ? PREMIUM_CFG.booster.incomeMult : 1;
 
-  return (st.baseRate + planetRate()) * starMult() * systemTypeMult() * systemMult() * gammaMult() * galaxyMult() * (1 + (S.systemIncomeBonus || 0)) * primeMult * boostMult;
+  return (st.baseRate + planetRate()) * starMult() *
+         systemTypeMult() * systemMult() * gammaMult() * galaxyMult() *
+         (1 + (S.systemIncomeBonus || 0)) * primeMult * boostMult *
+         (1 + (S.techLevels?.astro || 0) * 0.15) *
+         (typeof achIncomeMult === 'function' ? achIncomeMult() : 1);
+}
+
+function energyPerSec() {
+  if (S.civLevel < 4) return 0;
+  const c = civPlanetCount();
+  if (c === 0) return 0;
+  const levels = S.storageLevels || { energy: 1 };
+  
+  let primeMult = 1;
+  if (S.primeSystem && S.primeSystem.bonus) {
+    if (S.primeSystem.bonus.energyMult) primeMult += S.primeSystem.bonus.energyMult;
+    if (S.primeSystem.bonus.allMult) primeMult += S.primeSystem.bonus.allMult; // Квазар и т.д.
+  }
+
+  return (S.civLevel - 3) * c * 0.5 * Math.pow(1.5, (levels.energy || 1) - 1) * (1 + (S.techLevels?.quantum || 0) * 0.20) * primeMult;
 }
 
 function clickGain() {
@@ -72,14 +95,6 @@ function civPlanetCount() {
     if (PLANET_TYPES[S.planets[i].type].civ && !S.planets[i].forming) n++;
   }
   return n;
-}
-
-function energyPerSec() {
-  if (S.civLevel < 4) return 0;
-  const c = civPlanetCount();
-  if (c === 0) return 0;
-  const levels = S.storageLevels || { energy: 1 };
-  return (S.civLevel - 3) * c * 0.5 * Math.pow(1.5, (levels.energy || 1) - 1);
 }
 
 // ─── Стоимости ──────────────────────────────────────────────────

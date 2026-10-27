@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  PREMIUM.JS — Магазин за металлы и Telegram Stars
+//  PREMIUM.JS — Магазин, Сундуки, Премиум-Щит
 // ═══════════════════════════════════════════════════════════════
 
 function openPremiumShop() {
@@ -19,7 +19,7 @@ function openPremiumShop() {
     <div class="info-box">
       <div class="row-stat">
         <span>🎁 Космический сундук</span>
-        <span>Шанс на Прайм-объект: 100%</span>
+        <span>Гарантированный Прайм-объект</span>
       </div>
       <button class="stars-btn" style="margin-top:8px; background:linear-gradient(135deg,#ffcc00,#ff9900); color:#000;" 
         onclick="buyPrimeChest()">
@@ -40,17 +40,6 @@ function openPremiumShop() {
 
     <div class="info-box">
       <div class="row-stat">
-        <span>🌐 Щит галактический</span>
-        <span>${shieldActive ? 'Активен ' + shieldLeft + 'ч' : PREMIUM_CFG.shield.hours + ' ч · защита'}</span>
-      </div>
-      <button class="pour-btn" style="width:100%;margin-top:8px;"
-        onclick="buyShield()" ${(S.metalAmount || 0) >= PREMIUM_CFG.shield.costMetals ? '' : 'disabled'}>
-        ${(S.metalAmount || 0) >= PREMIUM_CFG.shield.costMetals ? 'Купить за ' + PREMIUM_CFG.shield.costMetals + ' ⚙' : 'Нужно ' + PREMIUM_CFG.shield.costMetals + ' ⚙'}
-      </button>
-    </div>
-
-    <div class="info-box">
-      <div class="row-stat">
         <span>⭐ Премиум Щит (24ч)</span>
         <span>100% защита от всех угроз</span>
       </div>
@@ -63,22 +52,115 @@ function openPremiumShop() {
       onclick="document.getElementById('modal').classList.remove('show');">
       ✕ Закрыть
     </button>
+        <div style="text-align:center; margin-top:15px; opacity:0.6;">
+      <button class="pour-btn" style="font-size:10px; padding:4px 8px;" onclick="testTelegramInvoice('chest')">🧪 Тест: Оплатить Сундук</button>
+      <button class="pour-btn" style="font-size:10px; padding:4px 8px;" onclick="testTelegramInvoice('shield')">🧪 Тест: Оплатить Щит</button>
+    </div>
   `;
   document.getElementById('modal').classList.add('show');
 }
 
+// ─── ГЕНЕРАЦИЯ ИДЕАЛЬНОЙ СИСТЕМЫ ДЛЯ ПРАЙМА ─────────────────────
+function generatePerfectPrimeSystem(primeData) {
+  let starType = 'G'; // Идеальная звезда для жизни
+  let systemType = 'single'; // Без хаоса
+  let planets = [];
+  
+  // Заполняем ВСЕ 8 орбит
+  for (let i = 0; i < 8; i++) {
+    let pool = getAllowedTypesAtOrbit(starType, i);
+    if (pool.length === 0) continue;
+    
+    // Сортируем доступные планеты по базовому доходу (выбираем лучшую)
+    pool.sort((a, b) => PLANET_TYPES[b].rate - PLANET_TYPES[a].rate);
+    const type = pool[0];
+    
+    const orbitR = getOrbitR(i);
+    planets.push({
+      type: type, angle: Math.random() * Math.PI * 2, speed: 0.2 / Math.pow(orbitR / 90, 1.5),
+      baseOrbitR: orbitR, orbitR: orbitR, driftPhase: Math.random() * Math.PI * 2,
+      rotation: Math.random() * Math.PI * 2, seed: Math.random() * 1e6,
+      forming: false, formUntil: 0, mass: planetMass(type), diameter: planetDiameter(type),
+      moons: [], precession: 0, trueAnomaly: 0,
+    });
+  }
+  
+  const sys = {
+    name: generateSystemName(), // Больше не добавляем сюда 👑, так как иконка рисуется отдельно
+    starType: starType, systemType: systemType, planets: planets,
+    isPrime: true, primeData: primeData,
+  };
+  
+  return sys;
+}
+
+// ─── СУНДУКИ И РУЛЕТКА ──────────────────────────────────────────
 // ─── СУНДУКИ ────────────────────────────────────────────────────
 function buyPrimeChest() {
   const tg = window.Telegram && window.Telegram.WebApp;
-  if (!tg || typeof tg.openInvoice !== 'function') {
-    if (confirm('Тестовый режим вне Telegram. Открыть сундук бесплатно?')) openChestLogic();
+  
+  // Если мы в Телеграме и у нас есть метод openInvoice
+  if (tg && typeof tg.openInvoice === 'function') {
+    // ★ ВАЖНО: Сюда нужно будет вставить реальную ссылку, которую генерирует бот
+    const invoiceLink = 'https://t.me/$mock_invoice_chest'; 
+    
+    tg.openInvoice(invoiceLink, function(status) {
+      if (status === 'paid') {
+        toast('✅ Оплата прошла', 'Сундук открывается...');
+        startChestRoulette();
+      } else if (status === 'cancelled') {
+        toast('Оплата отменена', 'Вы не были списаны');
+      } else {
+        toast('Ошибка оплаты', 'Попробуйте позже');
+      }
+    });
     return;
   }
-  toast('⭐ Оплата', 'Инвойс на ' + CHEST_CFG.costStars + ' Stars (в разработке)');
-  if (confirm('Оплата прошла (заглушка). Открыть сундук?')) openChestLogic();
+
+  // Заглушка для браузера (вне Telegram)
+  if (confirm('Вы вне Telegram. Симулировать оплату 100 ⭐ и открыть сундук?')) {
+    startChestRoulette();
+  }
 }
 
-function openChestLogic() {
+// ─── ПРЕМИУМ ЩИТ ────────────────────────────────────────────────
+function buyPremiumShield() {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  
+  if (tg && typeof tg.openInvoice === 'function') {
+    // ★ ВАЖНО: Сюда нужно будет вставить реальную ссылку
+    const invoiceLink = 'https://t.me/$mock_invoice_shield';
+    
+    tg.openInvoice(invoiceLink, function(status) {
+      if (status === 'paid') {
+        toast('✅ Оплата прошла', 'Щит активирован!');
+        activatePremiumShieldReward();
+      } else if (status === 'cancelled') {
+        toast('Оплата отменена', '');
+      }
+    });
+    return;
+  }
+
+  // Заглушка для браузера
+  if (confirm('Вы вне Telegram. Симулировать оплату 50 ⭐ и получить щит?')) {
+    activatePremiumShieldReward();
+  }
+}
+
+function activatePremiumShieldReward() {
+  const until = Date.now() + 24 * 3600 * 1000;
+  if (!S.shieldUntil || S.shieldUntil < until) S.shieldUntil = until;
+  if (!S.activeTrophyEffects) S.activeTrophyEffects = [];
+  S.activeTrophyEffects.push({ type: 'shield', value: 24, expiresAt: until });
+  
+  saveGame(); 
+  updateUI(); 
+  document.getElementById('modal').classList.remove('show');
+}
+
+function startChestRoulette() {
+  // 1. Определяем победителя
   const loot = CHEST_CFG.lootTable;
   const totalWeight = loot.reduce((sum, item) => sum + item.weight, 0);
   let roll = Math.random() * totalWeight;
@@ -89,41 +171,126 @@ function openChestLogic() {
     if (roll <= 0) { selectedKey = loot[i].key; break; }
   }
 
-  const prime = createPrimeSystem(selectedKey);
-  S.primeSystem = prime;
-  if (S.activeSystemIdx > 0 && S.otherSystems[S.activeSystemIdx]) {
-    S.otherSystems[S.activeSystemIdx].isPrime = true;
-    S.otherSystems[S.activeSystemIdx].primeData = prime;
+  const winningPrime = createPrimeSystem(selectedKey);
+
+  // 2. Создаем HTML рулетки
+  const overlay = document.createElement('div');
+  overlay.className = 'chest-roulette-overlay';
+  overlay.innerHTML = `
+    <div class="roulette-window">
+      <div class="roulette-pointer"></div>
+      <div class="roulette-strip" id="rouletteStrip"></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const strip = document.getElementById('rouletteStrip');
+  
+  // 3. Заполняем ленту (используем canvas для анимации)
+  const allPrimes = Object.keys(PRIME_OBJECTS);
+  const itemsPerLoop = allPrimes.length;
+  const loops = 3; // Количество полных кругов
+  const totalItems = itemsPerLoop * loops + 3; // +3 для плавного выезда
+  
+  let html = '';
+  const canvasKeys = [];
+  for (let i = 0; i < totalItems; i++) {
+    let itemKey = (i === totalItems - 3) ? selectedKey : allPrimes[i % itemsPerLoop];
+    const obj = PRIME_OBJECTS[itemKey];
+    
+    html += `
+      <div class="roulette-item">
+        <canvas class="roulette-canvas" data-key="${itemKey}" width="50" height="50"></canvas>
+        <div class="roulette-item-name">${obj.name}</div>
+      </div>
+    `;
+    canvasKeys.push(itemKey);
   }
+  strip.innerHTML = html;
+
+  // Запускаем анимацию отрисовки иконок внутри рулетки
+  let rouletteActive = true;
+  function animateRoulette(time) {
+    if (!rouletteActive) return;
+    const cxs = overlay.querySelectorAll('.roulette-canvas');
+    const t = time / 1000;
+    for (let c of cxs) {
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, c.width, c.height);
+      drawPrimeIcon(ctx, c.width/2, c.height/2, c.dataset.key, t, 10);
+    }
+    requestAnimationFrame(animateRoulette);
+  }
+  requestAnimationFrame(animateRoulette);
+
+  // 4. Анимация прокрутки
+  const itemWidth = 80; // px (из CSS)
+  const targetIndex = totalItems - 3;
+  const windowCenter = 200; // Примерная половина ширины окна (max-width 400)
+  const translateX = -(targetIndex * itemWidth) + windowCenter - (itemWidth / 2);
+  
+  setTimeout(() => {
+    strip.style.transform = `translateX(${translateX}px)`;
+  }, 100);
+
+  // 5. Завершение
+  setTimeout(() => {
+    rouletteActive = false;
+    overlay.remove();
+    showChestResult(winningPrime);
+  }, 4200);
+}
+
+function showChestResult(prime) {
+  const newSys = generatePerfectPrimeSystem(prime);
+  
+  if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) S.otherSystems[0] = null;
+  const newIdx = S.otherSystems.length;
+  S.otherSystems.push(newSys);
+  S.systems++;
+  S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
+
+  saveGame();
 
   const card = document.getElementById('modalCard');
   card.innerHTML = `
     <div class="modal-title">🎁 Сундук открыт!</div>
     <div class="info-box" style="text-align:center; padding:20px;">
-      <div style="font-size:48px; margin-bottom:10px;">🌟</div>
-      <div class="choice-name" style="color:#ffcc55; font-size:20px; margin-bottom:4px;">${prime.objectName}</div>
+      <canvas id="resultPrimeCanvas" class="result-canvas" width="240" height="240"></canvas>
+      <div class="choice-name" style="color:#ffcc55; font-size:22px; margin-top:10px; margin-bottom:4px;">${prime.objectName}</div>
       <div class="choice-desc" style="margin-bottom:10px;">${prime.name}</div>
-      <div class="row-stat" style="justify-content:center; border:none;"><span>Установлен в текущую систему!</span></div>
+      <div class="row-stat" style="justify-content:center; border:none; color:#7ee0a8; font-weight:bold;">
+         <span>Создана идеальная система!</span>
+      </div>
     </div>
-    <button class="stars-btn" style="background:linear-gradient(135deg,#6b4de6,#b9a8ff); color:#fff;" onclick="document.getElementById('modal').classList.remove('show'); updateUI();">Забрать</button>
+    <button class="stars-btn" style="background:linear-gradient(135deg,#6b4de6,#b9a8ff); color:#fff;" 
+      onclick="document.getElementById('modal').classList.remove('show'); switchToSystem(${newIdx}); S.stage='system'; updateUI(); updateSystemSwitcher();">
+      Перейти в систему
+    </button>
   `;
-  if (typeof playSFX === 'function') playSFX('ui_levelup');
-  saveGame();
-}
-
-// ─── ОСТАЛЬНОЕ ──────────────────────────────────────────────────
-function buyPremiumShield() {
-  const tg = window.Telegram && window.Telegram.WebApp;
-  if (!tg || typeof tg.openInvoice !== 'function') {
-    toast('⭐ Telegram Stars', 'Оплата доступна только в Telegram');
-    if (confirm('Тестовый режим: выдать Премиум Щит?')) {
-      S.shieldUntil = Date.now() + 24 * 3600 * 1000;
-      saveGame(); updateUI();
-      document.getElementById('modal').classList.remove('show');
-    }
-    return;
+  
+  document.getElementById('modal').classList.add('show');
+  
+  // Анимация большого визуала
+  let resActive = true;
+  function animateResult(time) {
+    if (!resActive) return;
+    const c = document.getElementById('resultPrimeCanvas');
+    if (!c) return;
+    const ctx = c.getContext('2d');
+    const t = time / 1000;
+    ctx.clearRect(0, 0, c.width, c.height);
+    // drawPrimeMain рисует большой объект. Сдвигаем в центр и скейлим.
+    ctx.save();
+    ctx.translate(c.width/2, c.height/2);
+    ctx.scale(1.5, 1.5);
+    drawPrimeMain(ctx, 0, 0, 1, t, prime.objectKey);
+    ctx.restore();
+    requestAnimationFrame(animateResult);
   }
-  toast('⭐ Оплата', 'Инвойс на 50 Stars (в разработке)');
+  requestAnimationFrame(animateResult);
+
+  if (typeof playSFX === 'function') playSFX('ui_levelup');
 }
 
 function buyIncomeBooster() {
@@ -134,20 +301,16 @@ function buyIncomeBooster() {
   toast('🚀 Бустер активирован', 'Доход ×' + PREMIUM_CFG.booster.incomeMult + ' на ' + PREMIUM_CFG.booster.hours + ' ч');
   saveGame(); updateUI(); openPremiumShop();
 }
-
-function buyShield() {
-  if ((S.metalAmount || 0) < PREMIUM_CFG.shield.costMetals) return;
-  S.metalAmount -= PREMIUM_CFG.shield.costMetals;
-  const until = Date.now() + PREMIUM_CFG.shield.hours * 3600 * 1000;
-  if (!S.shieldUntil || S.shieldUntil < until) S.shieldUntil = until;
-  if (!S.activeTrophyEffects) S.activeTrophyEffects = [];
-  S.activeTrophyEffects.push({ type: 'shield', value: PREMIUM_CFG.shield.hours, expiresAt: until });
-  toast('🛡 Щит активирован', 'На ' + PREMIUM_CFG.shield.hours + ' ч');
-  saveGame(); updateUI(); openPremiumShop();
+function testTelegramInvoice(type) {
+  toast('🧪 Симуляция', 'Оплата 100 ⭐ прошла успешно!');
+  if (type === 'chest') {
+    document.getElementById('modal').classList.remove('show');
+    startChestRoulette();
+  } else if (type === 'shield') {
+    activatePremiumShieldReward();
+  }
 }
-
 window.openPremiumShop = openPremiumShop;
 window.buyPrimeChest = buyPrimeChest;
 window.buyPremiumShield = buyPremiumShield;
 window.buyIncomeBooster = buyIncomeBooster;
-window.buyShield = buyShield;
