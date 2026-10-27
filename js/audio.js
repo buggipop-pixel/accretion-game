@@ -1,33 +1,11 @@
 // ═══════════════════════════════════════════════════════════════
-//  AUDIO.JS — Web Audio API (стабильный звук в Telegram/Web)
-//  Полная замена старого HTML5 Audio на AudioContext
+//  AUDIO.JS — Процедурный синтез звука (Web Audio API)
 // ═══════════════════════════════════════════════════════════════
 
-const SFX_FILES = {
-  'click':        'audio/ui_click.wav',
-  'ui_open':      'audio/ui_click.wav',
-  'ui_close':     'audio/ui_click.wav',
-  'ui_error':     'audio/UI Error.wav',
-  'ui_purchase':  'audio/ui_purchase.wav',
-  'ui_levelup':   'audio/ui_levelup.wav',
-  'explosion':    'audio/explosion.wav',
-  'merge':        'audio/merge.wav',
-  'planet_form':  'audio/planet_form.wav',
-  'star_ignite':  'audio/star_ignite.wav',
-  'evolution':    'audio/evolution.wav',
-  'prestige':     'audio/prestige.wav',
-  'invasion':     'audio/invasion.wav',
-  'comet':        'audio/comet.wav',
-  'system_form':  'audio/system_form.wav',
-  'expedition':   'audio/comet.wav',
-  'pulsar':       'audio/ui_levelup.wav',
-  'blackhole_hum':'audio/ambient_deep.wav',
-  'wormhole':     'audio/ui_purchase.wav',
-  'quasar':       'audio/prestige.wav',
-  'ambient':      'audio/ambient_deep.wav'
-};
+// Глобальная громкость (от 0.0 до 1.0) - настраивай здесь
+const MASTER_VOLUME = 0.4; 
+const AMBIENT_VOLUME = 0.15;
 
-const audioBuffers = {}; // Здесь хранятся декодированные звуки в памяти
 let audioCtx = null;
 let isAudioUnlocked = false;
 let ambientSource = null;
@@ -37,87 +15,168 @@ function initAudio() {
   if (audioCtx) return;
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   if (!AudioContextClass) return;
-  
   audioCtx = new AudioContextClass();
-  
-  // Загружаем все файлы в память (асинхронно)
-  for (let key in SFX_FILES) {
-    fetch(SFX_FILES[key])
-      .then(res => res.arrayBuffer())
-      .then(buf => audioCtx.decodeAudioData(buf))
-      .then(decoded => {
-        audioBuffers[key] = decoded;
-      })
-      .catch(e => console.warn('Ошибка загрузки звука: ' + key));
-  }
 }
 
 function unlockAudio() {
   if (isAudioUnlocked || !audioCtx) return;
   isAudioUnlocked = true;
   
-  // Telegram и браузеры требуют возобновить контекст после клика
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume();
-  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
   
-  if (S.settings && S.settings.sound) {
-    startAmbient();
-  }
+  if (S.settings && S.settings.sound) startAmbient();
 }
 
+// ─── Базовые генераторы звука ───────────────────────────────────
+function playTone(freq, type, duration, vol, slideToFreq) {
+  if (!audioCtx || !isAudioUnlocked) return;
+  
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  
+  osc.type = type; // 'sine', 'square', 'sawtooth', 'triangle'
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  
+  if (slideToFreq) {
+    osc.frequency.exponentialRampToValueAtTime(slideToFreq, audioCtx.currentTime + duration);
+  }
+  
+  gain.gain.setValueAtTime(vol * MASTER_VOLUME, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+  
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  
+  osc.start();
+  osc.stop(audioCtx.currentTime + duration);
+}
+
+function playNoise(duration, vol, filterFreq) {
+  if (!audioCtx || !isAudioUnlocked) return;
+  
+  const bufferSize = audioCtx.sampleRate * duration;
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = Math.random() * 2 - 1;
+  }
+  
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = buffer;
+  
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.setValueAtTime(filterFreq || 1000, audioCtx.currentTime);
+  filter.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + duration);
+  
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(vol * MASTER_VOLUME, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+  
+  noise.connect(filter);
+  filter.connect(gain);
+  gain.connect(audioCtx.destination);
+  
+  noise.start();
+}
+
+// ─── ПРОИГРЫВАНИЕ ЗВУКОВ ────────────────────────────────────────
 function playSFX(type) {
   if (!S.settings || !S.settings.sound || !isAudioUnlocked || !audioCtx) return;
   
-  let key = type;
-  if (!audioBuffers[key] && type.indexOf('sfx_') === 0) key = type.replace('sfx_', '');
-  if (!audioBuffers[key] && type.indexOf('sfx_') !== 0) key = 'sfx_' + type;
-  
-  const buffer = audioBuffers[key];
-  if (!buffer) return;
-
-  // Создаем независимый источник звука (позволяет наслаивать звуки)
-  const source = audioCtx.createBufferSource();
-  source.buffer = buffer;
-  
-  // Настраиваем громкость
-  const gainNode = audioCtx.createGain();
-  if (type.indexOf('explosion') !== -1 || type.indexOf('invasion') !== -1) {
-    gainNode.gain.value = 0.3; // Взрывы чуть тише
-  } else {
-    gainNode.gain.value = 0.6;
+  switch (type) {
+    case 'click':
+    case 'ui_click':
+      // Мягкий, короткий клик
+      playTone(600, 'sine', 0.05, 0.2);
+      break;
+      
+    case 'ui_open':
+      // Восходящий свист
+      playTone(400, 'sine', 0.15, 0.3, 800);
+      break;
+      
+    case 'ui_close':
+      // Нисходящий свист
+      playTone(600, 'sine', 0.1, 0.2, 300);
+      break;
+      
+    case 'ui_error':
+      // Низкий неприятный гудок
+      playTone(150, 'square', 0.2, 0.3);
+      break;
+      
+    case 'ui_purchase':
+      // Двойной приятный "блип"
+      playTone(600, 'triangle', 0.1, 0.3);
+      setTimeout(() => playTone(800, 'triangle', 0.15, 0.3), 100);
+      break;
+      
+    case 'ui_levelup':
+    case 'sfx_system_form':
+      // Арпеджио вверх (победа)
+      playTone(400, 'sine', 0.1, 0.3);
+      setTimeout(() => playTone(500, 'sine', 0.1, 0.3), 100);
+      setTimeout(() => playTone(700, 'sine', 0.2, 0.4), 200);
+      break;
+      
+    case 'explosion':
+    case 'sfx_explosion':
+    case 'invasion_destroy':
+      // Взрыв: шум + низкий бас
+      playNoise(0.8, 0.8, 1500);
+      playTone(80, 'sawtooth', 0.5, 0.5, 30);
+      break;
+      
+    case 'merge':
+    case 'sfx_merge':
+    case 'planet_form':
+    case 'sfx_planet_form':
+      // Слияние: мягкий колокольчик
+      playTone(300, 'sine', 0.2, 0.3, 500);
+      break;
+      
+    case 'invasion':
+    case 'sfx_invasion':
+      // Вторжение: тревожная сирена
+      playTone(200, 'sawtooth', 0.4, 0.3, 400);
+      playTone(205, 'square', 0.4, 0.2, 405); // Диссонанс
+      break;
+      
+    case 'prestige':
+    case 'sfx_prestige':
+    case 'evolution':
+    case 'sfx_evolution':
+      // Мощный бум и свист
+      playNoise(1.5, 0.6, 800);
+      playTone(100, 'sine', 1.5, 0.5, 800);
+      break;
+      
+    default:
+      // Дефолтный клик, если звук не найден
+      playTone(400, 'sine', 0.05, 0.1);
   }
-  
-  source.connect(gainNode);
-  gainNode.connect(audioCtx.destination);
-  source.start(0);
 }
 
+// ─── ФОНОВЫЙ ЭМБИЕНТ ────────────────────────────────────────────
 function startAmbient() {
   if (ambientSource || !isAudioUnlocked || !audioCtx) return;
   
-  // Ждем, пока эмбиент загрузится в память
-  const checkBuffer = setInterval(() => {
-    if (audioBuffers['ambient']) {
-      clearInterval(checkBuffer);
-      
-      ambientSource = audioCtx.createBufferSource();
-      ambientSource.buffer = audioBuffers['ambient'];
-      ambientSource.loop = true;
-      
-      ambientGain = audioCtx.createGain();
-      ambientGain.gain.value = 0.15; // Тихий космический фон
-      
-      ambientSource.connect(ambientGain);
-      ambientGain.connect(audioCtx.destination);
-      ambientSource.start(0);
-    }
-  }, 500);
+  // Оставляем .wav для фона, так как он хорошо звучит
+  const audio = new Audio('audio/ambient_deep.wav');
+  audio.loop = true;
+  audio.volume = AMBIENT_VOLUME;
+  
+  audio.play().catch(e => console.warn('Фон не запустился:', e));
+  
+  // Заглушка для совместимости со старой логикой
+  ambientSource = { stop: () => { audio.pause(); audio.currentTime = 0; } };
 }
 
 function stopAmbient() {
   if (ambientSource) {
-    try { ambientSource.stop(); } catch(e) {}
+    ambientSource.stop();
     ambientSource = null;
   }
 }

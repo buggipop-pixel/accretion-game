@@ -145,6 +145,7 @@ function updateUI() {
   
   updateStorageUI();
   updateTrophyBadge();
+  if (typeof updateEventUI === 'function') updateEventUI();
   
   // Применяем яркость
   const app = document.getElementById('app');
@@ -1147,7 +1148,32 @@ function checkFirstNightShield(offlineSec) {
     }, 2000);
   }
 }
+function updateEventUI() {
+  const banner = document.getElementById('eventBanner');
+  if (!banner) return;
 
+  if (!S.activeEvent) {
+    banner.style.display = 'none';
+    return;
+  }
+
+  const evt = EVENT_CFG.types.find(t => t.id === S.activeEvent.id);
+  if (!evt) return;
+
+  const leftMs = S.activeEvent.endsAt - Date.now();
+  if (leftMs <= 0) { banner.style.display = 'none'; return; }
+
+  const h = Math.floor(leftMs / 3600000);
+  const m = Math.floor((leftMs % 3600000) / 60000);
+  const s = Math.floor((leftMs % 60000) / 1000);
+  const timeStr = h > 0 ? h + 'ч ' + m + 'м' : m + 'м ' + s + 'с';
+
+  banner.style.display = 'block';
+  banner.style.borderColor = evt.color;
+  document.getElementById('eventIcon').textContent = evt.icon;
+  document.getElementById('eventName').textContent = evt.name;
+  document.getElementById('eventTimer').textContent = '[' + timeStr + ']';
+}
 // ═══════════════════════════════════════════════════════════════
 //  ЭКСПОРТ
 // ═══════════════════════════════════════════════════════════════

@@ -140,7 +140,6 @@ canvas.addEventListener('pointerdown', function(e) {
 
   if (!fullscreenRequested) requestFullscreen();
   if (typeof unlockAudio === 'function') unlockAudio();
-  if (typeof playSFX === 'function') playSFX('click');
   if (typeof trackDaily === 'function') trackDaily('d_click', 1);
   if (!S.stats) S.stats = {};
   S.stats.clicks = (S.stats.clicks || 0) + 1;
@@ -583,7 +582,7 @@ function loopFrame(now) {
   if (typeof checkEvolution === 'function') checkEvolution();
   if (typeof checkAchievements === 'function') checkAchievements();
   if (typeof tickProtostar === 'function') tickProtostar(dt);
-
+  if (typeof checkGlobalEvents === 'function') checkGlobalEvents();
   // Магазин систем — подсказка
   if (S.stage === 'galaxy' && typeof systemShopCosts === 'function') {
     const shopCost = systemShopCosts().dust;
@@ -739,6 +738,42 @@ setTimeout(function() {
     if (typeof initParticles === 'function') initParticles(true);
   }
 }, 2000);
-
 window.addEventListener('beforeunload', saveGame);
+// ═══════════════════════════════════════════════════════════════
+//  ГЛОБАЛЬНЫЕ СОБЫТИЯ
+// ═══════════════════════════════════════════════════════════════
+function checkGlobalEvents() {
+  const now = Date.now();
+  
+  // 1. Если событие активно и время вышло — отключаем
+  if (S.activeEvent) {
+    if (now > S.activeEvent.endsAt) {
+      S.activeEvent = null;
+      if (typeof updateUI === 'function') updateUI();
+    }
+    return; // Пока событие активно, новые не запускаем
+  }
+
+  // 2. Если события нет, проверяем, не пора ли запустить новое
+  if (!S.lastEventAt) S.lastEventAt = now; // Инициализация при первом запуске
+  
+  if (now - S.lastEventAt > EVENT_CFG.interval) {
+    // Выбираем случайное событие
+    const type = EVENT_CFG.types[Math.floor(Math.random() * EVENT_CFG.types.length)];
+    const duration = EVENT_CFG.durationMin + Math.random() * (EVENT_CFG.durationMax - EVENT_CFG.durationMin);
+    
+    S.activeEvent = {
+      id: type.id,
+      endsAt: now + duration
+    };
+    S.lastEventAt = now; // Сбрасываем таймер
+
+    toast(type.icon + ' ' + type.name, type.desc);
+    if (typeof addEvent === 'function') {
+      addEvent('milestone', 'Событие: ' + type.name);
+    }
+    if (typeof playSFX === 'function') playSFX('ui_levelup');
+    saveGame();
+  }
+}
 start();

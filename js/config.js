@@ -377,8 +377,43 @@ function planetDiameter(type) {
   const d = { rocky:1.0, superEarth:1.3, iceGiant:1.5, gasGiant:1.8, lava:0.9 };
   return d[type] || 1.0;
 }
+// ─── ГЛОБАЛЬНЫЕ СОБЫТИЯ ───
+const EVENT_CFG = {
+  interval: 48 * 3600 * 1000, // Раз в 48 часов (в миллисекундах)
+  durationMin: 2 * 3600 * 1000, // Мин. длительность 2 часа
+  durationMax: 4 * 3600 * 1000, // Макс. длительность 4 часа
+  
+  types: [
+    {
+      id: 'comet_halley',
+      name: 'Комета Галлея',
+      icon: '☄️',
+      desc: 'Все кометы приносят в 2 раза больше пыли.',
+      color: '#7ec8e3',
+      dustCometMult: 2.0
+    },
+    {
+      id: 'solar_flare',
+      name: 'Вспышка на Солнце',
+      icon: '☀️',
+      desc: 'Доход энергии -50%, но шанс Прайма увеличен.',
+      color: '#ffcc55',
+      energyMult: 0.5,
+      primeChanceMult: 2.0
+    },
+    {
+      id: 'space_storm',
+      name: 'Космический шторм',
+      icon: '🌪️',
+      desc: 'Весь доход увеличен в 5 раз!',
+      color: '#b9a8ff',
+      globalIncomeMult: 5.0
+    }
+  ]
+};
 
 // Экспорт
+window.EVENT_CFG = EVENT_CFG;
 window.CFG = CFG;
 window.STAGES = STAGES;
 window.STAR_TYPES = STAR_TYPES;

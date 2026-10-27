@@ -5,6 +5,8 @@
 const S = {
   // ─── Фазы и прогресс ───
   stage: 'cloud',
+  activeEvent: null,
+  lastEventAt: 0,
   phaseProgress: { cloud: 0, condense: 0, protostar: 0 },
   lastIgnitionQuality: 0.5,
   protostarHeat: 0,
@@ -97,6 +99,8 @@ function resetStateValues() {
   S.dailyReward = { day: 0, lastClaimed: 0 };
   S.firstNightShieldUsed = false;
   S.stage = 'cloud';
+  S.activeEvent = null;
+  S.lastEventAt = 0;
   S.phaseProgress = { cloud: 0, condense: 0, protostar: 0 };
   S.lastIgnitionQuality = 0.5;
   S.protostarHeat = 0;
@@ -258,6 +262,8 @@ function saveGame() {
       
       // Вторжения
       invasions: S.invasions, lastInvasionCheck: S.lastInvasionCheck,
+      activeEvent: S.activeEvent,
+      lastEventAt: S.lastEventAt,
       
       // Престиж и ачивки
       prestigeLevel: S.prestigeLevel, galaxies: S.galaxies,
@@ -316,6 +322,8 @@ function loadGame() {
 
     // ─── 2. Вторжения ───
     if (!Array.isArray(S.invasions)) S.invasions = [];
+    if (typeof S.lastEventAt !== 'number') S.lastEventAt = 0;
+    if (!S.activeEvent || typeof S.activeEvent !== 'object') S.activeEvent = null;
     if (typeof S.lastInvasionCheck !== 'number') S.lastInvasionCheck = 0;
 
     // ─── 3. Престиж ───

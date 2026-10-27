@@ -11,40 +11,47 @@ function systemMult() {
 function gammaMult() { return Date.now() < S.gammaDebuff ? 0.4 : 1; }
 function galaxyMult() { return S.galaxyMultiplier || 1; }
 
-// ─── Доход от планет ────────────────────────────────────────────
+// ─── Доход от планет (Защита от NaN) ────────────────────────────
 function planetRate() {
   let sum = 0;
   for (let i = 0; i < S.planets.length; i++) {
     const p = S.planets[i];
-    if (p.forming) continue;
+    if (!p || p.forming || !isFinite(p.baseOrbitR)) continue; 
     if (typeof isPlanetInvaded === 'function' && isPlanetInvaded(p)) continue;
 
-    let base = PLANET_TYPES[p.type].rate;
+    let base = PLANET_TYPES[p.type] ? PLANET_TYPES[p.type].rate : 0;
+    if (!isFinite(base)) base = 0;
+
     if (typeof safronovAccretion === 'function') base *= (1 + safronovAccretion(p) * 10);
-    if (p.mass > 1) base *= (1 + Math.log(p.mass) * 0.35);
+    if (p.mass > 1 && isFinite(p.mass)) base *= (1 + Math.log(p.mass) * 0.35);
+
     if (typeof tempAt === 'function') {
       const rAe = (p.orbitR || 100) / PHYS.refRadius;
       base *= 0.8 + Math.min(1, tempAt(rAe) / 400) * 0.4;
     }
-    sum += base;
+
+    if (isFinite(base)) sum += base;
   }
-  return sum;
+  return isFinite(sum) ? sum : 0;
 }
 
-// ─── Металлы ────────────────────────────────────────────────────
+// ─── Металлы (доход в секунду от лава-планет) ───────────────────
 function metalsPerSec() {
   let sum = 0;
   for (let i = 0; i < S.planets.length; i++) {
     const p = S.planets[i];
-    if (p.forming) continue;
+    if (!p || p.forming) continue;
     if (typeof isPlanetInvaded === 'function' && isPlanetInvaded(p)) continue;
+    
     const pt = PLANET_TYPES[p.type];
-    if (pt.bonus && pt.bonus.type === 'metals') sum += pt.bonus.metalsPerSec || 0;
+    if (pt && pt.bonus && pt.bonus.type === 'metals') {
+      sum += Number(pt.bonus.metalsPerSec) || 0;
+    }
   }
   return sum;
 }
 
-// ─── Доход в секунду (Исправлен NaN) ───
+// ─── Доход в секунду (Абсолютная защита от NaN) ───
 function dustPerSec() {
   const st = STAGES[S.stage];
   if (!st) return 0;
@@ -52,18 +59,51 @@ function dustPerSec() {
   
   let primeMult = 1;
   if (S.primeSystem && S.primeSystem.bonus) {
-    if (S.primeSystem.bonus.dustMult) primeMult += S.primeSystem.bonus.dustMult;
-    if (S.primeSystem.bonus.allMult) primeMult += S.primeSystem.bonus.allMult; // Квазар и т.д.
+    if (S.primeSystem.bonus.dustMult) primeMult += Number(S.primeSystem.bonus.dustMult) || 0;
+    if (S.primeSystem.bonus.allMult) primeMult += Number(S.primeSystem.bonus.allMult) || 0;
   }
-  const boostMult = (S.boosters && S.boosters.incomeUntil > Date.now()) ? PREMIUM_CFG.booster.incomeMult : 1;
+  const boostMult = (S.boosters && S.boosters.incomeUntil > Date.now()) ? (PREMIUM_CFG.booster.incomeMult || 1) : 1;
 
-  return (st.baseRate + planetRate()) * starMult() *
-         systemTypeMult() * systemMult() * gammaMult() * galaxyMult() *
-         (1 + (S.systemIncomeBonus || 0)) * primeMult * boostMult *
-         (1 + (S.techLevels?.astro || 0) * 0.15) *
-         (typeof achIncomeMult === 'function' ? achIncomeMult() : 1);
+  const base = Number(st.baseRate) || 0;
+  const pRate = Number(planetRate()) || 0;
+  const sMult = Number(starMult()) || 1;
+  const stMult = Number(systemTypeMult()) || 1;
+  const sysMult = Number(systemMult()) || 1;
+  const gMult = Number(gammaMult()) || 1;
+  const galMult = Number(galaxyMult()) || 1;
+  const sysInc = Number(1 + (S.systemIncomeBonus || 0)) || 1;
+  const techMult = Number(1 + (S.techLevels?.astro || 0) * 0.15) || 1;
+  
+  let achMult = 1;
+  if (typeof achIncomeMult === 'function') achMult = Number(achIncomeMult()) || 1;
+
+  let finalRate = (base + pRate) * sMult * stMult * sysMult * gMult * galMult * sysInc * primeMult * boostMult * techMult * achMult;
+  if (S.activeEvent && typeof EVENT_CFG !== 'undefined' && Array.isArray(EVENT_CFG.types)) {
+    const evt = EVENT_CFG.types.find(t => t.id === S.activeEvent.id);
+    if (evt && evt.globalIncomeMult) finalRate *= evt.globalIncomeMult;
+  }
+  return (isFinite(finalRate) && !isNaN(finalRate)) ? Math.max(0, finalRate) : 0;
 }
 
+function clickGain() {
+  const st = STAGES[S.stage];
+  if (!st) return 0;
+  let finalRate = Number(st.clickRate || 0) * starMult() * systemTypeMult() * systemMult() * gammaMult() * galaxyMult() * (typeof achIncomeMult === 'function' ? achIncomeMult() : 1);
+  return isFinite(finalRate) ? finalRate : 0;
+}
+
+// ─── Цивилизация: подсчет обитаемых планет ──────────────────────
+function civPlanetCount() {
+  if (!S.starType || !STAR_TYPES[S.starType].civ) return 0;
+  let n = 0;
+  for (let i = 0; i < S.planets.length; i++) {
+    if (PLANET_TYPES[S.planets[i].type].civ && !S.planets[i].forming) n++;
+  }
+  return n;
+}
+window.civPlanetCount = civPlanetCount;
+
+// ─── Доход энергии (Абсолютная защита от NaN) ───
 function energyPerSec() {
   if (S.civLevel < 4) return 0;
   const c = civPlanetCount();
@@ -72,29 +112,21 @@ function energyPerSec() {
   
   let primeMult = 1;
   if (S.primeSystem && S.primeSystem.bonus) {
-    if (S.primeSystem.bonus.energyMult) primeMult += S.primeSystem.bonus.energyMult;
-    if (S.primeSystem.bonus.allMult) primeMult += S.primeSystem.bonus.allMult; // Квазар и т.д.
+    if (S.primeSystem.bonus.energyMult) primeMult += Number(S.primeSystem.bonus.energyMult) || 0;
+    if (S.primeSystem.bonus.allMult) primeMult += Number(S.primeSystem.bonus.allMult) || 0;
   }
 
-  return (S.civLevel - 3) * c * 0.5 * Math.pow(1.5, (levels.energy || 1) - 1) * (1 + (S.techLevels?.quantum || 0) * 0.20) * primeMult;
-}
+  const base = Number(S.civLevel) || 0;
+  const techMult = Number(1 + (S.techLevels?.quantum || 0) * 0.20) || 1;
+  const lvlMult = Math.pow(1.5, (Number(levels.energy) || 1) - 1);
 
-function clickGain() {
-  const st = STAGES[S.stage];
-  if (!st) return 0;
-  return st.clickRate * starMult() * systemTypeMult() *
-         systemMult() * gammaMult() * galaxyMult() *
-         (typeof achIncomeMult === 'function' ? achIncomeMult() : 1);
-}
-
-// ─── Цивилизация ────────────────────────────────────────────────
-function civPlanetCount() {
-  if (!S.starType || !STAR_TYPES[S.starType].civ) return 0;
-  let n = 0;
-  for (let i = 0; i < S.planets.length; i++) {
-    if (PLANET_TYPES[S.planets[i].type].civ && !S.planets[i].forming) n++;
+  let finalRate = (base - 3) * c * 0.5 * lvlMult * techMult * primeMult;
+  if (S.activeEvent && typeof EVENT_CFG !== 'undefined' && Array.isArray(EVENT_CFG.types)) {
+    const evt = EVENT_CFG.types.find(t => t.id === S.activeEvent.id);
+    if (evt && evt.globalIncomeMult) finalRate *= evt.globalIncomeMult;
+    if (evt && evt.energyMult) finalRate *= evt.energyMult;
   }
-  return n;
+  return (isFinite(finalRate) && !isNaN(finalRate)) ? Math.max(0, finalRate) : 0;
 }
 
 // ─── Стоимости ──────────────────────────────────────────────────
@@ -109,7 +141,8 @@ function systemCost(n) {
   const growth = CFG.systemGrowth   || 3.0;
   const min    = CFG.systemCostMin  || 1e6;
   const cost   = base * Math.pow(growth, n || 0);
-  return Math.max(min, Math.floor(cost));
+  const discount = 1 - (S.techLevels?.eng || 0) * 0.05;
+  return Math.max(min, Math.floor(cost * discount));
 }
 
 // ─── Цель текущей фазы ──────────────────────────────────────────
@@ -130,27 +163,38 @@ function currentGoal() {
   return null;
 }
 
-// ─── Кап хранилища ресурса ──────────────────────────────────────
+// ─── Кап хранилища (Абсолютная защита от NaN) ───
 function getResourceCap(res) {
   const levels = S.storageLevels || { dust: 1, energy: 1, civ: 1 };
+  
+  const getLevel = (key) => {
+    const l = parseInt(levels[key]);
+    return (isFinite(l) && l >= 1) ? Math.min(l, 7) : 1;
+  };
 
   if (res === 'dust') {
-    const hours = STORAGE_CFG.getDustCapHours(levels.dust);
-    const flat = STORAGE_CFG.getDustFlatCap(levels.dust);
+    const lvl = getLevel('dust');
+    const hours = STORAGE_CFG.getDustCapHours(lvl);
+    const flat = STORAGE_CFG.getDustFlatCap(lvl);
     const rateCap = dustPerSec() * 3600 * hours;
-    return Math.floor(Math.max(flat, rateCap));
+    let cap = Math.max(flat, rateCap);
+    return isFinite(cap) ? Math.floor(cap) : 50000;
   }
   if (res === 'energy') {
-    const hours = STORAGE_CFG.getDustCapHours(levels.energy);
-    const flat = STORAGE_CFG.getEnergyFlatCap(levels.energy);
+    const lvl = getLevel('energy');
+    const hours = STORAGE_CFG.getDustCapHours(lvl);
+    const flat = STORAGE_CFG.getEnergyFlatCap(lvl);
     const rateCap = energyPerSec() * 3600 * hours;
-    return Math.floor(Math.max(flat, rateCap));
+    let cap = Math.max(flat, rateCap);
+    return isFinite(cap) ? Math.floor(cap) : 10000;
   }
   if (res === 'civ') {
-    const mult = STORAGE_CFG.getCivCapMult(levels.civ);
-    const flat = STORAGE_CFG.getCivFlatCap(levels.civ);
+    const lvl = getLevel('civ');
+    const mult = STORAGE_CFG.getCivCapMult(lvl);
+    const flat = STORAGE_CFG.getCivFlatCap(lvl);
     const rateCap = civPerSec() * 3600 * mult;
-    return Math.floor(Math.max(flat, rateCap));
+    let cap = Math.max(flat, rateCap);
+    return isFinite(cap) ? Math.floor(cap) : 100;
   }
   return 1000;
 }
@@ -181,14 +225,21 @@ function civPerSec() {
     const pt = PLANET_TYPES[p.type];
     if (pt.bonus && pt.bonus.type === 'civ') mult *= (pt.bonus.civMult || 1);
   }
-  return CFG.civGrowthPerPlanet * c * mult;
+  let finalRate = CFG.civGrowthPerPlanet * c * mult * (1 + (S.techLevels?.cyber || 0) * 0.20);
+  if (S.activeEvent && typeof EVENT_CFG !== 'undefined' && Array.isArray(EVENT_CFG.types)) {
+    const evt = EVENT_CFG.types.find(t => t.id === S.activeEvent.id);
+    if (evt && evt.globalIncomeMult) finalRate *= evt.globalIncomeMult;
+  }
+  return isFinite(finalRate) ? finalRate : 0;
 }
 
 function tickCiv(dt) {
   const perSec = civPerSec();
   if (perSec === 0) return;
   const civCap = getResourceCap('civ');
-  if (S.civLevel < civCap) S.civLevel = Math.min(civCap, S.civLevel + perSec * dt);
+  if (S.civLevel < civCap) {
+    S.civLevel = Math.min(civCap, S.civLevel + perSec * dt);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -208,10 +259,8 @@ function applyOfflineProgress() {
     invasionDrainE: 0, invasionDrainC: 0, shieldProtected: false,
   };
 
-  // ─── 0. Завершение миссий ───
   processOfflineMissions(out);
 
-  // ─── 1. Пыль ───
   const dustCapSec = STORAGE_CFG.getDustCapHours(levels.dust) * 3600;
   const dustCappedSec = Math.min(elapsedSec, dustCapSec);
   const dRate = dustPerSec();
@@ -227,7 +276,6 @@ function applyOfflineProgress() {
     }
   }
 
-  // ─── 2. Энергия ───
   const eRate = energyPerSec();
   if (eRate > 0) {
     const energyCapSec = STORAGE_CFG.getDustCapHours(levels.energy) * 3600;
@@ -244,7 +292,6 @@ function applyOfflineProgress() {
     }
   }
 
-  // ─── 3. Цивилизация ───
   const cRate = civPerSec();
   if (cRate > 0) {
     const civCapSec = STORAGE_CFG.getDustCapHours(levels.civ) * 3600;
@@ -261,13 +308,13 @@ function applyOfflineProgress() {
     }
   }
 
-  // ─── 4. Вторжения (только если офлайн > 1 часа или активен ночной режим) ───
+  // Офлайн-атаки (только если офлайн > 1 часа или активен ночной режим)
   const isNightActive = S.nightDefenseExpiresAt && S.nightDefenseExpiresAt > now;
   if ((S.stage === 'system' || S.stage === 'galaxy') && (elapsedSec >= 3600 || isNightActive)) {
     simulateOfflineInvasions(elapsedSec, out);
   }
 
-  // ─── 5. Отключение ночного режима, если он был активен ───
+  // Отключение ночного режима, если он был активен
   if (out.nightEnded || (S.nightDefenseExpiresAt > 0)) {
     S.nightDefenseExpiresAt = 0;
     if (S.nightConfig) {
@@ -284,57 +331,48 @@ function applyOfflineProgress() {
   return null;
 }
 
-// ─── Завершение миссий в офлайне ───────────────────────────────
 function processOfflineMissions(out) {
   if (typeof MISS === 'undefined') return;
   const now = Date.now();
 
-  // ☄️ Кометы
   for (let i = MISS.comets.length - 1; i >= 0; i--) {
     const c = MISS.comets[i];
     const elapsedMs = now - c.startAt;
-    let complete = false;
-    let reward = 0;
+    let complete = false, reward = 0;
 
     if (c.isNight) {
       out.nightEnded = true;
       if (elapsedMs >= c.flightTime) {
-        complete = true;
-        reward = c.fail ? 0 : c.reward;
-      } else if (elapsedMs > 60000) { // Если пролетела хотя бы минуту, возвращаем досрочно
+        complete = true; reward = c.fail ? 0 : c.reward;
+      } else if (elapsedMs > 60000) {
         complete = true;
         const ratio = elapsedMs / c.flightTime;
         reward = c.fail ? 0 : Math.floor(c.reward * ratio);
       }
     } else {
       if (elapsedMs >= c.flightTime) {
-        complete = true;
-        reward = c.fail ? 0 : c.reward;
+        complete = true; reward = c.fail ? 0 : c.reward;
       }
     }
 
     if (complete) {
       if (reward > 0) {
-        S.dust += reward;
-        S.dustTotal += reward;
+        S.dust += reward; S.dustTotal += reward;
         out.cometEarned = (out.cometEarned || 0) + reward;
       }
       MISS.comets.splice(i, 1);
     }
   }
 
-  // 🚀 Экспедиции
   for (let i = MISS.expeditions.length - 1; i >= 0; i--) {
     const e = MISS.expeditions[i];
     const elapsedMs = now - e.startAt;
-    let complete = false;
-    let reward = 0;
+    let complete = false, reward = 0;
 
     if (e.isNight) {
       out.nightEnded = true;
       if (elapsedMs >= e.flightTime) {
-        complete = true;
-        reward = e.fail ? 0 : e.reward;
+        complete = true; reward = e.fail ? 0 : e.reward;
       } else if (elapsedMs > 60000) {
         complete = true;
         const ratio = elapsedMs / e.flightTime;
@@ -342,15 +380,13 @@ function processOfflineMissions(out) {
       }
     } else {
       if (elapsedMs >= e.flightTime) {
-        complete = true;
-        reward = e.fail ? 0 : e.reward;
+        complete = true; reward = e.fail ? 0 : e.reward;
       }
     }
 
     if (complete) {
       if (reward > 0) {
-        S.dust += reward;
-        S.dustTotal += reward;
+        S.dust += reward; S.dustTotal += reward;
         out.expEarned = (out.expEarned || 0) + reward;
         if (e.hasColony && typeof offerColony === 'function') {
           setTimeout(offerColony, 1000);
@@ -361,7 +397,6 @@ function processOfflineMissions(out) {
   }
 }
 
-// ─── Симуляция ночных вторжений ────────────────────────────────
 function simulateOfflineInvasions(elapsedSec, out) {
   const cfg = INVASION_CFG;
   const nightMode = (S.nightConfig && S.nightConfig.mode) || 'balanced';
@@ -412,10 +447,7 @@ function simulateOfflineInvasions(elapsedSec, out) {
         ? NIGHT_CFG.damagePerHit[nightMode].systems
         : NIGHT_CFG.damagePerHit[nightMode].planets;
       const actualDmg = Math.min(dmg, maxLosses - losses);
-      if (actualDmg > 0) {
-        losses += actualDmg;
-        lost += actualDmg;
-      }
+      if (actualDmg > 0) { losses += actualDmg; lost += actualDmg; }
     }
   }
 
@@ -467,7 +499,7 @@ function applyPlanetLosses(count) {
     S.planets.splice(idx, 1);
   }
   if (typeof addEvent === 'function') {
-    addEvent('invasion_destroy', 'Ночные вторжения уничтожили ' + toRemove + ' планет');
+    addEvent('invasion_destroy', 'Вторжения уничтожили ' + toRemove + ' планет');
   }
 }
 
@@ -488,7 +520,7 @@ function applySystemLosses(count) {
     if (typeof switchToSystem === 'function') switchToSystem(0);
   }
   if (typeof addEvent === 'function') {
-    addEvent('invasion_destroy', 'Ночные вторжения уничтожили ' + removed + ' систем');
+    addEvent('invasion_destroy', 'Вторжения уничтожили ' + removed + ' систем');
   }
 }
 

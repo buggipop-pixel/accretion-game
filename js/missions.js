@@ -119,9 +119,13 @@ function launchComet(sizePct) {
   const flightMs = Math.floor(cfg.cometFlightBase * flightMult * (0.9 + Math.random() * 0.2));
 
   // ─── Награда ───
-  const reward = Math.floor(cfg.cometRewardBase *
+  let reward = Math.floor(cfg.cometRewardBase *
     (1 + S.planets.length * cfg.cometRewardPerPlanet) *
     check.ice * (0.3 + sizePct * 3));
+  if (S.activeEvent && typeof EVENT_CFG !== 'undefined' && Array.isArray(EVENT_CFG.types)) {
+    const evt = EVENT_CFG.types.find(t => t.id === S.activeEvent.id);
+    if (evt && evt.dustCometMult) reward = Math.floor(reward * evt.dustCometMult);
+  }
 
   // ─── Находим ледяной гигант для старта ───
   let icePlanet = null;

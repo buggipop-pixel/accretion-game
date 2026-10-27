@@ -16,6 +16,11 @@
     <canvas id="sky" width="100%" height="100%"></canvas>
 
     <div class="hud">
+            <div id="eventBanner" style="display:none; position:absolute; top:60px; left:50%; transform:translateX(-50%); z-index:5; background:rgba(15,10,32,0.85); border:1px solid rgba(139,127,212,0.4); padding:6px 12px; border-radius:10px; font-size:11px; font-weight:bold; color:#fff; text-align:center; backdrop-filter:blur(5px); box-shadow:0 4px 15px rgba(0,0,0,0.5); width:max-content; max-width:90vw;">
+        <span id="eventIcon"></span>
+        <span id="eventName"></span>
+        <span id="eventTimer" style="color:#7ee0a8; margin-left:5px;"></span>
+      </div>
       <div class="phase-orb" id="phaseOrb">
         <svg viewBox="0 0 100 100">
           <circle cx="50" cy="50" r="42" class="orb-bg"/>
