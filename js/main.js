@@ -658,6 +658,9 @@ function start() {
 setupTelegram();
 if (typeof initAudio === 'function') initAudio();
 if (typeof loadGame === 'function') loadGame();
+if (typeof syncCloudOnStart === 'function') {
+    syncCloudOnStart(); // Проверит облако при входе
+}
 if (typeof acInit === 'function') acInit();
 resize();
 if (typeof initParticles === 'function') initParticles();
@@ -709,6 +712,9 @@ if (typeof showLoreCard === 'function' && typeof LORE !== 'undefined' && LORE[st
 showLoreCard(stage, bootLoop);
 } else {
 bootLoop();
+}
+if (typeof initCloudSave === 'function') {
+    initCloudSave(); // Включит автосохранение при закрытии
 }
 }
 setTimeout(resize, 100);
