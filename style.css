@@ -547,6 +547,8 @@ html, body {
 }
 .stars-btn {
   width: 100%;
+  max-width: 100%;        /* <--- ДОБАВИТЬ */
+  box-sizing: border-box; /* <--- ДОБАВИТЬ */
   margin-top: 10px;
   background: linear-gradient(135deg, #ffb347, #ffcc00);
   border: none;
