@@ -18,6 +18,8 @@ let _systemFullNotified = false;
 //  ПРОВЕРКА ПЕРЕХОДА ФАЗ
 // ═══════════════════════════════════════════════════════════════
 function checkEvolution() {
+  const dailyModal = document.getElementById('dailyModal');
+  if (dailyModal && dailyModal.classList.contains('show')) return;
   if (evolutionModalOpen) return;
   if (performance.now() < evolutionSuppressUntil) return;
   if (S.activeMinigame) return;

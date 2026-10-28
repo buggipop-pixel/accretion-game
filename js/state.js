@@ -451,8 +451,9 @@ function loadGame() {
     }
 
     // ─── 12. Автокоррекция фазы (защита от залипания) ───
-    // Если фаза Протозвезда, а звезда уже есть — сбрасываем звезду, чтобы тапы работали
-    if (S.stage === 'protostar' && S.starType) {
+    // В ранних фазах звезды быть не должно — чистим залипший starType из старых сейвов,
+    // иначе включится панорамирование и тапы/драг перестанут работать
+    if (S.stage === 'cloud' || S.stage === 'condense' || S.stage === 'protostar') {
       S.starType = null;
     }
     if (S.stage === 'firstPlanet' && S.planets && S.planets.length > 0) {

@@ -201,19 +201,21 @@ canvas.addEventListener('pointerdown', function(e) {
       return;
     }
 
-    if (S.starType && S.stage !== 'protostar') {
+    if (S.stage === 'cloud' || S.stage === 'condense' || S.stage === 'protostar') {
+      handleParticleDrag(pos.x, pos.y, true);
+      if (S.stage === 'protostar' && typeof registerProtostarTap === 'function') {
+        registerProtostarTap(pos.x, pos.y);
+      }
+      return; // Выходим, не давая включиться панорамированию
+    }
+
+    if (S.starType) {
       isPanning = true;
       panStartX = pos.x;
       panStartY = pos.y;
       panStartPanX = S.panX || 0;
       panStartPanY = S.panY || 0;
       return;
-    }
-
-    handleParticleDrag(pos.x, pos.y, true);
-
-    if (S.stage === 'protostar' && typeof registerProtostarTap === 'function') {
-      registerProtostarTap(pos.x, pos.y);
     }
   }
 });
