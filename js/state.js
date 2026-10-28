@@ -470,6 +470,13 @@ function loadGame() {
 // ═══════════════════════════════════════════════════════════════
 function resetGame() {
   isResetting = true;
+  // ★ Синхронные флаги для cloudsave.js (защита от восстановления облачного сейва)
+  try {
+    window.isResetting = true;
+    if (typeof S === 'object' && S) S.isResetting = true;
+  } catch (e) { /* ignore */ }
+  // ★ Метка переживает location.reload(), чтобы syncCloudOnStart() не вернул старый сейв
+  try { localStorage.setItem('accretion_reset_pending', '1'); } catch (e) { /* ignore */ }
   localStorage.removeItem(SAVE_KEY);
   resetStateValues();
   setTimeout(function() { location.reload(); }, 50);

@@ -153,36 +153,31 @@
     <div class="modal-card">
       <div class="modal-title">⚙ Настройки</div>
       <div class="modal-sub">Настрой интерфейс под себя</div>
-            <button class="pour-btn" style="width:100%; margin-top:15px;" onclick="document.getElementById('settingsModal').classList.remove('show'); openNightMode();">
+
+      <button class="pour-btn" style="width:100%; margin-top:15px;" onclick="document.getElementById('settingsModal').classList.remove('show'); openNightMode();">
         🌙 Ночной режим
       </button>
+
       <button class="pour-btn" style="width:100%; margin-top:8px;" onclick="document.getElementById('settingsModal').classList.remove('show'); openPremiumShop();">
-            <!-- Премиум магазин -->
-      <button class="pour-btn" style="width:100%; margin-top:15px;" onclick="document.getElementById('settingsModal').classList.remove('show'); openPremiumShop();">
         ⚙ Премиум магазин
       </button>
 
-      <!-- Облачное сохранение -->
-      <button class="pour-btn" style="width:100%; margin-top:8px;" onclick="document.getElementById('settingsModal').classList.remove('show'); openCloudSyncModal();">
-        ☁️ Облачное сохранение
-      </button>
-        <!-- Яркость -->
+      <div class="info-box" style="margin-top: 15px;">
         <div class="row-stat" style="align-items: center;">
           <span>☀️ Яркость</span>
           <input type="range" id="brightnessSlider" min="0.4" max="1.5" step="0.1" style="width: 60%; accent-color: #8b5cf6;">
         </div>
-        
-        <!-- Звук -->
+
         <div class="row-stat" style="align-items: center;">
           <span>🔊 Звук</span>
           <button class="pour-btn" id="soundToggleBtn" style="padding: 4px 12px;">Вкл</button>
         </div>
       </div>
 
-      <button class="stars-btn" id="settingsResetBtn" style="background: linear-gradient(135deg, #ff5e5e, #ff2a2a); color: #fff; margin-top: 20px;">
+      <button class="stars-btn" id="settingsResetBtn" style="background: linear-gradient(135deg, #ff5e5e, #ff2a2a); color: #fff; margin-top: 20px; width: 100%;">
         ⚠️ Сбросить прогресс
       </button>
-      
+
       <button class="pour-btn" style="width: 100%; margin-top: 10px;" onclick="document.getElementById('settingsModal').classList.remove('show');">
         Закрыть
       </button>

@@ -9,6 +9,7 @@ const CLOUD_API = 'https://accretion-game.onrender.com';
 const CLOUD_AUTOSYNC = true;
 const CLOUD_AUTOSAVE_MS = 60 * 1000;
 const CLOUD_SYNC_FLAG = 'accretion_cloud_synced';
+const CLOUD_RESET_FLAG = 'accretion_reset_pending';
 
 // ─── Вспомогательные функции ────────────────────────────────────
 function getSaveKey() {
@@ -26,6 +27,20 @@ function getTgInitData() {
 
 function isCloudAvailable() {
   return !!getTgInitData();
+}
+
+// ★ Сброс прогресса в процессе? (флаг живёт в памяти и переживает перезагрузку в localStorage)
+function isResetInProgress() {
+  try {
+    if (window.isResetting) return true;
+    if (typeof S !== 'undefined' && S && S.isResetting) return true;
+    if (window.S && window.S.isResetting) return true;
+  } catch (e) { /* ignore */ }
+  try {
+    return localStorage.getItem(CLOUD_RESET_FLAG) === '1';
+  } catch (e) {
+    return false;
+  }
 }
 
 function readLocalSave() {
@@ -71,6 +86,7 @@ async function cloudApi(path, payload) {
 
 // ─── Сохранить в облако ─────────────────────────────────────────
 async function cloudSaveGame() {
+  if (isResetInProgress()) return { ok: false, error: 'resetting' }; // ★ не сохраняем во время сброса
   const initData = getTgInitData();
   if (!initData) return { ok: false, error: 'not-telegram' };
 
@@ -122,6 +138,7 @@ async function cloudLoadGame(force) {
 
 // ─── Синхронизация при старте ───────────────────────────────────
 async function cloudSync() {
+  if (isResetInProgress()) return { ok: false, error: 'resetting' }; // ★ не восстанавливаем сейв во время сброса
   if (!CLOUD_AUTOSYNC || !isCloudAvailable()) return { ok: false, error: 'unavailable' };
 
   try {
@@ -130,6 +147,17 @@ async function cloudSync() {
   } catch (e) { /* sessionStorage может быть недоступен */ }
 
   return cloudLoadGame(false);
+}
+
+// ★ Точка входа синхронизации при старте (вызывается из main.js start())
+async function syncCloudOnStart() {
+  if (isResetInProgress()) {
+    // Сброс прогресса: гасим возможное восстановление облака и убираем временный флаг
+    try { localStorage.removeItem(CLOUD_RESET_FLAG); } catch (e) { /* ignore */ }
+    try { sessionStorage.setItem(CLOUD_SYNC_FLAG, '1'); } catch (e) { /* ignore */ }
+    return false;
+  }
+  return cloudSync();
 }
 
 // ─── Автосохранение в облако ────────────────────────────────────
@@ -149,18 +177,34 @@ function stopCloudAutosave() {
   cloudAutosaveTimer = null;
 }
 
+// ★ Включает автосохранение при сворачивании/закрытии (идемпотентно)
+function initCloudSave() {
+  if (isResetInProgress()) return false;
+  try {
+    if (window.__cloudSaveInited) {
+      if (CLOUD_AUTOSAVE_MS > 0) startCloudAutosave();
+      return true;
+    }
+    window.__cloudSaveInited = true;
+  } catch (e) { /* ignore */ }
+  if (CLOUD_AUTOSAVE_MS > 0) startCloudAutosave();
+  return true;
+}
+
 // ─── Экспорт ────────────────────────────────────────────────────
 window.CLOUD_API = CLOUD_API;
 window.cloudSaveGame = cloudSaveGame;
 window.cloudLoadGame = cloudLoadGame;
 window.cloudSync = cloudSync;
+window.syncCloudOnStart = syncCloudOnStart;
+window.initCloudSave = initCloudSave;
 window.isCloudAvailable = isCloudAvailable;
 window.startCloudAutosave = startCloudAutosave;
 window.stopCloudAutosave = stopCloudAutosave;
 
 // Запуск: сначала подтягиваем более свежий облачный сейв, затем автосейв
 window.addEventListener('load', function() {
-  cloudSync().catch(function() {});
+  syncCloudOnStart().catch(function() {});
   if (CLOUD_AUTOSAVE_MS > 0) startCloudAutosave();
 });
 // ─── Автосохранение при сворачивании/закрытии ───
