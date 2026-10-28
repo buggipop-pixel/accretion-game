@@ -882,7 +882,7 @@ function drawPassing(ctx) {
 }
 
 function handleParticleDrag(x, y, active) {
-  if (S.starType) return;
+  if (S.stage !== 'cloud' && S.stage !== 'condense' && S.stage !== 'protostar' && S.starType) return;
   PART.dragX = x;
   PART.dragY = y;
   PART.dragActive = active;

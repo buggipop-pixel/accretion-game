@@ -201,14 +201,16 @@ canvas.addEventListener('pointerdown', function(e) {
       return;
     }
 
+    // ★ ТАПЫ И ДРАГ В 1-3 ФАЗЕ
     if (S.stage === 'cloud' || S.stage === 'condense' || S.stage === 'protostar') {
-      handleParticleDrag(pos.x, pos.y, true);
+      if (typeof handleParticleDrag === 'function') handleParticleDrag(pos.x, pos.y, true);
       if (S.stage === 'protostar' && typeof registerProtostarTap === 'function') {
         registerProtostarTap(pos.x, pos.y);
       }
-      return; // Выходим, не давая включиться панорамированию
+      return;
     }
 
+    // ★ ПАНОРАМИРОВАНИЕ (если есть звезда)
     if (S.starType) {
       isPanning = true;
       panStartX = pos.x;
@@ -217,6 +219,8 @@ canvas.addEventListener('pointerdown', function(e) {
       panStartPanY = S.panY || 0;
       return;
     }
+
+    if (typeof handleParticleDrag === 'function') handleParticleDrag(pos.x, pos.y, true);
   }
 });
 
@@ -280,17 +284,6 @@ canvas.addEventListener('pointerup', onPointerRelease);
 canvas.addEventListener('pointercancel', onPointerRelease);
 canvas.addEventListener('pointerleave', onPointerRelease);
 canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
-
-// Безопасная обертка для перетаскивания частиц
-function handleParticleDrag(x, y, active) {
-  if (typeof window.handleParticleDrag === 'function') {
-    window.handleParticleDrag(x, y, active);
-  } else {
-    PART.dragActive = active;
-    PART.dragX = x;
-    PART.dragY = y;
-  }
-}
 
 // ═══════════════════════════════════════════════════════════════
 //  ГАЛАКТИКА (Позиции и отрисовка)

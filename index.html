@@ -2,12 +2,12 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover,shrink-to-fit=no">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="format-detection" content="telephone=no">
-<meta name="theme-color" content="#02010a">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover,shrink-to-fit=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="theme-color" content="#02010a">
   <title>АККРЕЦИЯ</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -16,11 +16,14 @@
     <canvas id="sky" width="100%" height="100%"></canvas>
 
     <div class="hud">
-            <div id="eventBanner" style="display:none; position:absolute; top:60px; left:50%; transform:translateX(-50%); z-index:5; background:rgba(15,10,32,0.85); border:1px solid rgba(139,127,212,0.4); padding:6px 12px; border-radius:10px; font-size:11px; font-weight:bold; color:#fff; text-align:center; backdrop-filter:blur(5px); box-shadow:0 4px 15px rgba(0,0,0,0.5); width:max-content; max-width:90vw;">
+      <!-- Баннер событий -->
+      <div id="eventBanner" style="display:none; position:absolute; top:60px; left:50%; transform:translateX(-50%); z-index:5; background:rgba(15,10,32,0.85); border:1px solid rgba(139,127,212,0.4); padding:6px 12px; border-radius:10px; font-size:11px; font-weight:bold; color:#fff; text-align:center; backdrop-filter:blur(5px); box-shadow:0 4px 15px rgba(0,0,0,0.5); width:max-content; max-width:90vw;">
         <span id="eventIcon"></span>
         <span id="eventName"></span>
         <span id="eventTimer" style="color:#7ee0a8; margin-left:5px;"></span>
       </div>
+
+      <!-- Кругляшок фазы -->
       <div class="phase-orb" id="phaseOrb">
         <svg viewBox="0 0 100 100">
           <circle cx="50" cy="50" r="42" class="orb-bg"/>
@@ -29,10 +32,17 @@
         <span class="orb-label" id="orbLabel">I</span>
       </div>
 
+      <!-- Панель квестов -->
       <div class="quests-panel" id="questsPanel"></div>
+      
+      <!-- Миссии -->
       <div class="missions" id="missions"></div>
+      
+      <!-- Переключатель систем -->
       <button id="systemSwitcherBtn" class="sys-dropdown-btn" style="display:none;">🌌 Системы</button>
       <div id="systemDropdown" class="sys-dropdown-list" style="display:none;"></div>
+      
+      <!-- Индикатор газа -->
       <div id="gasIndicator" style="
         position:absolute;
         top:80px;
@@ -50,10 +60,13 @@
 
       <div class="spacer"></div>
 
+      <!-- Кнопка эволюции -->
       <button class="evolve-btn" id="evolveBtn">Эволюция</button>
 
+      <!-- Кнопки миссий -->
       <div class="mission-buttons" id="missionButtons"></div>
 
+      <!-- Хранилище -->
       <div class="storage-panel" id="storagePanel">
         <div class="storage-cell" data-res="dust">
           <div class="storage-icon">✦</div>
@@ -105,6 +118,8 @@
     <div class="toasts" id="toasts"></div>
 
     <button id="backToGalaxyBtn" style="display:none; position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:10; background:rgba(107,77,230,0.85); border:1px solid rgba(185,168,255,0.5); color:#fff; padding:8px 16px; border-radius:12px; font-weight:bold; font-family:inherit; cursor:pointer;">🌌 В галактику</button>
+    
+    <!-- Кнопки в правом верхнем углу -->
     <div class="system-buttons">
       <button class="event-btn" id="eventBtn" title="Журнал событий">
         📜<span class="event-badge" id="eventBadge" style="display:none">0</span>
@@ -115,10 +130,12 @@
     </div>
   </div>
 
+  <!-- Модальные окна -->
   <div class="modal" id="modal">
     <div class="modal-card" id="modalCard"></div>
   </div>
-    <!-- Модалка Ежедневных наград -->
+
+  <!-- Модалка Ежедневных наград -->
   <div class="modal" id="dailyModal">
     <div class="modal-card">
       <div class="modal-title">📅 Ежедневные награды</div>
@@ -128,7 +145,7 @@
         <!-- Заполняется через JS -->
       </div>
       
-      <button class="pour-btn" style="width:100%; margin-top:10px;" onclick="closeDailyAndWait()">
+      <button class="pour-btn" style="width:100%; margin-top:10px;" onclick="document.getElementById('dailyModal').classList.remove('show');">
         Закрыть
       </button>
     </div>
@@ -149,11 +166,13 @@
       </button>
     </div>
   </div>
+
+  <!-- Модалка Настроек (Исправленная) -->
   <div class="modal" id="settingsModal">
     <div class="modal-card">
       <div class="modal-title">⚙ Настройки</div>
       <div class="modal-sub">Настрой интерфейс под себя</div>
-
+      
       <button class="pour-btn" style="width:100%; margin-top:15px;" onclick="document.getElementById('settingsModal').classList.remove('show'); openNightMode();">
         🌙 Ночной режим
       </button>
@@ -167,22 +186,24 @@
           <span>☀️ Яркость</span>
           <input type="range" id="brightnessSlider" min="0.4" max="1.5" step="0.1" style="width: 60%; accent-color: #8b5cf6;">
         </div>
-
+        
         <div class="row-stat" style="align-items: center;">
           <span>🔊 Звук</span>
           <button class="pour-btn" id="soundToggleBtn" style="padding: 4px 12px;">Вкл</button>
         </div>
       </div>
 
-      <button class="stars-btn" id="settingsResetBtn" style="background: linear-gradient(135deg, #ff5e5e, #ff2a2a); color: #fff; margin-top: 20px; width: 100%;">
+      <button class="stars-btn" id="settingsResetBtn" style="background: linear-gradient(135deg, #ff5e5e, #ff2a2a); color: #fff; margin-top: 20px;">
         ⚠️ Сбросить прогресс
       </button>
-
+      
       <button class="pour-btn" style="width: 100%; margin-top: 10px;" onclick="document.getElementById('settingsModal').classList.remove('show');">
         Закрыть
       </button>
     </div>
   </div>
+
+  <!-- Модалка Достижений -->
   <div class="modal" id="achModal">
     <div class="modal-card event-log-card">
       <div class="ach-body" id="achBody"></div>
@@ -191,6 +212,8 @@
       </button>
     </div>
   </div>
+
+  <!-- Модалка Журнала Событий -->
   <div class="modal" id="eventLogModal">
     <div class="modal-card event-log-card">
       <div class="modal-title">📜 Журнал событий</div>
@@ -199,7 +222,9 @@
     </div>
   </div>
 
-  <!-- Подключение модулей (порядок важен!) -->
+  <!-- ═══════════════════════════════════════════════════════════════
+       ПОДКЛЮЧЕНИЕ МОДУЛЕЙ (Порядок очень важен!)
+       ═══════════════════════════════════════════════════════════════ -->
   <script src="js/config.js"></script>
   <script src="js/state.js"></script>
   <script src="js/physics.js"></script>
@@ -219,7 +244,7 @@
   <script src="js/view3d.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/premium.js"></script>
-  <script src="js/cloudsave.js"></script>
+  <script src="js/cloudsave.js"></script> <!-- НОВЫЙ ФАЙЛ АВТОСЕЙВА -->
   <script src="js/eventlog.js"></script>
   <script src="js/achievements.js"></script>
   <script src="js/main.js"></script>
