@@ -151,6 +151,8 @@ async function cloudSync() {
 
 // ★ Точка входа синхронизации при старте (вызывается из main.js start())
 async function syncCloudOnStart() {
+  if (window.isResetting) return false; // ★ Защита от перезаписи при сбросе
+
   if (isResetInProgress()) {
     // Сброс прогресса: гасим возможное восстановление облака и убираем временный флаг
     try { localStorage.removeItem(CLOUD_RESET_FLAG); } catch (e) { /* ignore */ }

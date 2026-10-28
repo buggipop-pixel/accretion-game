@@ -4,6 +4,12 @@
 
 let evolutionModalOpen = false;
 let evolutionSuppressUntil = 0;
+
+// ★ Блокировка всплывающих окон эволюции на заданное время (мс)
+function suppressEvolutionFor(ms) {
+  evolutionSuppressUntil = performance.now() + (ms || 0);
+}
+window.suppressEvolutionFor = suppressEvolutionFor;
 let _protostarTimerStart = 0;
 let _protostarTimerActive = false;
 let _systemFullNotified = false;
@@ -49,6 +55,7 @@ function checkEvolution() {
 // ═══════════════════════════════════════════════════════════════
 function openEvolution() {
   if (evolutionModalOpen) return;
+  if (performance.now() < evolutionSuppressUntil) return;
   if (S.activeMinigame) return;
   if (S.stage === 'protostar') return;
   if (S.stage === 'galaxy') return;
@@ -173,6 +180,15 @@ function finishProtostar() {
     const st = STAR_TYPES[starType];
     const sysSt = SYSTEM_TYPES[S.systemType];
     toast('★ ' + st.name, sysSt.name + ' система · доход ×' + st.rateMult);
+
+    // ★ Выдаем ежедневную награду при переходе на 4-ю фазу
+    if (typeof checkDailyRewards === 'function') {
+      const dailyScheduled = checkDailyRewards();
+      // Пока ежедневка не закрыта, сборка планеты не должна выскакивать
+      if (dailyScheduled && typeof suppressEvolutionFor === 'function') {
+        suppressEvolutionFor(Infinity);
+      }
+    }
 
     setTimeout(function() {
       if (typeof showLoreCard === 'function') {

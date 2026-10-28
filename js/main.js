@@ -201,7 +201,7 @@ canvas.addEventListener('pointerdown', function(e) {
       return;
     }
 
-    if (S.starType) {
+    if (S.starType && S.stage !== 'protostar') {
       isPanning = true;
       panStartX = pos.x;
       panStartY = pos.y;
@@ -700,7 +700,11 @@ logOfflineIncome(offline.seconds, offline.dustEarned);
 }
 }
 setTimeout(resize, 200);
-if (typeof checkDailyRewards === 'function') checkDailyRewards();
+// ★ Ежедневка выдаётся всегда, но не раньше 4-й фазы (сборки первой планеты),
+// чтобы награда не давала пыль на старте и не скипала ранние фазы
+if (S.stage !== 'cloud' && S.stage !== 'condense' && S.stage !== 'protostar' && typeof checkDailyRewards === 'function') {
+checkDailyRewards();
+}
 if (offline && typeof checkFirstNightShield === 'function') {
 checkFirstNightShield(offline.seconds);
 }

@@ -1051,7 +1051,9 @@ function checkDailyRewards() {
   // Если прошло больше 24 часов с последнего получения — можно забрать
   if (last === 0 || (now - last) >= 24 * 3600 * 1000) {
     setTimeout(() => { openDailyRewards(); }, 1500);
+    return true;
   }
+  return false;
 }
 
 function openDailyRewards() {
@@ -1085,6 +1087,11 @@ function openDailyRewards() {
   }
 
   grid.innerHTML = html;
+  // ★ Пока ежедневка открыта, не даем выскочить сборке планеты
+  if (S.stage === 'firstPlanet' && typeof window.suppressEvolutionFor === 'function') {
+    window.suppressEvolutionFor(Infinity);
+  }
+
   modal.classList.add('show');
 }
 
@@ -1128,11 +1135,26 @@ function claimDailyReward() {
   openDailyRewards();
   
   // Если забрали всё, закрываем через секунду
-  setTimeout(() => {
-    const modal = document.getElementById('dailyModal');
-    if (modal) modal.classList.remove('show');
-  }, 1500);
+  setTimeout(() => { closeDailyAndWait(); }, 1500);
 }
+
+// ★ Закрытие ежедневной награды с паузой перед сборкой планеты
+function closeDailyAndWait() {
+  const modal = document.getElementById('dailyModal');
+  if (modal) modal.classList.remove('show');
+
+  // Если мы только что сформировали звезду, даем 5 секунд перед сборкой планеты
+  if (S.stage === 'firstPlanet') {
+    const delayMs = 5000;
+    if (typeof window.suppressEvolutionFor === 'function') {
+      window.suppressEvolutionFor(delayMs);
+    } else {
+      S.assemblyCooldownUntil = Date.now() + delayMs;
+    }
+    toast('⏳ Диск остывает', 'Сборка планеты начнется через 5 секунд...');
+  }
+}
+window.closeDailyAndWait = closeDailyAndWait;
 
 // ═══════════════════════════════════════════════════════════════
 //  ПЕРВЫЙ ЩИТ
