@@ -10,13 +10,8 @@
   <meta name="theme-color" content="#02010a">
   <title>АККРЕЦИЯ</title>
   <link rel="stylesheet" href="style.css">
-  <!-- Eruda: консоль разработчика прямо на экране телефона -->
+  <!-- Eruda: скрытая консоль разработчика (не инициализируется сама — открывается 5 кликами по кнопке в настройках) -->
   <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
-  <script>
-    if (window.innerWidth < 768 || true) {
-      eruda.init();
-    }
-  </script>
 </head>
 <body>
   <div id="app">
@@ -199,6 +194,10 @@
           <button class="pour-btn" id="soundToggleBtn" style="padding: 4px 12px;">Вкл</button>
         </div>
       </div>
+
+      <button class="pour-btn" id="debugLogBtn" style="width: 100%; margin-top: 10px; background: rgba(255, 255, 255, 0.05); color: #8b7fd4; font-size: 10px;">
+        🐞 Логи (5 кликов)
+      </button>
 
       <button class="stars-btn" id="settingsResetBtn" style="background: linear-gradient(135deg, #ff5e5e, #ff2a2a); color: #fff; margin-top: 20px;">
         ⚠️ Сбросить прогресс

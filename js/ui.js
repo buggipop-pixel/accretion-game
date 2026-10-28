@@ -588,6 +588,33 @@ function initUI() {
       if (confirm('Вы уверены? Весь прогресс будет удален.')) resetGame();
     });
   }
+  // ★ Скрытая отладка: 5 кликов по кнопке «🐞 Логи» в настройках
+  const debugBtn = document.getElementById('debugLogBtn');
+  if (debugBtn) {
+    let debugClicks = 0;
+    let debugTimer = null;
+
+    debugBtn.addEventListener('click', function() {
+      debugClicks++;
+
+      // Сбрасываем счётчик, если прошло 2 секунды
+      clearTimeout(debugTimer);
+      debugTimer = setTimeout(() => { debugClicks = 0; }, 2000);
+
+      if (debugClicks >= 5) {
+        debugClicks = 0;
+        clearTimeout(debugTimer);
+        if (window.eruda) {
+          eruda.init(); // повторный вызов безопасен: внутри есть guard
+          eruda.show();
+          document.getElementById('settingsModal').classList.remove('show');
+          if (typeof toast === 'function') toast('🐞 Дебаг', 'Консоль открыта');
+        } else {
+          if (typeof toast === 'function') toast('⚠️ Ошибка', 'Eruda не загружена');
+        }
+      }
+    });
+  }
 }
 
 // Глобальное закрытие модалки (по клику на фон или Esc)
