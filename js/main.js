@@ -653,9 +653,11 @@ function start() {
 setupTelegram();
 if (typeof initAudio === 'function') initAudio();
 if (typeof loadGame === 'function') loadGame();
-if (typeof syncCloudOnStart === 'function') {
-    syncCloudOnStart(); // Проверит облако при входе
-}
+// ★ Отложенный старт: даём Telegram WebApp SDK время инициализироваться,
+// иначе initData ещё пуст и синхронизация падает с «Нет initData».
+setTimeout(function() {
+  if (typeof syncCloudOnStart === 'function') syncCloudOnStart();
+}, 1000);
 if (typeof acInit === 'function') acInit();
 resize();
 if (typeof initParticles === 'function') initParticles();

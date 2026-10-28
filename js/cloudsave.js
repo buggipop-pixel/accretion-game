@@ -21,8 +21,12 @@ function getSaveKey() {
 }
 
 function getTgInitData() {
-  const tg = window.Telegram && window.Telegram.WebApp;
-  return (tg && tg.initData) ? tg.initData : '';
+  console.log('TG InitData check:', window.Telegram ? 'TG exists' : 'NO TG');
+  if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) {
+    console.log('InitData length:', window.Telegram.WebApp.initData.length);
+    return window.Telegram.WebApp.initData;
+  }
+  return '';
 }
 
 function isCloudAvailable() {
@@ -260,7 +264,10 @@ window.stopCloudAutosave = stopCloudAutosave;
 
 // Запуск: сначала подтягиваем более свежий облачный сейв, затем автосейв
 window.addEventListener('load', function() {
-  syncCloudOnStart().catch(function() {});
+  // ★ Задержка: SDK Telegram должен успеть создать window.Telegram.WebApp
+  setTimeout(function() {
+    syncCloudOnStart().catch(function() {});
+  }, 1000);
   if (CLOUD_AUTOSAVE_MS > 0) startCloudAutosave();
 });
 // ─── Автосохранение при сворачивании/закрытии ───
