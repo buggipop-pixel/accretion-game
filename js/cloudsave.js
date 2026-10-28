@@ -152,14 +152,68 @@ async function cloudSync() {
 // ★ Точка входа синхронизации при старте (вызывается из main.js start())
 async function syncCloudOnStart() {
   if (window.isResetting) return false; // ★ Защита от перезаписи при сбросе
-
   if (isResetInProgress()) {
-    // Сброс прогресса: гасим возможное восстановление облака и убираем временный флаг
+    // Сброс прогресса: гасим возможное восстановление облака и убираем временный флаг,
+    // иначе accretion_reset_pending навсегда заблокирует облачную синхронизацию
     try { localStorage.removeItem(CLOUD_RESET_FLAG); } catch (e) { /* ignore */ }
     try { sessionStorage.setItem(CLOUD_SYNC_FLAG, '1'); } catch (e) { /* ignore */ }
     return false;
   }
-  return cloudSync();
+
+  const initData = getTgInitData();
+  if (!initData) {
+    console.warn('[CloudSave] initData пуст — WebApp открыт не внутри Telegram?');
+    if (typeof toast === 'function') toast('⚠️ Ошибка синхронизации', 'Нет initData. Вы не в Telegram?');
+    return false;
+  }
+
+  try {
+    console.log('[CloudSave] POST', CLOUD_API + '/api/load', 'initData.length =', initData.length);
+    if (typeof toast === 'function') toast('☁️ Синхронизация...', 'Запрос к серверу');
+
+    const res = await fetch(CLOUD_API + '/api/load', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: initData })
+    });
+    console.log('[CloudSave] /api/load HTTP', res.status, res.statusText);
+
+    const json = await res.json();
+    console.log('[CloudSave] /api/load payload:', json);
+
+    if (!json.ok || !json.data) {
+      if (typeof toast === 'function') toast('☁️ Облако пустое', 'Заливаем локальный сейв');
+      await cloudSaveGame();
+      return false;
+    }
+
+    const cloudData = json.data;
+    const localData = readLocalSave();
+    const cloudTime = cloudData.lastTick || 0;
+    const localTime = (localData && localData.lastTick) || 0;
+
+    // Локального прогресса нет — применяем облачный сейв.
+    // cloudTime > 0 обязателен, иначе сейв без lastTick вызовет вечный цикл перезагрузок.
+    if (localTime === 0 && cloudTime > 0) {
+      if (typeof toast === 'function') toast('☁️ Загрузка', 'Найден облачный сейв, перезапуск...');
+      writeLocalSave(cloudData);
+      location.reload();
+      return true;
+    }
+
+    if (cloudTime > localTime + 10000) {
+      if (typeof toast === 'function') toast('☁️ Загрузка', 'Облачный сейв новее, перезапуск...');
+      writeLocalSave(cloudData);
+      location.reload();
+      return true;
+    }
+
+    await cloudSaveGame();
+  } catch (e) {
+    console.warn('[CloudSave] Ошибка загрузки:', e);
+    if (typeof toast === 'function') toast('⚠️ Ошибка сети', e.message);
+  }
+  return false;
 }
 
 // ─── Автосохранение в облако ────────────────────────────────────

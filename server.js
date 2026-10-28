@@ -74,7 +74,7 @@ const app = express();
 app.use(express.json({ limit: '1mb' })); // 1mb для облачных сейвов
 
 app.use((req, res, next) => {
-  if (WEBAPP_URL) res.setHeader('Access-Control-Allow-Origin', WEBAPP_URL);
+  res.setHeader('Access-Control-Allow-Origin', '*'); // TODO: временно для отладки — сузить до WEBAPP_URL после починки сети
   res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.sendStatus(204);

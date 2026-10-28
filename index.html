@@ -10,6 +10,13 @@
   <meta name="theme-color" content="#02010a">
   <title>АККРЕЦИЯ</title>
   <link rel="stylesheet" href="style.css">
+  <!-- Eruda: консоль разработчика прямо на экране телефона -->
+  <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+  <script>
+    if (window.innerWidth < 768 || true) {
+      eruda.init();
+    }
+  </script>
 </head>
 <body>
   <div id="app">
