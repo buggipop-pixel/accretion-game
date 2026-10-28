@@ -78,11 +78,19 @@ async function cloudSaveGame() {
     if (typeof saveGame === 'function') saveGame(); // актуализируем локальный сейв
     const saveData = readLocalSave();
     if (!saveData) return { ok: false, error: 'no-save' };
-
-    const r = await cloudApi('/api/save', { initData, saveData });
+    
+    // ★ Прямой fetch с keepalive: true
+    const response = await fetch(CLOUD_API + '/api/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, saveData }),
+      keepalive: true // Позволяет отправить запрос даже при закрытии окна
+    });
+    
+    const r = await response.json();
     return { ok: true, saved_at: r && r.saved_at };
   } catch (e) {
-    console.warn('[cloudsave] save failed:', e.message);
+    console.warn('[cloudSave] save failed:', e.message);
     return { ok: false, error: e.message, status: e.status };
   }
 }
@@ -154,4 +162,13 @@ window.stopCloudAutosave = stopCloudAutosave;
 window.addEventListener('load', function() {
   cloudSync().catch(function() {});
   if (CLOUD_AUTOSAVE_MS > 0) startCloudAutosave();
+});
+// ─── Автосохранение при сворачивании/закрытии ───
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'hidden') {
+    if (typeof cloudSaveGame === 'function') cloudSaveGame();
+  }
+});
+window.addEventListener('beforeunload', function() {
+  if (typeof cloudSaveGame === 'function') cloudSaveGame();
 });
