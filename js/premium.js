@@ -2,6 +2,48 @@
 //  PREMIUM.JS — Магазин, Сундуки, Премиум-Щит
 // ═══════════════════════════════════════════════════════════════
 
+// ─── API: сервер на Render ──────────────────────────────────────
+const API_BASE = 'https://accretion-game.onrender.com';
+
+function getPremiumInitData() {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  return (tg && tg.initData) ? tg.initData : '';
+}
+
+async function premiumApiPost(path, payload) {
+  const res = await fetch(API_BASE + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  let data = null;
+  try { data = await res.json(); } catch (e) { data = null; }
+  if (!res.ok) throw new Error((data && data.error) ? data.error : ('HTTP ' + res.status));
+  return data;
+}
+
+// Запрос реальной ссылки на оплату у сервера (bot.createInvoiceLink)
+async function getInvoiceLink(product) {
+  const initData = getPremiumInitData();
+  if (!initData) return null;
+  try {
+    const r = await premiumApiPost('/api/create-invoice', { initData: initData, product: product });
+    return (r && r.invoiceLink) ? r.invoiceLink : null;
+  } catch (e) {
+    console.warn('[premium] create-invoice failed:', e.message);
+    return null;
+  }
+}
+
+// Подтверждение выдачи покупки на сервере (не блокирует выдачу в игре)
+function claimPurchase(product) {
+  const initData = getPremiumInitData();
+  if (!initData) return;
+  premiumApiPost('/api/claim', { initData: initData, product: product }).catch(function(e) {
+    console.warn('[premium] claim failed:', e.message);
+  });
+}
+window.API_BASE = API_BASE;
 function openPremiumShop() {
   const card = document.getElementById('modalCard');
   if (!card) return;
@@ -117,16 +159,20 @@ function generatePerfectPrimeSystem(primeData) {
 
 // ─── СУНДУКИ И РУЛЕТКА ──────────────────────────────────────────
 // ─── СУНДУКИ ────────────────────────────────────────────────────
-function buyPrimeChest() {
+async function buyPrimeChest() {
   const tg = window.Telegram && window.Telegram.WebApp;
   
   // Если мы в Телеграме и у нас есть метод openInvoice
   if (tg && typeof tg.openInvoice === 'function') {
-    // ★ ВАЖНО: Сюда нужно будет вставить реальную ссылку, которую генерирует бот
-    const invoiceLink = 'https://t.me/$mock_invoice_chest'; 
+    const invoiceLink = await getInvoiceLink('chest');
+    if (!invoiceLink) {
+      toast('Ошибка оплаты', 'Не удалось создать счёт. Попробуйте позже');
+      return;
+    }
     
     tg.openInvoice(invoiceLink, function(status) {
       if (status === 'paid') {
+        claimPurchase('chest');
         toast('✅ Оплата прошла', 'Сундук открывается...');
         startChestRoulette();
       } else if (status === 'cancelled') {
@@ -145,15 +191,19 @@ function buyPrimeChest() {
 }
 
 // ─── ПРЕМИУМ ЩИТ ────────────────────────────────────────────────
-function buyPremiumShield() {
+async function buyPremiumShield() {
   const tg = window.Telegram && window.Telegram.WebApp;
   
   if (tg && typeof tg.openInvoice === 'function') {
-    // ★ ВАЖНО: Сюда нужно будет вставить реальную ссылку
-    const invoiceLink = 'https://t.me/$mock_invoice_shield';
+    const invoiceLink = await getInvoiceLink('shield');
+    if (!invoiceLink) {
+      toast('Ошибка оплаты', 'Не удалось создать счёт. Попробуйте позже');
+      return;
+    }
     
     tg.openInvoice(invoiceLink, function(status) {
       if (status === 'paid') {
+        claimPurchase('shield');
         toast('✅ Оплата прошла', 'Щит активирован!');
         activatePremiumShieldReward();
       } else if (status === 'cancelled') {
