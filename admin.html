@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Админ-панель Аккреция</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; background: #0a0620; color: #e8e2ff; padding: 20px; }
+    h1 { font-size: 20px; color: #b9a8ff; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 13px; }
+    th, td { padding: 10px; border: 1px solid rgba(139, 127, 212, 0.3); text-align: left; }
+    th { background: rgba(139, 127, 212, 0.1); color: #b9a8ff; }
+    input, button { padding: 8px 12px; margin: 5px 0; border-radius: 8px; border: 1px solid rgba(139, 127, 212, 0.4); background: rgba(20, 15, 45, 0.8); color: #fff; font-family: inherit; outline: none; }
+    button { cursor: pointer; background: #6b4de6; border: none; font-weight: bold; transition: 0.2s; }
+    button:hover { background: #8b5cf6; }
+    .btn-sm { padding: 5px 8px; font-size: 11px; margin: 0 2px; }
+    .hidden { display: none; }
+    .auth-box { background: rgba(25, 15, 50, 0.8); padding: 20px; border-radius: 12px; border: 1px solid rgba(139, 127, 212, 0.3); max-width: 300px; margin: 50px auto; text-align: center; }
+  </style>
+</head>
+<body>
+  <div id="authBlock" class="auth-box">
+    <h1>🛠 Вход в Админку</h1>
+    <input type="password" id="adminToken" placeholder="Введите ADMIN_TOKEN" style="width: 100%; box-sizing: border-box; margin-bottom: 10px;">
+    <button onclick="loadPlayers()" style="width: 100%;">Войти</button>
+  </div>
+
+  <div id="mainBlock" class="hidden">
+    <h1>🛠 Управление игроками</h1>
+    <button onclick="loadPlayers()">🔄 Обновить список</button>
+    <table id="playersTable">
+      <thead>
+        <tr>
+          <th>Telegram ID</th>
+          <th>Имя системы</th>
+          <th>Фаза</th>
+          <th>Пыль</th>
+          <th>Металлы</th>
+          <th>Системы</th>
+          <th>Действия</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script>
+    // Если админка на том же сервере, что и игра, API_BASE можно оставить пустым.
+    // Если на другом (например, GitHub Pages), укажи ссылку на Render: 'https://accretion-game.onrender.com'
+    const API_BASE = ''; 
+    let currentToken = '';
+
+    async function loadPlayers() {
+      const tokenInput = document.getElementById('adminToken').value;
+      if (tokenInput) currentToken = tokenInput;
+
+      if (!currentToken) {
+        alert('Введите токен!');
+        return;
+      }
+
+      try {
+        const res = await fetch(API_BASE + '/admin/api/players', {
+          headers: { 'X-Admin-Token': currentToken }
+        });
+        
+        if (res.status === 401) {
+          alert('Неверный токен!');
+          return;
+        }
+
+        const json = await res.json();
+        if (!json.ok) throw new Error(json.error || 'Ошибка сервера');
+
+        document.getElementById('authBlock').classList.add('hidden');
+        document.getElementById('mainBlock').classList.remove('hidden');
+
+        const tbody = document.querySelector('#playersTable tbody');
+        tbody.innerHTML = '';
+        
+        if (json.players.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">Игроков пока нет</td></tr>';
+          return;
+        }
+
+        json.players.forEach(p => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${p.id}</td>
+            <td>${p.name}</td>
+            <td>${p.stage}</td>
+            <td>${Math.floor(p.dust || 0).toLocaleString()}</td>
+            <td>${Math.floor(p.metals || 0).toLocaleString()}</td>
+            <td>${p.systems || 1}</td>
+            <td>
+              <button class="btn-sm" onclick="giveResource('${p.id}', 'dust', 1000000)">+1M Пыли</button>
+              <button class="btn-sm" onclick="giveResource('${p.id}', 'metalAmount', 1000)">+1000 ⚙</button>
+              <button class="btn-sm" onclick="giveResource('${p.id}', 'energy', 100000)">+100K ⚡</button>
+              <button class="btn-sm" onclick="giveResource('${p.id}', 'civLevel', 500)">+500 🧬</button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } catch (e) {
+        alert('Ошибка: ' + e.message);
+      }
+    }
+
+    async function giveResource(playerId, resource, amount) {
+      if (!confirm(`Выдать ${amount} ресурса ${resource} игроку ${playerId}?`)) return;
+
+      try {
+        const res = await fetch(API_BASE + `/admin/api/player/${playerId}/give`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-Admin-Token': currentToken 
+          },
+          body: JSON.stringify({ resource, amount })
+        });
+        const json = await res.json();
+        if (json.ok) {
+          loadPlayers(); // Обновить таблицу после выдачи
+        } else {
+          alert('Ошибка: ' + json.error);
+        }
+      } catch (e) {
+        alert('Ошибка сети: ' + e.message);
+      }
+    }
+  </script>
+</body>
+</html>

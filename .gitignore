@@ -14,3 +14,7 @@ Thumbs.db
 
 # Логи
 *.log
+
+# Артефакты индексатора DSH
+.dsh/
+.npm-cache/
