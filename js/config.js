@@ -10,13 +10,13 @@ const CFG = {
   offlineAttackMinSec: 3600,  // Офлайн-вторжения срабатывают только если игрок отсутствовал > 1 часа
   eventInterval: 200,
   eventChance: 0.5,
-  formationDuration: 600,     // Время формирования планеты после слияния (сек)
+  formationDuration: 120,     // Время формирования планеты после слияния (сек)
   civGrowthPerPlanet: 0.02,   // Скорость роста цивилизации с одной планеты
   civClickBoost: 0.0,
 
   // ─── Экономика планет и систем ───
-  planetBaseCost: 700000, planetCostGrowth: 2.0,
-  systemBaseCost: 40000000, systemGrowth: 2.0, systemCostMin: 40000000,
+  planetBaseCost: 500000, planetCostGrowth: 1.8,
+  systemBaseCost: 20000000, systemGrowth: 2.5, systemCostMin: 20000000,
   systemIncomeMultPerSystem: 1.0,
   storageInstantStars: 50,
 
@@ -62,10 +62,10 @@ const STORAGE_CFG = {
   energyCostMult: 12, civCostMult: 20,
   getDustCapHours(level) { return this.dustHours[Math.min(Math.max(1, level||1), 7) - 1]; },
   getDustFlatCap(level) { return 50000 * Math.pow(10, (Math.min(Math.max(1, level||1), 7)) - 1) * this.getDustCapHours(level); },
-  getEnergyFlatCap(level) { return 100000 * Math.pow(2, (Math.min(Math.max(1, level||1), 7)) - 1); },
-  getCivFlatCap(level) { return 100 * Math.pow(1.5, (Math.min(Math.max(1, level||1), 7)) - 1); },
+  getEnergyFlatCap(level) { return 100000 * Math.pow(5, (Math.min(Math.max(1, level||1), 7)) - 1); },
+  getCivFlatCap(level) { return 500 * Math.pow(3, (Math.min(Math.max(1, level||1), 7)) - 1); },
   getEnergyCapMult(level) { return Math.pow(2, (Math.min(Math.max(1, level||1), 7)) - 1); },
-  getCivCapMult(level) { return Math.pow(1.5, (Math.min(Math.max(1, level||1), 7)) - 1); },
+  getCivCapMult(level) { return Math.pow(3, (Math.min(Math.max(1, level||1), 7)) - 1); },
   getUpgradeCost(res, level) {
     if (level >= 7) return Infinity;
     const lvl = Math.min(Math.max(1, level||1), 7);
@@ -196,6 +196,7 @@ const INVASION_CFG = {
   resourceThresholdShare: 0.25,
   defenseBonusBase: 6, defenseBonusExp: 0.8, defenseDrainReduction: 0.05,
   defenseCost: [0, 300, 700, 1500, 3000, 6000],
+  defenseCostMultiplierPerSystem: 0.5, // +50% к цене за каждую систему свыше 1
   expeditionDefensePenalty: 0.15,
   offlineAttackInterval: 2 * 60 * 60 * 1000, offlineAttackMax: 5, offlineAttackPerSystems: 3,
 };

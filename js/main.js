@@ -643,8 +643,8 @@ if (!tg) return;
 try {
 if (tg.ready) tg.ready();
 if (tg.expand) tg.expand();
-if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
 if (tg.setHeaderColor) tg.setHeaderColor('#02010a');
+if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
 if (tg.setBackgroundColor) tg.setBackgroundColor('#02010a');
 } catch (e) {}
 }

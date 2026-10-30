@@ -4,6 +4,7 @@
 
 const MISS = {
   comets: [], expeditions: [],
+  selectedDistance: 1,
   lastCometAt: 0, lastExpeditionAt: 0,
 };
 
@@ -64,7 +65,55 @@ function canLaunchComet() {
   return { ok: true, cost: cost, ice: ice };
 }
 
+// ★ Общие параметры дальности миссий (цена/время/награда)
+function missionDistanceOptions() {
+  const cfg = MISSIONS_CFG;
+  const baseCost = energyPerSec() * 120;
+  const defs = [
+    { mult: 1, name: 'Ближняя', desc: 'Короткий полёт, низкая цена' },
+    { mult: 2, name: 'Средняя', desc: 'Баланс цены и награды' },
+    { mult: 3, name: 'Дальняя', desc: 'Долгий полёт, большая награда' },
+  ];
+  return defs.map(function(d) {
+    return {
+      mult: d.mult,
+      name: d.name,
+      desc: d.desc,
+      flightMin: (cfg.expeditionFlightMin * d.mult) / 60000,
+      cost: Math.floor(baseCost * d.mult),
+      reward: Math.floor(dustPerSec() * 3600 * 2 * d.mult),
+    };
+  });
+}
+
 function openCometDialog() {
+  const options = missionDistanceOptions();
+  const choices = options.map(function(o) {
+    const canAfford = (S.energy || 0) >= o.cost;
+    return {
+      id: 'dist_' + o.mult,
+      name: o.name + ' миссия',
+      desc: o.desc,
+      stats: '⏱ ' + o.flightMin.toFixed(0) + ' мин · ⚡ ' + fmt(o.cost) + ' · +' + fmt(o.reward) + ' ✦',
+      color: '#3d6dd4', icon: '🚀', disabled: !canAfford,
+    };
+  });
+  if (typeof setModal === 'function') {
+    const handlers = {};
+    options.forEach(function(o) {
+      handlers['dist_' + o.mult] = function() {
+        MISS.selectedDistance = o.mult;
+        launchExpedition(o.mult);
+        if (typeof closeEvolutionModal === 'function') closeEvolutionModal();
+      };
+    });
+    setModal(buildModal('Дальность миссии',
+      'Чем дальше летит корабль — тем дороже и выгоднее.', choices), handlers);
+  }
+}
+
+// Старый выбор размера кометы (сохранён отдельно)
+function openCometSizeDialog() {
   const check = canLaunchComet();
   if (!check.ok) { toast('Комета недоступна', check.reason); return; }
   const maxDust = S.dust;
@@ -185,9 +234,10 @@ function launchComet(sizePct) {
 }
 
 // ─── ЭКСПЕДИЦИИ ─────────────────────────────────────────────────
-function canLaunchExpedition() {
+function canLaunchExpedition(distanceMultiplier) {
+  const mult = Math.max(1, Math.min(3, parseInt(distanceMultiplier) || 1));
   if (S.civLevel < 6) return { ok: false, reason: 'Нужен цив. 6' };
-  const cost = expeditionEnergyCost();
+  const cost = Math.floor(energyPerSec() * 120 * mult);
   if (S.energy < cost) return { ok: false, reason: 'Нужно ' + fmt(cost) + '⚡' };
   const now = Date.now();
   if (now - MISS.lastExpeditionAt < 60000) {
@@ -205,21 +255,17 @@ function canLaunchExpedition() {
   return { ok: true, cost: cost };
 }
 
-function launchExpedition() {
+function launchExpedition(distanceMultiplier) {
   const cfg = MISSIONS_CFG;
-  const check = canLaunchExpedition();
+  const mult = Math.max(1, Math.min(3, parseInt(distanceMultiplier) || 1));
+  const check = canLaunchExpedition(mult);
   if (!check.ok) { toast('Экспедиция недоступна', check.reason); return false; }
   S.energy -= check.cost;
   MISS.lastExpeditionAt = Date.now();
 
-  // ─── Время полёта: 10–20 минут ───
-  const flightMs = Math.floor(
-    cfg.expeditionFlightMin +
-    Math.random() * (cfg.expeditionFlightMax - cfg.expeditionFlightMin));
-
-  const reward = Math.floor(cfg.expeditionRewardBase *
-    (1 + S.planets.length * cfg.expeditionRewardPerPlanet) * S.systems);
-
+  // ─── Время полёта и награда зависят от дальности ───
+  const flightMs = Math.floor(cfg.expeditionFlightMin * mult);
+  const reward = Math.floor(dustPerSec() * 3600 * 2 * mult);
   // ─── Находим планету с жизнью для старта ───
   let civPlanet = null;
   for (let i = 0; i < S.planets.length; i++) {
@@ -369,9 +415,9 @@ function updateMissions() {
 }
 
 // ─── Единый диалог миссий ───────────────────────────────────────
-function openMissionDialog() {
+function openMissionDialog(distance) {
   const cometCheck = canLaunchComet();
-  const expCheck = canLaunchExpedition();
+  const selected = Math.max(1, Math.min(3, parseInt(distance) || MISS.selectedDistance || 1));
 
   // Проверяем, есть ли вообще планеты, способные запускать миссии
   let hasCapablePlanet = false;
@@ -390,6 +436,7 @@ function openMissionDialog() {
 
   // Если планеты есть, но ресурсов не хватает — всё равно открываем модалку,
   // чтобы игрок видел причину (кнопки будут disabled с текстом стоимости)
+  const options = missionDistanceOptions();
   const choices = [
     {
       id: 'comet', name: 'Комета',
@@ -398,19 +445,28 @@ function openMissionDialog() {
                            : (cometCheck.reason || 'Недоступна'),
       color: '#3d6dd4', icon: '☄️', disabled: !cometCheck.ok,
     },
-    {
-      id: 'exp', name: 'Экспедиция',
-      desc: 'Отправь корабль к другой звезде',
-      stats: expCheck.ok ? 'Стоимость ' + fmt(expCheck.cost) + ' ⚡'
-                         : (expCheck.reason || 'Недоступна'),
-      color: '#2f9e6e', icon: '🚀', disabled: !expCheck.ok,
-    },
   ];
-  if (typeof setModal === 'function') {
-    setModal(buildModal('Миссии', 'Выбери миссию', choices), {
-      comet: function() { openCometDialog(); },
-      exp: function() { launchExpedition(); closeEvolutionModal(); },
+  const handlers = { comet: function() { openCometSizeDialog(); } };
+  options.forEach(function(o) {
+    const check = canLaunchExpedition(o.mult);
+    const isSelected = o.mult === selected;
+    choices.push({
+      id: 'exp_' + o.mult,
+      name: 'Экспедиция · ' + o.name + (isSelected ? ' ✓' : ''),
+      desc: o.desc,
+      stats: check.ok
+        ? '⏱ ' + o.flightMin.toFixed(0) + ' мин · ⚡ ' + fmt(check.cost) + ' · +' + fmt(o.reward) + ' ✦'
+        : (check.reason || 'Недоступна'),
+      color: '#2f9e6e', icon: '🚀', disabled: !check.ok,
     });
+    handlers['exp_' + o.mult] = function() {
+      MISS.selectedDistance = o.mult;
+      launchExpedition(o.mult);
+      if (typeof closeEvolutionModal === 'function') closeEvolutionModal();
+    };
+  });
+  if (typeof setModal === 'function') {
+    setModal(buildModal('Миссии', 'Выбери дальность миссии', choices), handlers);
   }
 }
 
@@ -438,7 +494,7 @@ function renderMissionButtons() {
   if (hasCapablePlanet) {
     // Кнопка активна, даже если ресурсов нет. Показываем подсказку.
     const allReady = cometCheck.ok || expCheck.ok;
-    html += '<button class="mission-btn missions" data-action="missions">' +
+    html += '<button class="mission-btn missions" data-action="missions" data-distance="' + (MISS.selectedDistance || 1) + '">' +
       '<div class="mb-icon">🚀</div><div>Миссии</div>' +
       '<div class="mb-cost">' + (allReady ? 'Доступны' : 'Мало ресурсов') + '</div></button>';
   } else {
@@ -482,7 +538,7 @@ function renderMissionButtons() {
       const btn = e.target.closest('.mission-btn');
       if (!btn || btn.disabled) return;
       const action = btn.dataset.action;
-      if (action === 'missions') openMissionDialog();
+      if (action === 'missions') openMissionDialog(parseInt(btn.dataset.distance) || 1);
       else if (action === 'sys' && typeof openSystemShop === 'function') openSystemShop();
     });
   }
@@ -649,6 +705,8 @@ window.canLaunchComet = canLaunchComet;
 window.canLaunchExpedition = canLaunchExpedition;
 window.launchComet = launchComet;
 window.openCometDialog = openCometDialog;
+window.openCometSizeDialog = openCometSizeDialog;
+window.missionDistanceOptions = missionDistanceOptions;
 window.openMissionDialog = openMissionDialog;
 window.launchExpedition = launchExpedition;
 window.offerColony = offerColony;

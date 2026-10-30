@@ -855,7 +855,8 @@ function openNightMode() {
 
   // Кнопки уровней обороны
   const defenseButtons = [1, 2, 3, 4, 5].map(lvl => {
-    const cost = INVASION_CFG.defenseCost[lvl];
+    const systemsExtra = Math.max(0, (S.systems || 1) - 1);
+    const cost = Math.floor(INVASION_CFG.defenseCost[lvl] * (1 + systemsExtra * INVASION_CFG.defenseCostMultiplierPerSystem));
     const bonus = (INVASION_CFG.defenseBonusBase * Math.pow(lvl, INVASION_CFG.defenseBonusExp)).toFixed(1);
     const isCurrent = isDefActive && activeLvl === lvl;
     return `<button class="pour-btn" style="flex-direction:column;padding:6px 2px;font-size:9px; line-height:1.2; ${isCurrent ? 'background:rgba(46,170,119,0.4);border-color:#2eaa77;' : ''}"
@@ -1025,7 +1026,8 @@ function setNightExpedition(pct) {
 }
 
 function activateNightDefense(lvl) {
-  const cost = INVASION_CFG.defenseCost[lvl];
+  const systemsExtra = Math.max(0, (S.systems || 1) - 1);
+  const cost = Math.floor(INVASION_CFG.defenseCost[lvl] * (1 + systemsExtra * INVASION_CFG.defenseCostMultiplierPerSystem));
   if ((S.metalAmount || 0) < cost) {
     toast('Не хватает металла', 'Нужно ' + cost + ' ⚙');
     return;

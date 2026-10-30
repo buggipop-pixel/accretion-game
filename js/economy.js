@@ -38,15 +38,24 @@ function planetRate() {
 // ─── Металлы (доход в секунду от лава-планет) ───────────────────
 function metalsPerSec() {
   let sum = 0;
+  // Проверяем, есть ли вообще лава-планеты (для базовой добычи)
+  let hasLava = false;
   for (let i = 0; i < S.planets.length; i++) {
     const p = S.planets[i];
     if (!p || p.forming) continue;
     if (typeof isPlanetInvaded === 'function' && isPlanetInvaded(p)) continue;
-    
     const pt = PLANET_TYPES[p.type];
     if (pt && pt.bonus && pt.bonus.type === 'metals') {
+      hasLava = true;
       sum += Number(pt.bonus.metalsPerSec) || 0;
     }
+  }
+
+  // ★ Если есть хотя бы одна Лава-планета, Цив дает пассивный бонус ко всем планетам
+  if (hasLava && S.civLevel > 100) {
+    // Каждые 1000 Цив дают +10% к добыче (очень скромно)
+    let civBonus = 1 + Math.floor(S.civLevel / 1000) * 0.1;
+    sum *= civBonus;
   }
   return sum;
 }
@@ -218,11 +227,11 @@ function getResourceCap(res) {
   }
   if (res === 'civ') {
     const lvl = getLevel('civ');
-    const mult = STORAGE_CFG.getCivCapMult(lvl);
+    const hours = STORAGE_CFG.getDustCapHours(lvl);
     const flat = STORAGE_CFG.getCivFlatCap(lvl);
-    const rateCap = civPerSec() * 3600 * mult;
+    const rateCap = civPerSec() * 3600 * hours;
     let cap = Math.max(flat, rateCap);
-    return isFinite(cap) ? Math.floor(cap) : 100;
+    return isFinite(cap) ? Math.floor(cap) : 1000;
   }
   return 1000;
 }
@@ -241,25 +250,6 @@ function handleCanvasClick(x, y) {
   S.stats.clicks = (S.stats.clicks || 0) + 1;
 }
 
-// ─── Рост цивилизации ───────────────────────────────────────────
-function civPerSec() {
-  const c = civPlanetCount();
-  if (c === 0) return 0;
-  const sysType = S.systemType || 'single';
-  let mult = SYSTEM_TYPES[sysType].civPassiveMult;
-  for (let i = 0; i < S.planets.length; i++) {
-    const p = S.planets[i];
-    if (p.forming) continue;
-    const pt = PLANET_TYPES[p.type];
-    if (pt.bonus && pt.bonus.type === 'civ') mult *= (pt.bonus.civMult || 1);
-  }
-  let finalRate = CFG.civGrowthPerPlanet * c * mult * (1 + (S.techLevels?.cyber || 0) * 0.20);
-  if (S.activeEvent && typeof EVENT_CFG !== 'undefined' && Array.isArray(EVENT_CFG.types)) {
-    const evt = EVENT_CFG.types.find(t => t.id === S.activeEvent.id);
-    if (evt && evt.globalIncomeMult) finalRate *= evt.globalIncomeMult;
-  }
-  return isFinite(finalRate) ? finalRate : 0;
-}
 
 function tickCiv(dt) {
   const perSec = civPerSec();
