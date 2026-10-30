@@ -61,6 +61,7 @@ html, body {
   flex-direction: column;
   padding: 12px;
   padding-top: max(12px, env(safe-area-inset-top, 12px));
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 12px));
   gap: 8px;
   pointer-events: none;
 }
@@ -68,11 +69,48 @@ html, body {
 .hud > * { pointer-events: auto; }
 .spacer { flex: 1; pointer-events: none !important; }
 
+/* Нижний док: сюда перенесён верхний интерфейс на телефонах */
+.bottom-nav {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  pointer-events: none;
+}
+.bottom-nav > * { pointer-events: auto; }
+
+.sys-switcher {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.bottom-dock {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  pointer-events: none;
+}
+.bottom-dock > .dock-left,
+.bottom-dock > .system-buttons { pointer-events: auto; }
+
+.dock-left {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
 /* Кругляшок фазы */
 .phase-orb {
-  position: absolute;
-  top: max(12px, env(safe-area-inset-top, 12px));
-  left: 12px;
+  position: relative;
+  flex: 0 0 auto;
   width: 60px;
   height: 60px;
   cursor: pointer;
@@ -114,8 +152,8 @@ html, body {
 /* Панель квестов (открывается кликом по кругляшку фазы) */
 .quests-panel {
   position: absolute;
-  top: 78px;
-  left: 12px;
+  bottom: calc(100% + 8px);
+  left: 0;
   width: 238px;
   max-width: 78vw;
   background: linear-gradient(180deg, rgba(25, 15, 50, 0.96), rgba(12, 8, 26, 0.96));
@@ -198,8 +236,8 @@ html, body {
 
 /* Тосты */
 .toasts {
-  position: fixed;
-  top: 12px;
+  position: absolute;
+  bottom: calc(100% + 8px);
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -235,11 +273,11 @@ html, body {
   100% { opacity: 0; transform: translateY(-10px); }
 }
 
-/* Правый верх: настройки + 3D-обзор, горизонтально */
+/* Правый низ: настройки + 3D-обзор, горизонтально */
 .system-buttons {
-  position: absolute;
-  top: max(12px, env(safe-area-inset-top, 12px));
-  right: 12px;
+  position: relative;
+  flex: 0 0 auto;
+  align-self: center;
   display: flex;
   gap: 8px;
   z-index: 5;
@@ -678,6 +716,20 @@ body.mg-active .toasts {
   touch-action: manipulation;
 }
 .event-btn:active { transform: scale(0.92); }
+.settings-btn, .view3d-btn {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(139, 127, 212, 0.25);
+  border: 1px solid rgba(139, 127, 212, 0.4);
+  color: #b9a8ff;
+  font-size: 15px;
+  cursor: pointer;
+  font-family: inherit;
+  touch-action: manipulation;
+}
+.settings-btn:active, .view3d-btn:active { transform: scale(0.92); }
 .event-badge {
   position: absolute;
   top: -4px;
@@ -903,7 +955,7 @@ body.mg-active .toasts {
 }
 /* Выпадающее меню систем */
 .sys-dropdown-btn {
-  position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+  position: relative;
   background: rgba(15, 10, 32, 0.85); border: 1px solid rgba(139, 127, 212, 0.4);
   border-radius: 12px; color: #b9a8ff; padding: 8px 16px;
   font-family: inherit; font-size: 12px; font-weight: 700;
@@ -911,7 +963,7 @@ body.mg-active .toasts {
   box-shadow: 0 4px 15px rgba(0,0,0,0.5);
 }
 .sys-dropdown-list {
-  position: absolute; top: 50px; left: 50%; transform: translateX(-50%);
+  position: absolute; bottom: calc(100% + 6px); top: auto; left: 50%; transform: translateX(-50%);
   background: rgba(25, 15, 50, 0.95); border: 1px solid rgba(139, 127, 212, 0.5);
   border-radius: 12px; padding: 6px; z-index: 20;
   display: flex; flex-direction: column; gap: 4px;
