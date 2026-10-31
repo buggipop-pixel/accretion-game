@@ -458,3 +458,62 @@ window.openPremiumShop = openPremiumShop;
 window.buyPrimeChest = buyPrimeChest;
 window.buyPremiumShield = buyPremiumShield;
 window.buyIncomeBooster = buyIncomeBooster;
+
+// ═══════════════════════════════════════════════════════════════
+//  ВЕРФЬ (ФЛОТ)
+// ═══════════════════════════════════════════════════════════════
+function shipCount(key) {
+  return (S.fleet && Number(S.fleet[key])) || 0;
+}
+
+function openShipyard() {
+  const card = document.getElementById('modalCard');
+  const modal = document.getElementById('modal');
+  if (!card || !modal) return;
+  if (typeof playSFX === 'function') playSFX('ui_click');
+
+  let html = `<div class="modal-title">🚀 Верфь</div>
+    <div class="modal-sub">Металлы: ${fmt(S.metalAmount || 0)} ⚙</div>`;
+
+  for (const key in FLEET_CFG.ships) {
+    const ship = FLEET_CFG.ships[key];
+    const count = shipCount(key);
+    const canAfford = (S.metalAmount || 0) >= ship.costMetals;
+    const canAffordFive = (S.metalAmount || 0) >= ship.costMetals * 5;
+    html += `<div class="info-box">
+      <div class="row-stat"><span>${ship.name} (есть: ${count})</span><span>${fmt(ship.costMetals)} ⚙</span></div>
+      <div class="row-stat" style="opacity:0.7;font-size:11px;">
+        <span>Урон ${ship.damage} · HP ${ship.hp} · ${ship.fireRate} выстр./с</span>
+      </div>
+      <div class="pour-btn-group">
+        <button class="pour-btn" onclick="buyShip('${key}', 1)" ${canAfford ? '' : 'disabled'}>Купить 1</button>
+        <button class="pour-btn" onclick="buyShip('${key}', 5)" ${canAffordFive ? '' : 'disabled'}>Купить 5</button>
+      </div>
+    </div>`;
+  }
+
+  html += `<button class="pour-btn" style="width:100%;margin-top:10px;background:rgba(255,94,94,0.2);border-color:rgba(255,94,94,0.5);color:#ff8a8a;"
+      onclick="document.getElementById('modal').classList.remove('show');">✕ Закрыть</button>`;
+
+  card.innerHTML = html;
+  modal.classList.add('show');
+}
+
+function buyShip(key, amount) {
+  const ship = FLEET_CFG.ships[key];
+  if (!ship) return;
+  const count = Math.max(1, Math.floor(Number(amount) || 1));
+  const total = ship.costMetals * count;
+  if ((S.metalAmount || 0) < total) return;
+
+  S.metalAmount -= total;
+  if (!S.fleet) S.fleet = { interceptor: 0, cruiser: 0, dreadnought: 0 };
+  S.fleet[key] = shipCount(key) + count;
+
+  if (typeof saveGame === 'function') saveGame();
+  if (typeof updateUI === 'function') updateUI();
+  if (typeof toast === 'function') toast('🚀 Верфь', `${ship.name} ×${count} в строю`);
+  openShipyard();
+}
+window.openShipyard = openShipyard;
+window.buyShip = buyShip;

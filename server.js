@@ -131,7 +131,7 @@ app.use(express.json({ limit: '1mb' })); // 1mb для облачных сейв
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*'); // TODO: временно для отладки — сузить до WEBAPP_URL после починки сети
   res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Admin-Token');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
@@ -393,6 +393,66 @@ app.post('/admin/api/player/:id/give', adminGuard, async (req, res) => {
     res.json({ ok: true, id, resource, amount: delta, value: payload.data[resource] });
   } catch (e) {
     console.error('[admin] /admin/api/player/give', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+// GET /admin/api/player/:id — полный сейв игрока для JSON-редактора admin.html
+app.get('/admin/api/player/:id', adminGuard, async (req, res) => {
+  const { id } = req.params;
+  console.log(`[admin] GET /admin/api/player/${id} — ip=${req.ip}`);
+  try {
+    const raw = await redisGet(`cloudsave:${id}`);
+    const payload = parseRedisJson(raw);
+    if (!payload || typeof payload !== 'object' ||
+        !payload.data || typeof payload.data !== 'object') {
+      return res.status(404).json({ error: 'У игрока нет облачного сейва' });
+    }
+    res.json({ ok: true, id, savedAt: payload.saved_at || 0, data: payload.data });
+  } catch (e) {
+    console.error('[admin] /admin/api/player/:id', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /admin/api/player/:id/set  { field, value }
+// Прямая запись ЛЮБОГО поля сейва (число, строка или вложенный объект).
+// Роут максимально мощный, поэтому живёт только за adminGuard.
+const ADMIN_FORBIDDEN_FIELDS = new Set(['__proto__', 'constructor', 'prototype']);
+
+app.post('/admin/api/player/:id/set', adminGuard, async (req, res) => {
+  const { id } = req.params;
+  const { field, value } = req.body || {};
+  console.log(`[admin] POST /admin/api/player/${id}/set field=${field} — ip=${req.ip}`);
+
+  if (typeof field !== 'string' || !field.trim() || ADMIN_FORBIDDEN_FIELDS.has(field)) {
+    return res.status(400).json({ error: `Недопустимое имя поля: ${field}` });
+  }
+
+  try {
+    const key = `cloudsave:${id}`;
+    const raw = await redisGet(key);
+    const payload = parseRedisJson(raw);
+    if (!payload || typeof payload !== 'object' ||
+        !payload.data || typeof payload.data !== 'object') {
+      return res.status(404).json({ error: 'У игрока нет облачного сейва' });
+    }
+
+    // Если меняем вложенный объект (например, primeSystem)
+    if (typeof value === 'object' && value !== null) {
+      payload.data[field] = value;
+    } else if (typeof value === 'number') {
+      payload.data[field] = Number(value);
+    } else {
+      payload.data[field] = value;
+    }
+
+    // Поднимаем saved_at, иначе клиент сочтёт локальный сейв новее и не примет правку.
+    payload.saved_at = Date.now();
+    await redisSet(key, JSON.stringify(payload));
+    console.log(`[admin] игроку ${id} установлено ${field} = ${JSON.stringify(payload.data[field])}`);
+    res.json({ ok: true, field, value: payload.data[field] });
+  } catch (e) {
+    console.error('[admin] /admin/api/player/set', e);
     res.status(500).json({ error: e.message });
   }
 });

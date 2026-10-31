@@ -599,9 +599,13 @@ if (now - lastSave > 4000) {
 if (typeof saveGame === 'function') saveGame();
 lastSave = now;
 }
-if (typeof updateUI === 'function') updateUI();
-if (typeof updateQuestPanel === 'function') updateQuestPanel();
-if (typeof renderMissionButtons === 'function') renderMissionButtons();
+  // ★ Обновляем интерфейс 4 раза в секунду, а не 60. Это уберет лаги.
+  if (!window._lastUiUpdate || now - window._lastUiUpdate > 250) {
+    window._lastUiUpdate = now;
+    if (typeof updateUI === 'function') updateUI();
+    if (typeof updateQuestPanel === 'function') updateQuestPanel();
+    if (typeof renderMissionButtons === 'function') renderMissionButtons();
+  }
 }
 // ─── Фон ────────────────────────────────────────────────────────
 const bgStars = [];
@@ -653,6 +657,11 @@ function start() {
 setupTelegram();
 if (typeof initAudio === 'function') initAudio();
 if (typeof loadGame === 'function') loadGame();
+  if (!S.playerName) {
+    setTimeout(() => {
+      document.getElementById('nicknameModal').classList.add('show');
+    }, 1000);
+  }
 // ★ Отложенный старт: даём Telegram WebApp SDK время инициализироваться,
 // иначе initData ещё пуст и синхронизация падает с «Нет initData».
 setTimeout(function() {

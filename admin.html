@@ -97,6 +97,7 @@
               <button class="btn-sm" onclick="giveResource('${p.id}', 'metalAmount', 1000)">+1000 ⚙</button>
               <button class="btn-sm" onclick="giveResource('${p.id}', 'energy', 100000)">+100K ⚡</button>
               <button class="btn-sm" onclick="giveResource('${p.id}', 'civLevel', 500)">+500 🧬</button>
+              <button class="btn-sm" onclick="editPlayer('${p.id}')">✏️ JSON</button>
             </td>
           `;
           tbody.appendChild(tr);
@@ -127,6 +128,54 @@
       } catch (e) {
         alert('Ошибка сети: ' + e.message);
       }
+    }
+
+    // Прямая запись одного поля в облачный сейв игрока.
+    async function setField(id, field, value) {
+      const res = await fetch(API_BASE + `/admin/api/player/${id}/set`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Token': currentToken },
+        body: JSON.stringify({ field, value })
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.ok) throw new Error(json.error || 'Не удалось записать поле ' + field);
+      return json;
+    }
+
+    // Быстрый JSON-редактор сейва через prompt'ы.
+    async function editPlayer(id) {
+      try {
+        const res = await fetch(API_BASE + `/admin/api/player/${id}`, {
+          headers: { 'X-Admin-Token': currentToken }
+        });
+        const json = await res.json();
+        if (!json.ok) throw new Error(json.error || 'Не удалось открыть сейв');
+
+        const d = json.data || {};
+
+        const newStage = prompt('Введите новую фазу (cloud, condense, protostar, firstPlanet, system, galaxy):', d.stage || '');
+        if (newStage && newStage.trim() && newStage.trim() !== d.stage) {
+          await setField(id, 'stage', newStage.trim());
+        }
+
+        const newMetals = prompt('Введите количество металлов:', d.metalAmount != null ? d.metalAmount : 0);
+        if (newMetals !== null && newMetals !== '' && Number.isFinite(Number(newMetals))) {
+          await setField(id, 'metalAmount', Number(newMetals));
+        }
+
+        const newName = prompt('Введите ник игрока:', d.playerName || 'Безымянный');
+        if (newName) await setField(id, 'playerName', newName.trim());
+
+        // Выдать премиум объект (например, blackHole)
+        const prime = prompt('Введите ключ Прайм-объекта (blackHole, quasar, pulsar, wormhole или оставьте пустым):');
+        if (prime && prime.trim()) {
+          const primeKey = prime.trim();
+          await setField(id, 'primeSystem', { objectKey: primeKey, objectName: primeKey });
+          alert('Прайм добавлен (потребуется вход в систему, если фаза system)');
+        }
+
+        loadPlayers();
+      } catch (e) { alert(e.message); }
     }
   </script>
 </body>

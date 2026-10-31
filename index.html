@@ -10,7 +10,7 @@
   <meta name="theme-color" content="#02010a">
   <title>АККРЕЦИЯ</title>
   <!-- Telegram WebApp SDK: обязательно ДО остальных скриптов, иначе window.Telegram отсутствует -->
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+ <script src="https://cdn.jsdelivr.net/npm/@twa-dev/sdk@7.0.0/dist/telegram-web-app.js"></script>
   <link rel="stylesheet" href="style.css">
   <!-- Eruda: скрытая консоль разработчика (не инициализируется сама — открывается 5 кликами по кнопке в настройках) -->
   <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
@@ -19,54 +19,61 @@
   <div id="app">
     <canvas id="sky" width="100%" height="100%"></canvas>
 
-    <div class="hud">
-      <!-- Баннер событий -->
-      <div id="eventBanner" style="display:none; align-self:center; z-index:5; background:rgba(15,10,32,0.85); border:1px solid rgba(139,127,212,0.4); padding:6px 12px; border-radius:10px; font-size:11px; font-weight:bold; color:#fff; text-align:center; backdrop-filter:blur(5px); box-shadow:0 4px 15px rgba(0,0,0,0.5); width:max-content; max-width:90vw;">
+        <div class="hud">
+      <!-- Баннер событий (оставляем сверху, он временный) -->
+      <div id="eventBanner" style="display:none; position:absolute; top:20px; left:50%; transform:translateX(-50%); z-index:5; background:rgba(15,10,32,0.85); border:1px solid rgba(139,127,212,0.4); padding:6px 12px; border-radius:10px; font-size:11px; font-weight:bold; color:#fff; text-align:center; backdrop-filter:blur(5px); box-shadow:0 4px 15px rgba(0,0,0,0.5); width:max-content; max-width:90vw;">
         <span id="eventIcon"></span>
         <span id="eventName"></span>
         <span id="eventTimer" style="color:#7ee0a8; margin-left:5px;"></span>
       </div>
 
-      <!-- Миссии -->
-      <div class="missions" id="missions"></div>
+      <!-- Индикатор газа -->
+      <div id="gasIndicator" style="
+        position:absolute;
+        top:20px;
+        left:50%;
+        transform:translateX(-50%);
+        z-index:5;
+        font-size:11px;
+        font-weight:600;
+        font-family:-apple-system, sans-serif;
+        padding:4px 10px;
+        background:rgba(15,10,32,0.7);
+        border-radius:8px;
+        border:1px solid rgba(139,127,212,0.3);
+        display:none;
+      "></div>
+
+      <!-- Панель квестов (Всплывает снизу) -->
+      <div class="quests-panel" id="questsPanel"></div>
+
+      <!-- Кругляшок фазы (Слева внизу) -->
+      <div class="phase-orb" id="phaseOrb">
+        <svg viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="42" class="orb-bg"/>
+          <circle cx="50" cy="50" r="42" class="orb-progress" id="orbProgress"/>
+        </svg>
+        <span class="orb-label" id="orbLabel">I</span>
+      </div>
+
+      <!-- Переключатель систем (По центру внизу) -->
+      <button id="systemSwitcherBtn" class="sys-dropdown-btn" style="display:none;">🌌 Системы</button>
+      <div id="systemDropdown" class="sys-dropdown-list" style="display:none;"></div>
+      
+      <!-- Кнопка назад в галактику -->
+      <button id="backToGalaxyBtn" style="display:none;">🌌 В галактику</button>
+
+      <!-- Кнопки в правом нижнем углу -->
+      <div class="system-buttons">
+        <button class="event-btn" id="eventBtn" title="Журнал событий">
+          📜<span class="event-badge" id="eventBadge" style="display:none">0</span>
+        </button>
+        <button class="event-btn" id="achBtn" title="Достижения">🏆</button>
+        <button class="settings-btn" id="settingsBtn" title="Настройки">⚙</button>
+        <button class="view3d-btn" id="view3dBtn" title="3D-обзор">🌐</button>
+      </div>
 
       <div class="spacer"></div>
-
-      <!-- Возврат в галактику + переключатель систем (снизу, раскрывается вверх) -->
-      <div class="bottom-nav">
-        <button id="backToGalaxyBtn" style="display:none; z-index:10; background:rgba(107,77,230,0.85); border:1px solid rgba(185,168,255,0.5); color:#fff; padding:8px 16px; border-radius:12px; font-weight:bold; font-family:inherit; cursor:pointer;">🌌 В галактику</button>
-        <div class="sys-switcher">
-          <button id="systemSwitcherBtn" class="sys-dropdown-btn" style="display:none;">🌌 Системы</button>
-          <div id="systemDropdown" class="sys-dropdown-list" style="display:none;"></div>
-        </div>
-      </div>
-
-      <!-- ═══ НИЖНИЙ ДОК: интерфейс, который раньше был сверху ═══ -->
-      <div class="bottom-dock">
-        <div class="toasts" id="toasts"></div>
-
-        <div class="dock-left">
-          <div class="phase-orb" id="phaseOrb">
-            <svg viewBox="0 0 100 100">
-              <circle cx="50" cy="50" r="42" class="orb-bg"/>
-              <circle cx="50" cy="50" r="42" class="orb-progress" id="orbProgress"/>
-            </svg>
-            <span class="orb-label" id="orbLabel">I</span>
-          </div>
-          <div class="quests-panel" id="questsPanel"></div>
-          <div id="gasIndicator" style="display:none; font-size:11px; font-weight:600; font-family:-apple-system, sans-serif; padding:4px 10px; background:rgba(15,10,32,0.7); border-radius:8px; border:1px solid rgba(139,127,212,0.3);"></div>
-        </div>
-
-        <!-- Кнопки журнала/достижений/настроек/3D -->
-        <div class="system-buttons">
-          <button class="event-btn" id="eventBtn" title="Журнал событий">
-            📜<span class="event-badge" id="eventBadge" style="display:none">0</span>
-          </button>
-          <button class="event-btn" id="achBtn" title="Достижения">🏆</button>
-          <button class="settings-btn" id="settingsBtn" title="Настройки">⚙</button>
-          <button class="view3d-btn" id="view3dBtn" title="3D-обзор">🌐</button>
-        </div>
-      </div>
 
       <!-- Кнопка эволюции -->
       <button class="evolve-btn" id="evolveBtn">Эволюция</button>
@@ -74,16 +81,14 @@
       <!-- Кнопки миссий -->
       <div class="mission-buttons" id="missionButtons"></div>
 
-      <!-- Хранилище -->
+      <!-- Хранилище (Самая нижняя панель) -->
       <div class="storage-panel" id="storagePanel">
         <div class="storage-cell" data-res="dust">
           <div class="storage-icon">✦</div>
           <div class="storage-val" id="dustVal">0</div>
           <div class="storage-label">ПЫЛЬ</div>
           <div class="storage-rate" id="dustRate">+0 / ч</div>
-          <div class="storage-progress">
-            <div class="storage-progress-fill" id="dustProgressFill"></div>
-          </div>
+          <div class="storage-progress"><div class="storage-progress-fill" id="dustProgressFill"></div></div>
           <div class="storage-progress-text" id="dustProgressText">0/0</div>
           <button class="storage-upgrade-btn" data-res="dust">Улучшить</button>
         </div>
@@ -92,9 +97,7 @@
           <div class="storage-val" id="energyVal">0</div>
           <div class="storage-label">ЭНЕРГИЯ</div>
           <div class="storage-rate" id="energyRate">+0 / ч</div>
-          <div class="storage-progress">
-            <div class="storage-progress-fill" id="energyProgressFill"></div>
-          </div>
+          <div class="storage-progress"><div class="storage-progress-fill" id="energyProgressFill"></div></div>
           <div class="storage-progress-text" id="energyProgressText">0/0</div>
           <button class="storage-upgrade-btn" data-res="energy">Улучшить</button>
         </div>
@@ -103,9 +106,7 @@
           <div class="storage-val" id="civVal">0</div>
           <div class="storage-label">ЦИВИЛИЗАЦИЯ</div>
           <div class="storage-rate" id="civRate">+0 / ч</div>
-          <div class="storage-progress">
-            <div class="storage-progress-fill" id="civProgressFill"></div>
-          </div>
+          <div class="storage-progress"><div class="storage-progress-fill" id="civProgressFill"></div></div>
           <div class="storage-progress-text" id="civProgressText">0/0</div>
           <button class="storage-upgrade-btn" data-res="civ">Улучшить</button>
         </div>
@@ -121,6 +122,20 @@
           <div class="storage-rate" id="metalsRate">+0 / сек</div>
         </div>
       </div>
+    </div>
+
+    <div class="toasts" id="toasts"></div>
+
+    <button id="backToGalaxyBtn" style="display:none; position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:10; background:rgba(107,77,230,0.85); border:1px solid rgba(185,168,255,0.5); color:#fff; padding:8px 16px; border-radius:12px; font-weight:bold; font-family:inherit; cursor:pointer;">🌌 В галактику</button>
+    
+    <!-- Кнопки в правом верхнем углу -->
+    <div class="system-buttons">
+      <button class="event-btn" id="eventBtn" title="Журнал событий">
+        📜<span class="event-badge" id="eventBadge" style="display:none">0</span>
+      </button>
+      <button class="event-btn" id="achBtn" title="Достижения">🏆</button>
+      <button class="settings-btn" id="settingsBtn" title="Настройки">⚙</button>
+      <button class="view3d-btn" id="view3dBtn" title="3D-обзор">🌐</button>
     </div>
   </div>
 
@@ -173,6 +188,10 @@
 
       <button class="pour-btn" style="width:100%; margin-top:8px;" onclick="document.getElementById('settingsModal').classList.remove('show'); openPremiumShop();">
         ⚙ Премиум магазин
+      </button>
+
+      <button class="pour-btn" style="width:100%; margin-top:8px;" onclick="document.getElementById('settingsModal').classList.remove('show'); openShipyard();">
+        🚀 Верфь (Флот)
       </button>
 
       <div class="info-box" style="margin-top: 15px;">
@@ -246,5 +265,15 @@
   <script src="js/eventlog.js"></script>
   <script src="js/achievements.js"></script>
   <script src="js/main.js"></script>
+    <!-- Модалка ввода Ника -->
+  <div class="modal" id="nicknameModal">
+    <div class="modal-card" style="text-align:center;">
+      <div style="font-size:48px; margin-bottom:10px;">👨‍🚀</div>
+      <div class="modal-title">Добро пожаловать в Аккрецию!</div>
+      <div class="modal-sub">Введите ваше имя для синхронизации</div>
+      <input type="text" id="nicknameInput" placeholder="Ваш Ник" maxlength="15" style="width:100%; padding:12px; border-radius:10px; background:rgba(15,10,32,0.8); border:1px solid #8b5cf6; color:#fff; font-size:16px; margin-bottom:15px; outline:none;">
+      <button class="stars-btn" onclick="saveNickname()">Продолжить</button>
+    </div>
+  </div>
 </body>
 </html>

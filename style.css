@@ -53,107 +53,107 @@ html, body {
   z-index: 0;
 }
 
+/* ─── Нижний HUD ─── */
 .hud {
   position: absolute;
   inset: 0;
   z-index: 2;
   display: flex;
   flex-direction: column;
+  justify-content: flex-end; /* Прижимаем всё к низу */
   padding: 12px;
-  padding-top: max(12px, env(safe-area-inset-top, 12px));
-  padding-bottom: max(12px, env(safe-area-inset-bottom, 12px));
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 12px)); /* Учет "бока" iPhone */
   gap: 8px;
   pointer-events: none;
 }
-
 .hud > * { pointer-events: auto; }
-.spacer { flex: 1; pointer-events: none !important; }
+.spacer { display: none; }
 
-/* Нижний док: сюда перенесён верхний интерфейс на телефонах */
-.bottom-nav {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  pointer-events: none;
-}
-.bottom-nav > * { pointer-events: auto; }
-
-.sys-switcher {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.bottom-dock {
-  position: relative;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 8px;
-  pointer-events: none;
-}
-.bottom-dock > .dock-left,
-.bottom-dock > .system-buttons { pointer-events: auto; }
-
-.dock-left {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  min-width: 0;
-}
-
-/* Кругляшок фазы */
+/* Кругляшок фазы (слева над хранилищем) */
 .phase-orb {
-  position: relative;
-  flex: 0 0 auto;
+  position: absolute;
+  bottom: 140px; 
+  left: 12px;
   width: 60px;
   height: 60px;
   cursor: pointer;
   filter: drop-shadow(0 4px 12px rgba(107, 77, 230, 0.6));
+  z-index: 10;
 }
 
-.phase-orb svg {
-  width: 100%;
-  height: 100%;
-  transform: rotate(-90deg);
-}
-
-.orb-bg {
-  fill: rgba(20, 14, 45, 0.85);
-  stroke: rgba(139, 127, 212, 0.3);
-  stroke-width: 3;
-}
-
-.orb-progress {
-  fill: none;
-  stroke: #b9a8ff;
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-dasharray: 264; /* 2πr ≈ 264 для r=42 */
-  stroke-dashoffset: 264;
-  transition: stroke-dashoffset 0.5s;
-}
-
-.orb-label {
+/* Кнопки меню (справа над хранилищем) */
+.system-buttons {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 20px;
-  font-weight: 800;
-  color: #fff;
+  bottom: 140px;
+  right: 12px;
+  display: flex;
+  gap: 8px;
+  z-index: 10;
 }
 
-/* Панель квестов (открывается кликом по кругляшку фазы) */
+/* Кнопка переключателя систем (по центру над хранилищем) */
+.sys-dropdown-btn {
+  position: absolute; 
+  bottom: 150px; 
+  left: 50%; 
+  transform: translateX(-50%);
+  background: rgba(15, 10, 32, 0.85); 
+  border: 1px solid rgba(139, 127, 212, 0.4);
+  border-radius: 12px; 
+  color: #b9a8ff; 
+  padding: 8px 16px;
+  font-family: inherit; 
+  font-size: 12px; 
+  font-weight: 700;
+  z-index: 10; 
+  cursor: pointer; 
+  backdrop-filter: blur(5px);
+  box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+}
+
+/* Выпадающий список (теперь открывается ВВЕРХ) */
+.sys-dropdown-list {
+  position: absolute; 
+  bottom: 200px; 
+  left: 50%; 
+  transform: translateX(-50%);
+  background: rgba(25, 15, 50, 0.95); 
+  border: 1px solid rgba(139, 127, 212, 0.5);
+  border-radius: 12px; 
+  padding: 6px; 
+  z-index: 20;
+  display: flex; 
+  flex-direction: column; 
+  gap: 4px;
+  max-height: 50vh; 
+  overflow-y: auto; 
+  min-width: 200px;
+  backdrop-filter: blur(10px); 
+  box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+}
+
+/* Кнопка "В галактику" */
+#backToGalaxyBtn {
+  position: absolute; 
+  bottom: 200px; 
+  left: 50%; 
+  transform: translateX(-50%); 
+  z-index: 10; 
+  background: rgba(107,77,230,0.85); 
+  border: 1px solid rgba(185,168,255,0.5); 
+  color: #fff; 
+  padding: 8px 16px; 
+  border-radius: 12px; 
+  font-weight: bold; 
+  font-family: inherit; 
+  cursor: pointer;
+}
+
+/* Панель квестов (открывается вверх) */
 .quests-panel {
   position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
+  bottom: 210px;
+  left: 12px;
   width: 238px;
   max-width: 78vw;
   background: linear-gradient(180deg, rgba(25, 15, 50, 0.96), rgba(12, 8, 26, 0.96));
@@ -165,53 +165,31 @@ html, body {
   backdrop-filter: blur(10px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
-.quests-panel.open { display: block; animation: modalIn 0.25s ease; }
 
-.quests-title {
-  font-size: 9px;
-  letter-spacing: 2px;
-  color: #8b7fd4;
-  font-weight: 700;
-  margin-bottom: 8px;
-}
-.quest-item + .quest-item { margin-top: 9px; }
-.quest-title {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 10.5px;
-  font-weight: 600;
-  color: #e8e2ff;
-  margin-bottom: 4px;
-}
-.quest-title.quest-done { color: #7ee0a8; }
-.q-progress {
-  color: #b9a8ff;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.quest-bar {
-  height: 4px;
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 2px;
-  overflow: hidden;
-}
-.quest-bar > div {
-  height: 100%;
-  background: linear-gradient(90deg, #6b4de6, #b9a8ff);
-  transition: width 0.3s ease;
+/* Кнопка эволюции */
+.evolve-btn {
+  margin-bottom: 8px; /* Чуть отступаем от кнопок миссий */
+  /* остальные стили остаются прежними */
+  background: linear-gradient(135deg, #6b4de6, #8b5cf6);
+  border: none; border-radius: 14px; padding: 14px;
+  font-family: inherit; color: #fff; font-size: 13px;
+  font-weight: 700; letter-spacing: 2px; cursor: pointer;
+  box-shadow: 0 8px 40px rgba(107,77,230,.6);
+  animation: evolvePulse 1.6s infinite;
+  text-transform: uppercase; display: none;
 }
 
-/* Хранилища */
+/* Контейнер хранилища (на самом дне) */
 .storage-panel {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
   gap: 6px;
-  background: linear-gradient(180deg, rgba(15, 10, 32, 0.72), rgba(10, 5, 20, 0.5));
+  background: linear-gradient(180deg, rgba(15, 10, 32, 0.85), rgba(10, 5, 20, 0.95));
   border: 1px solid rgba(139, 127, 212, 0.2);
   border-radius: 14px;
   padding: 10px;
   backdrop-filter: blur(14px);
+  width: 100%;
 }
 
 .storage-cell {
@@ -236,8 +214,8 @@ html, body {
 
 /* Тосты */
 .toasts {
-  position: absolute;
-  bottom: calc(100% + 8px);
+  position: fixed;
+  top: 12px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -273,11 +251,11 @@ html, body {
   100% { opacity: 0; transform: translateY(-10px); }
 }
 
-/* Правый низ: настройки + 3D-обзор, горизонтально */
+/* Правый верх: настройки + 3D-обзор, горизонтально */
 .system-buttons {
-  position: relative;
-  flex: 0 0 auto;
-  align-self: center;
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top, 12px));
+  right: 12px;
   display: flex;
   gap: 8px;
   z-index: 5;
@@ -716,20 +694,6 @@ body.mg-active .toasts {
   touch-action: manipulation;
 }
 .event-btn:active { transform: scale(0.92); }
-.settings-btn, .view3d-btn {
-  position: relative;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: rgba(139, 127, 212, 0.25);
-  border: 1px solid rgba(139, 127, 212, 0.4);
-  color: #b9a8ff;
-  font-size: 15px;
-  cursor: pointer;
-  font-family: inherit;
-  touch-action: manipulation;
-}
-.settings-btn:active, .view3d-btn:active { transform: scale(0.92); }
 .event-badge {
   position: absolute;
   top: -4px;
@@ -955,7 +919,7 @@ body.mg-active .toasts {
 }
 /* Выпадающее меню систем */
 .sys-dropdown-btn {
-  position: relative;
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
   background: rgba(15, 10, 32, 0.85); border: 1px solid rgba(139, 127, 212, 0.4);
   border-radius: 12px; color: #b9a8ff; padding: 8px 16px;
   font-family: inherit; font-size: 12px; font-weight: 700;
@@ -963,7 +927,7 @@ body.mg-active .toasts {
   box-shadow: 0 4px 15px rgba(0,0,0,0.5);
 }
 .sys-dropdown-list {
-  position: absolute; bottom: calc(100% + 6px); top: auto; left: 50%; transform: translateX(-50%);
+  position: absolute; top: 50px; left: 50%; transform: translateX(-50%);
   background: rgba(25, 15, 50, 0.95); border: 1px solid rgba(139, 127, 212, 0.5);
   border-radius: 12px; padding: 6px; z-index: 20;
   display: flex; flex-direction: column; gap: 4px;

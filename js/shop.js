@@ -127,7 +127,9 @@ function createSystemFromShop() {
     if (typeof consumeSystemContract === 'function') consumeSystemContract();
 
     if (typeof switchToSystem === 'function') switchToSystem(newIdx);
-    
+    S.stage = 'galaxy'; // Принудительно переводим в режим галактики
+    if (typeof updateUI === 'function') updateUI();
+    if (typeof updateSystemSwitcher === 'function') updateSystemSwitcher();
     document.getElementById('modal').classList.remove('show');
     saveGame(); updateUI(); updateSystemSwitcher();
     return true;

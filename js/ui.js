@@ -1226,9 +1226,23 @@ function updateEventUI() {
   document.getElementById('eventName').textContent = evt.name;
   document.getElementById('eventTimer').textContent = '[' + timeStr + ']';
 }
+function saveNickname() {
+  const el = document.getElementById('nicknameInput');
+  const name = el.value.trim();
+  if (name.length < 2) {
+    toast('Ошибка', 'Ник должен быть не короче 2 символов');
+    return;
+  }
+  S.playerName = name;
+  document.getElementById('nicknameModal').classList.remove('show');
+  if (typeof saveGame === 'function') saveGame();
+  if (typeof autoSaveToCloud === 'function') autoSaveToCloud();
+  toast('Ник сохранён', 'Играем как: ' + name);
+}
 // ═══════════════════════════════════════════════════════════════
 //  ЭКСПОРТ
 // ═══════════════════════════════════════════════════════════════
+window.saveNickname = saveNickname;
 window.openDailyRewards = openDailyRewards;
 window.claimDailyReward = claimDailyReward;
 window.checkDailyRewards = checkDailyRewards;

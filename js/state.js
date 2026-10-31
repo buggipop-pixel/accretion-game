@@ -16,6 +16,7 @@ const S = {
   dust: 0, dustTotal: 0,
   energy: 0, civLevel: 0,
   metalAmount: 0,
+  fleet: { interceptor: 0, cruiser: 0, dreadnought: 0 }, // Верфь: купленные корабли
   storageLevels: { dust: 1, energy: 1, civ: 1 },
   storageProgress: { dust: 0, energy: 0, civ: 0 },
   boosters: { incomeUntil: 0 }, // Временный бустер x2
@@ -25,7 +26,7 @@ const S = {
   // ─── Звезда и Системы ───
   starType: null, 
   systemType: null,
-  systemName: 'Родная',
+  systemName: 'Родная',  playerName: '',
   planets: [],
   otherSystems: [],
   activeSystemIdx: 0,
@@ -109,6 +110,7 @@ function resetStateValues() {
   S.evolutionPopupSuspended = false;
   S.dust = 0; S.dustTotal = 0;
   S.energy = 0; S.civLevel = 0; S.metalAmount = 0;
+  S.fleet = { interceptor: 0, cruiser: 0, dreadnought: 0 };
   S.storageLevels = { dust: 1, energy: 1, civ: 1 };
   S.storageProgress = { dust: 0, energy: 0, civ: 0 };
   S.boosters = { incomeUntil: 0 };
@@ -240,6 +242,7 @@ function saveGame() {
       // Ресурсы
       dust: S.dust, dustTotal: S.dustTotal,
       energy: S.energy, civLevel: S.civLevel, metalAmount: S.metalAmount,
+      fleet: S.fleet,
       storageLevels: S.storageLevels, storageProgress: S.storageProgress,
       boosters: S.boosters,
       dailyReward: S.dailyReward,
@@ -310,6 +313,13 @@ function loadGame() {
     if (typeof S.assemblyCooldownUntil !== 'number') S.assemblyCooldownUntil = 0;
     if (typeof S.evolutionPopupSuspended !== 'boolean') S.evolutionPopupSuspended = false;
     if (typeof S.metalAmount !== 'number') S.metalAmount = 0;
+    if (!S.fleet || typeof S.fleet !== 'object' || Array.isArray(S.fleet)) {
+      S.fleet = { interceptor: 0, cruiser: 0, dreadnought: 0 };
+    }
+    for (const shipKey in FLEET_CFG.ships) {
+      const n = Number(S.fleet[shipKey]);
+      S.fleet[shipKey] = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+    }
     if (!S.dailyReward || typeof S.dailyReward !== 'object') S.dailyReward = { day: 0, lastClaimed: 0 };
     if (typeof S.dailyReward.day !== 'number') S.dailyReward.day = 0;
     if (typeof S.dailyReward.lastClaimed !== 'number') S.dailyReward.lastClaimed = 0;

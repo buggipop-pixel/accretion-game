@@ -255,6 +255,16 @@ const SYSTEM_SHOP_CFG = {
 
 const PRESTIGE_CFG = { firstRequirement: 5, stepMultiplier: 2, multiplierPerGalaxy: 2.0 };
 const METALS_CFG = { expeditionCostMetals: 200, cometBoostCostMetals: 100, cometBoostSurvival: 0.3, colonyCostMetals: 500 };
+
+// ─── ФЛОТ (Верфь) ───
+const FLEET_CFG = {
+  ships: {
+    interceptor: { name: 'Перехватчик', costMetals: 500,  damage: 4,  fireRate: 1.2, hp: 20 },
+    cruiser:     { name: 'Крейсер',     costMetals: 2000, damage: 12, fireRate: 0.7, hp: 60 },
+    dreadnought: { name: 'Дредноут',    costMetals: 8000, damage: 40, fireRate: 0.4, hp: 200 },
+  },
+  shotLifetimeMs: 350,
+};
 const STAR_WEIGHTS = { M: 60, K: 15, G: 10, A: 10, B: 5 };
 
 // ─── СУНДУКИ ───
