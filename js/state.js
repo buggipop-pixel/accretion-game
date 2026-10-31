@@ -236,7 +236,7 @@ function saveGame() {
     S.lastTick = Date.now();
     const data = {
       // Фаза и прогресс
-      stage: S.stage, phaseProgress: S.phaseProgress,
+      stage: S.stage, phaseProgress: S.phaseProgress, playerName: S.playerName || '',
       lastIgnitionQuality: S.lastIgnitionQuality, assemblyCooldownUntil: S.assemblyCooldownUntil,
       evolutionPopupSuspended: S.evolutionPopupSuspended || false,
       // Ресурсы
@@ -329,6 +329,7 @@ function loadGame() {
     if (typeof S.rotation !== 'number') S.rotation = 0;
     if (typeof S.gasDensity !== 'number') S.gasDensity = 1;
     if (!S.systemName) S.systemName = 'Родная';
+    if (typeof S.playerName !== 'string') S.playerName = '';
     if (!S.storageLevels) S.storageLevels = { dust: 1, energy: 1, civ: 1 };
     if (!S.storageProgress) S.storageProgress = { dust: 0, energy: 0, civ: 0 };
     if (!S.boosters) S.boosters = { incomeUntil: 0 };

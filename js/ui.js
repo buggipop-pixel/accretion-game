@@ -32,6 +32,14 @@ function toast(title, sub) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Плашка игрока вверху: ник, под ним текущая система
+function updateNameplate() {
+  const nickEl = document.getElementById('hudNick');
+  const sysEl = document.getElementById('hudSystem');
+  if (nickEl) nickEl.textContent = S.playerName || 'Пилот';
+  if (sysEl) sysEl.textContent = (S.stage === 'galaxy') ? 'Галактика' : (S.systemName || 'Родная');
+}
+
 //  ОБНОВЛЕНИЕ HUD
 // ═══════════════════════════════════════════════════════════════
 function updateUI() {
@@ -50,9 +58,9 @@ function updateUI() {
   if (rateEl) {
     if (S.stage === 'cloud' || S.stage === 'condense' || S.stage === 'protostar') {
       const r = (typeof PART !== 'undefined' && PART.absorbRate) ? PART.absorbRate : 0;
-      rateEl.textContent = '+' + r.toFixed(1) + ' / сек';
+      rateEl.textContent = '+' + r.toFixed(1) + ' / с';
     } else {
-      rateEl.textContent = '+' + fmt(dustPerSec() * 3600) + ' / час';
+      rateEl.textContent = '+' + fmt(dustPerSec() * 3600) + ' / ч';
     }
   }
   
@@ -99,6 +107,17 @@ function updateUI() {
     
     orbProgress.style.strokeDashoffset = (264 * (1 - prog)).toString();
   }
+
+  // Стадия фазы в левом нижнем углу
+  const phaseTagEl = document.getElementById('phaseTag');
+  const phaseNameEl = document.getElementById('phaseName');
+  const stageInfo = (typeof STAGES !== 'undefined' && STAGES[S.stage])
+    ? STAGES[S.stage]
+    : { tag: 'ФАЗА VI', name: 'Галактика' };
+  if (phaseTagEl) phaseTagEl.textContent = stageInfo.tag;
+  if (phaseNameEl) phaseNameEl.textContent = stageInfo.name;
+
+  updateNameplate();
 
   // Кнопка Эволюции
   const btn = document.getElementById('evolveBtn');
@@ -179,17 +198,17 @@ function updateStorageUI() {
       if (res === 'dust') {
         if (S.stage === 'cloud' || S.stage === 'condense' || S.stage === 'protostar') {
           const r = (typeof PART !== 'undefined' && PART.absorbRate) ? PART.absorbRate : 0;
-          rateEl.textContent = '+' + r.toFixed(1) + ' / сек';
+          rateEl.textContent = '+' + r.toFixed(1) + ' / с';
         } else {
-          rateEl.textContent = '+' + fmt(dustPerSec() * 3600) + ' / час';
+          rateEl.textContent = '+' + fmt(dustPerSec() * 3600) + ' / ч';
         }
       } else if (res === 'energy') {
-        rateEl.textContent = '+' + fmt(energyPerSec() * 3600) + ' / час';
+        rateEl.textContent = '+' + fmt(energyPerSec() * 3600) + ' / ч';
       } else if (res === 'civ') {
-        rateEl.textContent = '+' + fmt(civPerSec() * 3600) + ' / час';
+        rateEl.textContent = '+' + fmt(civPerSec() * 3600) + ' / ч';
       } else if (res === 'metals') {
         const mRate = metalsPerSec();
-        rateEl.textContent = '+' + (mRate < 10 ? mRate.toFixed(1) : fmt(mRate)) + ' / сек';
+        rateEl.textContent = '+' + (mRate < 10 ? mRate.toFixed(1) : fmt(mRate)) + ' / с';
       }
     }
 
@@ -407,14 +426,9 @@ function updateSystemSwitcher() {
   const dropdown = document.getElementById('systemDropdown');
   if (!btn || !dropdown) return;
 
-  // Меню работает до престижа и только если у нас больше 1 системы
-  if (S.prestigeLevel > 0 || S.totalSystemsCreated < 2) {
-    btn.style.display = 'none';
-    dropdown.style.display = 'none';
-    return;
-  }
-  btn.style.display = 'block';
-  btn.textContent = '🌌 ' + (S.stage === 'galaxy' ? 'Галактика' : S.systemName);
+  // Плашка всегда показывает ник и систему; меню доступно в любой фазе
+  updateNameplate();
+  btn.style.display = 'flex';
 
   const list = [];
   if (S.activeSystemIdx === 0) list.push({ idx: 0, name: S.systemName, isPrime: !!S.primeSystem, primeData: S.primeSystem });
@@ -463,12 +477,21 @@ function updateSystemSwitcher() {
     </button>`;
   }
 
-  html += `<button class="sys-dropdown-item" style="color:#8b7fd4;border-top:1px solid rgba(139,127,212,0.2);margin-top:4px;" 
-    onclick="renameCurrentSystem(); document.getElementById('systemDropdown').style.display='none';">
-    <div class="dd-icon-wrap"></div><span style="flex:1; text-align:left;">✎ Переименовать</span>
+  html += `<button class="sys-dropdown-item" style="color:#b9a8ff;border-top:1px solid rgba(139,127,212,0.2);margin-top:4px;"
+    onclick="document.getElementById('nicknameInput').value = S.playerName || ''; document.getElementById('nicknameModal').classList.add('show'); document.getElementById('systemDropdown').style.display='none';">
+    <div class="dd-icon-wrap" style="font-size:14px;">👤</div><span style="flex:1; text-align:left;">Сменить ник</span>
   </button>`;
 
-  dropdown.innerHTML = html;
+  html += `<button class="sys-dropdown-item" style="color:#8b7fd4;"
+    onclick="renameCurrentSystem(); document.getElementById('systemDropdown').style.display='none';">
+    <div class="dd-icon-wrap"></div><span style="flex:1; text-align:left;">✎ Переименовать систему</span>
+  </button>`;
+
+  // Перерисовываем только при изменении содержимого, чтобы не сбрасывать нажатия каждые 2 сек
+  if (dropdown.dataset.html !== html) {
+    dropdown.innerHTML = html;
+    dropdown.dataset.html = html;
+  }
 
   if (!btn.dataset.bound) {
     btn.dataset.bound = '1';
@@ -1234,6 +1257,7 @@ function saveNickname() {
     return;
   }
   S.playerName = name;
+  updateNameplate();
   document.getElementById('nicknameModal').classList.remove('show');
   if (typeof saveGame === 'function') saveGame();
   if (typeof autoSaveToCloud === 'function') autoSaveToCloud();

@@ -1061,3 +1061,545 @@ body.mg-active .toasts {
 .daily-item.day-7 .daily-reward-text {
   font-size: 14px;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   HUD LAYOUT V2
+   Верх: 3D-вид слева, ник + система по центру, иконки справа.
+   Право: хранилища. Низ: стадия фазы слева, миссии справа.
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  --hud-safe-top: max(10px, env(safe-area-inset-top, 10px));
+  --hud-top-extra: 0px;
+}
+/* В полноэкранном режиме Telegram сверху висят системные кнопки —
+   опускаем весь верхний HUD примерно на 1 см. */
+body.tg-fullscreen { --hud-top-extra: 40px; }
+
+/* ── Верхняя строка ── */
+.hud-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: calc(var(--hud-safe-top) + var(--hud-top-extra)) 12px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  z-index: 12;
+}
+.hud .hud-top { pointer-events: none; }
+.hud-top > * { pointer-events: auto; }
+
+/* 3D-кнопка (верхний левый угол, вместо компаса) */
+.view3d-btn {
+  flex: 0 0 auto;
+  width: 46px;
+  height: 46px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  border-radius: 16px;
+  border: 1px solid rgba(139, 127, 212, 0.42);
+  background: linear-gradient(160deg, rgba(38, 25, 74, 0.95), rgba(12, 8, 26, 0.96));
+  color: #cfc4ff;
+  font-family: inherit;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  touch-action: manipulation;
+}
+.view3d-btn .v3-ico { font-size: 17px; line-height: 1; }
+.view3d-btn .v3-lbl {
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #8b7fd4;
+  margin-top: 1px;
+}
+.view3d-btn:active { transform: scale(0.93); background: rgba(139, 127, 212, 0.35); }
+
+/* Плашка игрока: ник, под ним система */
+.nameplate {
+  position: absolute;
+  top: calc(var(--hud-safe-top) + var(--hud-top-extra));
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 130px;
+  max-width: 46vw;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 7px 16px 6px;
+  border-radius: 14px;
+  border: 1px solid rgba(139, 127, 212, 0.35);
+  background: linear-gradient(180deg, rgba(28, 18, 52, 0.92), rgba(11, 7, 22, 0.94));
+  color: #e8e2ff;
+  font-family: inherit;
+  cursor: pointer;
+  z-index: 13;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
+  touch-action: manipulation;
+  overflow: hidden;
+}
+.nameplate:active { transform: translateX(-50%) scale(0.97); }
+.np-nick {
+  max-width: 100%;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  line-height: 1.1;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.np-sys {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: #9b8ee0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.np-dot {
+  flex: 0 0 auto;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #6ee7a8;
+  box-shadow: 0 0 6px rgba(110, 231, 168, 0.9);
+}
+.np-caret { font-style: normal; font-size: 7px; opacity: 0.65; margin-left: 1px; }
+
+/* Правый верхний блок иконок — вертикально */
+.system-buttons {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 12;
+}
+.system-buttons .event-btn,
+.system-buttons .settings-btn {
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 14px;
+  border: 1px solid rgba(139, 127, 212, 0.4);
+  background: linear-gradient(160deg, rgba(38, 25, 74, 0.95), rgba(12, 8, 26, 0.96));
+  color: #cfc4ff;
+  font-size: 16px;
+  font-family: inherit;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  touch-action: manipulation;
+}
+.system-buttons .event-btn:active,
+.system-buttons .settings-btn:active { transform: scale(0.93); }
+
+/* Выпадающее меню систем — под плашкой */
+.sys-dropdown-list {
+  position: absolute;
+  top: calc(var(--hud-safe-top) + var(--hud-top-extra) + 60px);
+  bottom: auto;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  min-width: 210px;
+  max-width: 84vw;
+}
+
+/* Кнопка возврата в галактику — слева, под 3D */
+#backToGalaxyBtn {
+  position: absolute;
+  top: calc(var(--hud-safe-top) + var(--hud-top-extra) + 54px);
+  left: 12px;
+  bottom: auto;
+  transform: none;
+  z-index: 11;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 10px;
+}
+
+/* Индикатор газа — слева, под кнопкой возврата */
+#gasIndicator {
+  position: absolute;
+  top: calc(var(--hud-safe-top) + var(--hud-top-extra) + 88px);
+  left: 12px;
+  transform: none;
+  z-index: 10;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 9px;
+  background: rgba(15, 10, 32, 0.75);
+  border: 1px solid rgba(139, 127, 212, 0.3);
+  backdrop-filter: blur(8px);
+}
+
+/* ── ХРАНИЛИЩА: правая колонка ── */
+.storage-panel {
+  order: 3;
+  position: relative;
+  right: auto;
+  bottom: auto;
+  width: auto;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+  padding: 6px;
+  border-radius: 14px;
+  border: 1px solid rgba(139, 127, 212, 0.24);
+  background: linear-gradient(180deg, rgba(20, 13, 40, 0.84), rgba(9, 5, 18, 0.92));
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);
+  z-index: 11;
+}
+.storage-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  align-items: stretch;
+  padding: 4px 4px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.028);
+  border: 1px solid rgba(139, 127, 212, 0.12);
+}
+.sc-top {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+.storage-icon {
+  flex: 0 0 auto;
+  width: 14px;
+  font-size: 12px;
+  line-height: 1;
+  text-align: center;
+  opacity: 0.95;
+}
+.storage-val {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.15;
+  color: #f0ecff;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sc-mid {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px;
+  min-width: 0;
+}
+.storage-label {
+  font-size: 6.5px;
+  letter-spacing: 0.2px;
+  color: #8b7fd4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.storage-rate {
+  flex: 0 0 auto;
+  margin-top: 0;
+  max-width: 38px;
+  font-size: 6.4px;
+  color: #8b7fd4;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.storage-progress {
+  width: 100%;
+  height: 3px;
+  margin-top: 0;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+.storage-progress-text {
+  margin-top: 0;
+  font-size: 7px;
+  color: #a89ce0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.storage-upgrade-btn {
+  flex: 0 0 auto;
+  margin: 0 0 0 auto;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  font-size: 0;
+  line-height: 1;
+  overflow: hidden;
+}
+.storage-upgrade-btn::before {
+  content: '＋';
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+.storage-upgrade-btn:disabled { opacity: 0.55; }
+.storage-upgrade-btn:disabled::before { content: '✓'; font-size: 10px; }
+
+/* ── НИЖНИЙ ДОК: эволюция · фаза и миссии · хранилища ── */
+.hud-dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 10px calc(6px + env(safe-area-inset-bottom, 6px));
+  z-index: 12;
+}
+.hud .hud-dock { pointer-events: none; }
+.hud-dock > * { pointer-events: auto; }
+
+.hud-bottom {
+  order: 2;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 0;
+  z-index: auto;
+}
+.hud-dock > .hud-bottom { pointer-events: none; }
+.hud-bottom > * { pointer-events: auto; }
+
+/* Стадия фазы — слева внизу */
+.phase-card {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 11px 6px 6px;
+  border-radius: 16px;
+  border: 1px solid rgba(139, 127, 212, 0.4);
+  background: linear-gradient(160deg, rgba(38, 25, 74, 0.95), rgba(12, 8, 26, 0.96));
+  color: #e8e2ff;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  touch-action: manipulation;
+}
+.phase-card:active { transform: scale(0.97); }
+.phase-ring {
+  position: relative;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+}
+.phase-ring svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.orb-bg { fill: none; stroke: rgba(139, 127, 212, 0.18); stroke-width: 9; }
+.orb-progress {
+  fill: none;
+  stroke: #b9a8ff;
+  stroke-width: 9;
+  stroke-linecap: round;
+  stroke-dasharray: 264;
+  stroke-dashoffset: 264;
+  transition: stroke-dashoffset 0.35s ease;
+  filter: drop-shadow(0 0 5px rgba(185, 168, 255, 0.7));
+}
+.orb-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13.5px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #fff;
+}
+.phase-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  text-align: left;
+}
+.phase-tag {
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  color: #8b7fd4;
+  text-transform: uppercase;
+}
+.phase-name {
+  max-width: 96px;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: #ece7ff;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Миссии — справа от фазы, во всю оставшуюся ширину */
+.hud-bottom .mission-buttons {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-bottom: 0;
+  gap: 6px;
+}
+.hud-bottom .mission-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 52px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  grid-template-areas: "icon label" "icon cost";
+  align-content: center;
+  align-items: center;
+  column-gap: 7px;
+  row-gap: 0;
+  padding: 6px 9px;
+  border-radius: 14px;
+  text-align: left;
+}
+.hud-bottom .mission-btn .mb-icon {
+  grid-area: icon;
+  font-size: 18px;
+  line-height: 1;
+}
+.hud-bottom .mission-btn > div:nth-child(2) {
+  grid-area: label;
+  min-width: 0;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hud-bottom .mission-btn .mb-cost {
+  grid-area: cost;
+  font-size: 8px;
+  line-height: 1.1;
+  text-align: left;
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Одна кнопка — центрируем содержимое, чтобы не было пустоты справа */
+.hud-bottom .mission-btn:only-child {
+  grid-template-columns: auto minmax(0, auto);
+  justify-content: center;
+}
+
+/* Кнопка эволюции — над фазой и миссиями */
+.evolve-btn {
+  order: 1;
+  position: relative;
+  left: auto;
+  bottom: auto;
+  transform: none;
+  width: 100%;
+  margin: 0;
+  padding: 10px 20px;
+  z-index: auto;
+}
+
+/* Панель квестов — над доком */
+.quests-panel {
+  position: absolute;
+  left: 10px;
+  bottom: calc(100% + 6px);
+  width: 250px;
+  max-width: calc(100vw - 20px);
+  z-index: 20;
+}
+.quests-panel.open { display: block; animation: questPanelIn 0.18s ease; }
+@keyframes questPanelIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Тосты — над доком, не перекрывают кнопки */
+.toasts {
+  position: absolute;
+  top: auto;
+  bottom: calc(100% + 8px);
+  left: 10px;
+  transform: none;
+  align-items: flex-start;
+  max-width: 62vw;
+  z-index: 26;
+}
+.hud-dock > .toasts { pointer-events: none; }
+
+/* Компактнее на низких экранах */
+@media (max-height: 620px) {
+  .storage-panel {
+    gap: 3px;
+    padding: 5px;
+  }
+  .storage-cell { padding: 4px 6px; }
+  .storage-progress-text { display: none; }
+  .phase-card { padding: 5px 10px 5px 5px; }
+  .phase-ring { width: 40px; height: 40px; }
+  .phase-name { font-size: 9px; }
+}
+
+/* На узких экранах */
+@media (max-width: 420px) {
+  .storage-rate { display: none; }
+  .storage-progress-text { display: none; }
+  .storage-label { font-size: 6px; letter-spacing: 0; }
+  .storage-icon { display: none; }
+  .storage-val { font-size: 11px; }
+  .storage-upgrade-btn { width: 14px; height: 14px; min-width: 14px; }
+  .storage-upgrade-btn::before { font-size: 9px; }
+  .phase-name { max-width: 80px; }
+  .nameplate { min-width: 112px; padding: 6px 12px 5px; }
+  .np-nick { font-size: 12px; }
+}

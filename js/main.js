@@ -493,7 +493,7 @@ ctx.fillStyle = 'rgba(185, 168, 255, 0.8)';
 ctx.font = 'bold 12px -apple-system, sans-serif';
 ctx.textAlign = 'center';
 ctx.fillText('Галактика ' + (S.galaxies || 1) + ' · ' + formLabel +
-' · доход ×' + (S.galaxyMultiplier || 1).toFixed(1), cx, H - 96);
+' · доход ×' + (S.galaxyMultiplier || 1).toFixed(1), cx, H - 134);
 ctx.restore();
 }
 // ─── Вспомогательные безопасные геттеры ресурсов ────────────────
@@ -651,6 +651,25 @@ if (tg.setHeaderColor) tg.setHeaderColor('#02010a');
 if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
 if (tg.setBackgroundColor) tg.setBackgroundColor('#02010a');
 } catch (e) {}
+
+// Полноэкранный Telegram: сверху висят системные кнопки — опускаем HUD
+syncTelegramLayout();
+if (tg.onEvent) {
+  try {
+    tg.onEvent('viewportChanged', syncTelegramLayout);
+    tg.onEvent('fullscreenChanged', syncTelegramLayout);
+  } catch (e) { /* старые клиенты */ }
+}
+}
+
+function syncTelegramLayout() {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (!tg) return;
+  try {
+    document.body.classList.add('in-telegram');
+    const fullscreen = (tg.isFullscreen === true) || (tg.isExpanded === true);
+    document.body.classList.toggle('tg-fullscreen', fullscreen);
+  } catch (e) { /* ignore */ }
 }
 // ─── Старт ──────────────────────────────────────────────────────
 function start() {

@@ -20,122 +20,135 @@
     <canvas id="sky" width="100%" height="100%"></canvas>
 
         <div class="hud">
-      <!-- Баннер событий (оставляем сверху, он временный) -->
-      <div id="eventBanner" style="display:none; position:absolute; top:20px; left:50%; transform:translateX(-50%); z-index:5; background:rgba(15,10,32,0.85); border:1px solid rgba(139,127,212,0.4); padding:6px 12px; border-radius:10px; font-size:11px; font-weight:bold; color:#fff; text-align:center; backdrop-filter:blur(5px); box-shadow:0 4px 15px rgba(0,0,0,0.5); width:max-content; max-width:90vw;">
+      <!-- ═══ ВЕРХНИЙ HUD: 3D-вид · плашка игрока · иконки ═══ -->
+      <div class="hud-top">
+        <button class="view3d-btn" id="view3dBtn" title="3D-обзор">
+          <span class="v3-ico">🌐</span><span class="v3-lbl">3D</span>
+        </button>
+
+        <button class="nameplate" id="systemSwitcherBtn" type="button" title="Системы">
+          <span class="np-nick" id="hudNick">Пилот</span>
+          <span class="np-sys"><i class="np-dot"></i><span id="hudSystem">Родная</span><i class="np-caret">▾</i></span>
+        </button>
+
+        <div class="system-buttons">
+          <button class="event-btn" id="eventBtn" title="Журнал событий">
+            📜<span class="event-badge" id="eventBadge" style="display:none">0</span>
+          </button>
+          <button class="event-btn" id="achBtn" title="Достижения">🏆</button>
+          <button class="settings-btn" id="settingsBtn" title="Настройки">⚙</button>
+        </div>
+      </div>
+
+      <!-- Выпадающий список систем (раскрывается из плашки) -->
+      <div id="systemDropdown" class="sys-dropdown-list" style="display:none;"></div>
+
+      <!-- Баннер событий -->
+      <div id="eventBanner" style="display:none; position:absolute; top:calc(var(--hud-safe-top, 10px) + var(--hud-top-extra, 0px) + 54px); left:50%; transform:translateX(-50%); z-index:5; background:rgba(15,10,32,0.85); border:1px solid rgba(139,127,212,0.4); padding:6px 12px; border-radius:10px; font-size:11px; font-weight:bold; color:#fff; text-align:center; backdrop-filter:blur(5px); box-shadow:0 4px 15px rgba(0,0,0,0.5); width:max-content; max-width:80vw;">
         <span id="eventIcon"></span>
         <span id="eventName"></span>
         <span id="eventTimer" style="color:#7ee0a8; margin-left:5px;"></span>
       </div>
 
-      <!-- Индикатор газа -->
-      <div id="gasIndicator" style="
-        position:absolute;
-        top:20px;
-        left:50%;
-        transform:translateX(-50%);
-        z-index:5;
-        font-size:11px;
-        font-weight:600;
-        font-family:-apple-system, sans-serif;
-        padding:4px 10px;
-        background:rgba(15,10,32,0.7);
-        border-radius:8px;
-        border:1px solid rgba(139,127,212,0.3);
-        display:none;
-      "></div>
-
-      <!-- Панель квестов (Всплывает снизу) -->
-      <div class="quests-panel" id="questsPanel"></div>
-
-      <!-- Кругляшок фазы (Слева внизу) -->
-      <div class="phase-orb" id="phaseOrb">
-        <svg viewBox="0 0 100 100">
-          <circle cx="50" cy="50" r="42" class="orb-bg"/>
-          <circle cx="50" cy="50" r="42" class="orb-progress" id="orbProgress"/>
-        </svg>
-        <span class="orb-label" id="orbLabel">I</span>
-      </div>
-
-      <!-- Переключатель систем (По центру внизу) -->
-      <button id="systemSwitcherBtn" class="sys-dropdown-btn" style="display:none;">🌌 Системы</button>
-      <div id="systemDropdown" class="sys-dropdown-list" style="display:none;"></div>
-      
       <!-- Кнопка назад в галактику -->
       <button id="backToGalaxyBtn" style="display:none;">🌌 В галактику</button>
 
-      <!-- Кнопки в правом нижнем углу -->
-      <div class="system-buttons">
-        <button class="event-btn" id="eventBtn" title="Журнал событий">
-          📜<span class="event-badge" id="eventBadge" style="display:none">0</span>
-        </button>
-        <button class="event-btn" id="achBtn" title="Достижения">🏆</button>
-        <button class="settings-btn" id="settingsBtn" title="Настройки">⚙</button>
-        <button class="view3d-btn" id="view3dBtn" title="3D-обзор">🌐</button>
-      </div>
+      <!-- Индикатор газа -->
+      <div id="gasIndicator"></div>
 
-      <div class="spacer"></div>
+      <!-- ═══ НИЖНИЙ ДОК: эволюция · фаза и миссии · хранилища ═══ -->
+      <div class="hud-dock">
 
       <!-- Кнопка эволюции -->
       <button class="evolve-btn" id="evolveBtn">Эволюция</button>
 
-      <!-- Кнопки миссий -->
-      <div class="mission-buttons" id="missionButtons"></div>
-
-      <!-- Хранилище (Самая нижняя панель) -->
+      <!-- ═══ ХРАНИЛИЩА (под фазой и миссиями) ═══ -->
       <div class="storage-panel" id="storagePanel">
         <div class="storage-cell" data-res="dust">
-          <div class="storage-icon">✦</div>
-          <div class="storage-val" id="dustVal">0</div>
-          <div class="storage-label">ПЫЛЬ</div>
-          <div class="storage-rate" id="dustRate">+0 / ч</div>
+          <div class="sc-top">
+            <span class="storage-icon">✦</span>
+            <span class="storage-val" id="dustVal">0</span>
+            <button class="storage-upgrade-btn" data-res="dust">Улучшить</button>
+          </div>
+          <div class="sc-mid">
+            <span class="storage-label">ПЫЛЬ</span>
+            <span class="storage-rate" id="dustRate">+0 / ч</span>
+          </div>
           <div class="storage-progress"><div class="storage-progress-fill" id="dustProgressFill"></div></div>
           <div class="storage-progress-text" id="dustProgressText">0/0</div>
-          <button class="storage-upgrade-btn" data-res="dust">Улучшить</button>
         </div>
         <div class="storage-cell" data-res="energy">
-          <div class="storage-icon">⚡</div>
-          <div class="storage-val" id="energyVal">0</div>
-          <div class="storage-label">ЭНЕРГИЯ</div>
-          <div class="storage-rate" id="energyRate">+0 / ч</div>
+          <div class="sc-top">
+            <span class="storage-icon">⚡</span>
+            <span class="storage-val" id="energyVal">0</span>
+            <button class="storage-upgrade-btn" data-res="energy">Улучшить</button>
+          </div>
+          <div class="sc-mid">
+            <span class="storage-label">ЭНЕРГИЯ</span>
+            <span class="storage-rate" id="energyRate">+0 / ч</span>
+          </div>
           <div class="storage-progress"><div class="storage-progress-fill" id="energyProgressFill"></div></div>
           <div class="storage-progress-text" id="energyProgressText">0/0</div>
-          <button class="storage-upgrade-btn" data-res="energy">Улучшить</button>
         </div>
         <div class="storage-cell" data-res="civ">
-          <div class="storage-icon">🧬</div>
-          <div class="storage-val" id="civVal">0</div>
-          <div class="storage-label">ЦИВИЛИЗАЦИЯ</div>
-          <div class="storage-rate" id="civRate">+0 / ч</div>
+          <div class="sc-top">
+            <span class="storage-icon">🧬</span>
+            <span class="storage-val" id="civVal">0</span>
+            <button class="storage-upgrade-btn" data-res="civ">Улучшить</button>
+          </div>
+          <div class="sc-mid">
+            <span class="storage-label">ЦИВИЛИЗАЦИЯ</span>
+            <span class="storage-rate" id="civRate">+0 / ч</span>
+          </div>
           <div class="storage-progress"><div class="storage-progress-fill" id="civProgressFill"></div></div>
           <div class="storage-progress-text" id="civProgressText">0/0</div>
-          <button class="storage-upgrade-btn" data-res="civ">Улучшить</button>
         </div>
         <div class="storage-cell" data-res="systems">
-          <div class="storage-icon">🌌</div>
-          <div class="storage-val" id="systemsVal">1</div>
-          <div class="storage-label">СИСТЕМ</div>
+          <div class="sc-top">
+            <span class="storage-icon">🌌</span>
+            <span class="storage-val" id="systemsVal">1</span>
+          </div>
+          <div class="sc-mid">
+            <span class="storage-label">СИСТЕМ</span>
+          </div>
         </div>
         <div class="storage-cell" data-res="metals">
-          <div class="storage-icon">⚙</div>
-          <div class="storage-val" id="metalsVal">0</div>
-          <div class="storage-label">МЕТАЛЛЫ</div>
-          <div class="storage-rate" id="metalsRate">+0 / сек</div>
+          <div class="sc-top">
+            <span class="storage-icon">⚙</span>
+            <span class="storage-val" id="metalsVal">0</span>
+          </div>
+          <div class="sc-mid">
+            <span class="storage-label">МЕТАЛЛЫ</span>
+            <span class="storage-rate" id="metalsRate">+0 / сек</span>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div class="toasts" id="toasts"></div>
+      <!-- ═══ НИЖНИЙ ДОК: стадия фазы слева · миссии справа ═══ -->
+      <div class="hud-bottom">
+        <button class="phase-card" id="phaseOrb" title="Стадия фазы">
+          <span class="phase-ring">
+            <svg viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="42" class="orb-bg"/>
+              <circle cx="50" cy="50" r="42" class="orb-progress" id="orbProgress"/>
+            </svg>
+            <span class="orb-label" id="orbLabel">I</span>
+          </span>
+          <span class="phase-meta">
+            <span class="phase-tag" id="phaseTag">ФАЗА I</span>
+            <span class="phase-name" id="phaseName">Молекулярное облако</span>
+          </span>
+        </button>
 
-    <button id="backToGalaxyBtn" style="display:none; position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:10; background:rgba(107,77,230,0.85); border:1px solid rgba(185,168,255,0.5); color:#fff; padding:8px 16px; border-radius:12px; font-weight:bold; font-family:inherit; cursor:pointer;">🌌 В галактику</button>
-    
-    <!-- Кнопки в правом верхнем углу -->
-    <div class="system-buttons">
-      <button class="event-btn" id="eventBtn" title="Журнал событий">
-        📜<span class="event-badge" id="eventBadge" style="display:none">0</span>
-      </button>
-      <button class="event-btn" id="achBtn" title="Достижения">🏆</button>
-      <button class="settings-btn" id="settingsBtn" title="Настройки">⚙</button>
-      <button class="view3d-btn" id="view3dBtn" title="3D-обзор">🌐</button>
+        <div class="mission-buttons" id="missionButtons"></div>
+      </div>
+
+      <!-- Панель квестов (открывается над доком) -->
+      <div class="quests-panel" id="questsPanel"></div>
+
+      <!-- Тосты -->
+      <div class="toasts" id="toasts"></div>
+      </div>
     </div>
   </div>
 
