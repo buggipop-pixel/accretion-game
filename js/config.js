@@ -186,6 +186,9 @@ const INVASION_CFG = {
   intervalMin: 60 * 60 * 1000,  // 1 час
   intervalMax: 5 * 60 * 60 * 1000, // 5 часов
   chance: 0.6,
+
+  shipsBase: 3,   // Базовое число кораблей вторжения
+  shipsMax: 5,    // Максимум кораблей
   robberyDuration: 45 * 60 * 1000, destructionDuration: 15 * 60 * 1000, totalDuration: 60 * 60 * 1000,
   robberyMultiplier: 4, planetMaxHP: 100, hitRadius: 20,
   tiers: {
