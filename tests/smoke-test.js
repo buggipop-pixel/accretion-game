@@ -187,6 +187,7 @@ const files = [
   'invasions.js',
   'premium.js',
   'cloudsave.js',
+  'prestige.js',
 ];
 
 files.forEach((f) => {
@@ -281,6 +282,37 @@ try {
   assert('Сейв успешно сериализуется в JSON', json.length > 10 && parsed.stage === context.S.stage);
 } catch (e) {
   assert('Сейв успешно сериализуется в JSON', false);
+}
+// Тест 7: Престиж (Вспышка Сверхновой) — окно строится при 6 системах
+try {
+  context.buildModal = (title, sub) =>
+    '<div class="modal-title">' + title + '</div><div class="modal-sub">' + sub + '</div><div class="choices"></div>';
+  context.setModal = (html) => { context.__prestigeModalHtml = html; };
+  context.closeEvolutionModal = noop;
+
+  const S = context.S;
+  S.systems = 6; S.prestigeLevel = 0; S.galaxies = 1; S.galaxyMultiplier = 1;
+  S.primeSystem = null; S.activeSystemIdx = 0;
+  S.otherSystems = [null,
+    { name: 'A', starType: 'G', systemType: 'single', planets: [] },
+    { name: 'B', starType: 'K', systemType: 'single', planets: [] },
+    { name: 'C', starType: 'A', systemType: 'single', planets: [] },
+    { name: 'D', starType: 'M', systemType: 'single', planets: [] },
+    { name: 'E', starType: 'G', systemType: 'single', planets: [] }];
+
+  context.__prestigeModalHtml = '';
+  context.activateSupernova();
+  const html = String(context.__prestigeModalHtml);
+  assert(
+    'Престиж: при 6 системах открывается окно Вспышки',
+    html.indexOf('ВСПЫШКА СВЕРХНОВОЙ') !== -1 &&
+    html.indexOf('Систем после') !== -1 &&
+    html.indexOf('undefined') === -1 &&
+    html.indexOf('NaN') === -1
+  );
+} catch (e) {
+  console.error('   престиж: ' + e.message);
+  assert('Престиж: при 6 системах открывается окно Вспышки', false);
 }
 
 console.log('========================================');

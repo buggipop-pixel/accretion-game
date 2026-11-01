@@ -263,11 +263,15 @@ html, body {
 
 /* Кнопка престижа (Вспышка Сверхновой) */
 .prestige-btn {
-  position: absolute;
-  left: 50%;
-  bottom: 152px;
-  transform: translateX(-50%);
-  z-index: 6;
+  /* Живёт в нижнем доке отдельной строкой — так её не перекрывает панель квестов */
+  order: 1;
+  position: relative;
+  left: auto;
+  bottom: auto;
+  transform: none;
+  width: 100%;
+  margin: 0;
+  z-index: auto;
   padding: 9px 16px;
   border: none;
   border-radius: 14px;
@@ -281,7 +285,7 @@ html, body {
   box-shadow: 0 4px 18px rgba(255, 94, 94, 0.45);
   animation: prestigePulse 1.8s ease-in-out infinite;
 }
-.prestige-btn:active { transform: translateX(-50%) scale(0.96); }
+.prestige-btn:active { transform: scale(0.96); }
 @keyframes prestigePulse {
   0%, 100% { box-shadow: 0 4px 18px rgba(255, 94, 94, 0.45); }
   50% { box-shadow: 0 4px 26px rgba(255, 179, 71, 0.8); }

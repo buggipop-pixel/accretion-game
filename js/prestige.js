@@ -54,10 +54,14 @@ function calculateKeepCount(regularCount) {
   let minTotal = Math.max(1, Math.floor(Math.sqrt(regularCount) * 1.5));
   let maxTotal = regularCount;
 
-  // Кротовая нора увеличивает минимум до 50% обычных систем
-  if (S.primeSystem && S.primeSystem.objectKey === 'wormhole') {
-    const wormMin = Math.ceil(regularCount * 0.5);
-    if (wormMin > minTotal) minTotal = wormMin;
+  // Кротовые норы увеличивают минимум: 20% / 30% / 50% обычных систем
+  if (S.primeSystem) {
+    const wormKey = S.primeSystem.objectKey;
+    const wormPct = wormKey === 'wormhole' ? 0.2 : wormKey === 'wormhole2' ? 0.3 : wormKey === 'wormhole3' ? 0.5 : 0;
+    if (wormPct > 0) {
+      const wormMin = Math.ceil(regularCount * wormPct);
+      if (wormMin > minTotal) minTotal = wormMin;
+    }
   }
 
   minTotal = Math.min(minTotal, maxTotal);
@@ -131,23 +135,21 @@ function activateSupernova() {
   const curForm = S.galaxyForm || 'spiral';
   const nextForm = GALAXY_FORMS[(GALAXY_FORMS.indexOf(curForm) + 1) % GALAXY_FORMS.length];
 
-  // Предпросмотр сохранения
- function calculateKeepCount(regularCount) {
-  if (regularCount <= 0) return 0;
-
-  let minTotal = Math.max(1, Math.floor(Math.sqrt(regularCount) * 1.5));
-  let maxTotal = regularCount;
-
-  // Бонусы кротовых нор (20%, 30%, 50%)
-  if (S.primeSystem) {
-    if (S.primeSystem.objectKey === 'wormhole')  minTotal = Math.max(minTotal, Math.ceil(regularCount * 0.2));
-    if (S.primeSystem.objectKey === 'wormhole2') minTotal = Math.max(minTotal, Math.ceil(regularCount * 0.3));
-    if (S.primeSystem.objectKey === 'wormhole3') minTotal = Math.max(minTotal, Math.ceil(regularCount * 0.5));
+  // Предпросмотр сохранения.
+  // Считаем ТОЛЬКО обычные системы: прайм-системы сохраняются всегда и в лимит не входят.
+  const otherSystems = Math.max(0, (S.systems || 1) - 1);
+  let regularSystemsCount = 0;
+  const otherList = S.otherSystems || [];
+  for (let i = 1; i < otherList.length; i++) {
+    const sys = otherList[i];
+    if (sys && sys.planets && !sys.isPrime) regularSystemsCount++;
   }
-
-  minTotal = Math.min(minTotal, maxTotal);
-  return minTotal + Math.floor(Math.random() * (maxTotal - minTotal + 1));
-}
+  const keepPreview = calculateKeepCount(regularSystemsCount);
+  const wormholeKey = S.primeSystem ? S.primeSystem.objectKey : '';
+  const wormholePct = wormholeKey === 'wormhole' ? 20 : wormholeKey === 'wormhole2' ? 30 : wormholeKey === 'wormhole3' ? 50 : 0;
+  const wormholeNote = wormholePct > 0
+    ? '<div class="row-stat"><span>🌀 Кротовая нора:</span><span>+' + wormholePct + '% обычных систем</span></div>'
+    : '';
   const info = `
     <div class="info-box">
       <div class="row-stat"><span>Галактик:</span><span>${S.galaxies || 1} ➔ ${(S.galaxies || 1) + 1}</span></div>
@@ -349,7 +351,9 @@ function updatePrestigeButton() {
 
 // ─── Инициализация престижа ─────────────────────────────────────
 function initPrestige() {
-  const hud = document.querySelector('.hud');
+  // Кнопку кладём в нижний док отдельной строкой над фазой/миссиями:
+  // так её не перекрывает панель квестов и она всегда доступна для тапа.
+  const hud = document.querySelector('.hud-dock') || document.querySelector('.hud');
   if (hud && !document.getElementById('prestigeBtn')) {
     const prestigeBtn = document.createElement('button');
     prestigeBtn.id = 'prestigeBtn';
