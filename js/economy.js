@@ -18,6 +18,7 @@ function planetRate() {
     const p = S.planets[i];
     if (!p || p.forming || !isFinite(p.baseOrbitR)) continue; 
     if (typeof isPlanetInvaded === 'function' && isPlanetInvaded(p)) continue;
+    if (p.disabledUntil && p.disabledUntil > Date.now()) continue;   // ★ повреждена вторжением
 
     let base = PLANET_TYPES[p.type] ? PLANET_TYPES[p.type].rate : 0;
     if (!isFinite(base)) base = 0;
@@ -35,6 +36,16 @@ function planetRate() {
   return isFinite(sum) ? sum : 0;
 }
 
+// ─── Штраф к доходу после вторжения («оккупация») ───────────────
+function invasionDebuffMult() {
+  if (!S.invasionDebuff) return 1;
+  const d = S.invasionDebuff;
+  if (!d.until || Date.now() >= d.until) return 1;
+  const pct = Math.max(0, Math.min(INVASION_CFG.debuffStackCap || 0.6, Number(d.pct) || 0));
+  return 1 - pct;
+}
+window.invasionDebuffMult = invasionDebuffMult;
+
 // ─── Металлы (доход в секунду от лава-планет) ───────────────────
 function metalsPerSec() {
   let sum = 0;
@@ -44,6 +55,7 @@ function metalsPerSec() {
     const p = S.planets[i];
     if (!p || p.forming) continue;
     if (typeof isPlanetInvaded === 'function' && isPlanetInvaded(p)) continue;
+    if (p.disabledUntil && p.disabledUntil > Date.now()) continue;
     const pt = PLANET_TYPES[p.type];
     if (pt && pt.bonus && pt.bonus.type === 'metals') {
       hasLava = true;
@@ -87,6 +99,7 @@ function dustPerSec() {
   if (typeof achIncomeMult === 'function') achMult = Number(achIncomeMult()) || 1;
 
   let finalRate = (base + pRate) * sMult * stMult * sysMult * gMult * galMult * sysInc * primeMult * boostMult * techMult * achMult;
+  finalRate *= invasionDebuffMult();   // ★ штраф после вторжения (−до 60%)
   if (S.activeEvent && typeof EVENT_CFG !== 'undefined' && Array.isArray(EVENT_CFG.types)) {
     const evt = EVENT_CFG.types.find(t => t.id === S.activeEvent.id);
     if (evt && evt.globalIncomeMult) finalRate *= evt.globalIncomeMult;
@@ -97,9 +110,17 @@ function dustPerSec() {
 function clickGain() {
   const st = STAGES[S.stage];
   if (!st) return 0;
-  let finalRate = Number(st.clickRate || 0) * starMult() * systemTypeMult() * systemMult() * gammaMult() * galaxyMult() * (typeof achIncomeMult === 'function' ? achIncomeMult() : 1);
+  let finalRate = Number(st.clickRate || 0) * starMult() * systemTypeMult() * systemMult() * gammaMult() * galaxyMult() * (typeof achIncomeMult === 'function' ? achIncomeMult() : 1) * invasionDebuffMult();
   return isFinite(finalRate) ? finalRate : 0;
 }
+
+// ─── Кап металлов: нельзя копить «в стол» ───────────────────────
+function metalsCap() {
+  const cfg = (typeof METALS_CFG !== 'undefined') ? METALS_CFG : {};
+  const lvl = Math.max(1, Math.min(7, Number((S.storageLevels || {})[cfg.capStorage || 'energy']) || 1));
+  return Math.floor((cfg.capBase || 750) * Math.pow(cfg.capGrowth || 2, lvl - 1));
+}
+window.metalsCap = metalsCap;
 
 // ─── Цивилизация: подсчет обитаемых планет ──────────────────────
 // ─── Цивилизация: подсчет обитаемых планет ──────────────────────
@@ -125,6 +146,7 @@ function civPerSec() {
   for (let i = 0; i < S.planets.length; i++) {
     const p = S.planets[i];
     if (p.forming) continue;
+    if (p.disabledUntil && p.disabledUntil > Date.now()) continue;
     const pt = PLANET_TYPES[p.type];
     if (pt.bonus && pt.bonus.type === 'civ') mult *= (pt.bonus.civMult || 1);
   }
@@ -167,18 +189,19 @@ function energyPerSec() {
 
 // ─── Стоимости (Динамический баланс) ────────────────────────────
 function planetCost(n) {
-  // База растет от текущего дохода (10 минут дохода)
-  const base = Math.max(CFG.planetBaseCost || 80000, dustPerSec() * 600);
-  const grw  = CFG.planetCostGrowth || 2.0;
-  return Math.floor(base * Math.pow(grw, n || 0));
+  // ★ абсолютная цена: НЕ зависит от дохода. Иначе множители (престиж, системы,
+  // звезда) не ускоряют игру: цена и доход сокращаются в дроби.
+  const base = CFG.planetBaseCost || 4470000;
+  const exp  = CFG.planetCostExp || 2.0;
+  return Math.floor(base * Math.pow((n || 0) + 1, exp));
 }
 
 function systemCost(n) {
-  // База растет от дохода (1 час дохода)
-  const base   = Math.max(CFG.systemBaseCost || 1e8, dustPerSec() * 3600);
-  const growth = CFG.systemGrowth   || 3.0;
-  const min    = CFG.systemCostMin  || 1e6;
-  const cost   = base * Math.pow(growth, n || 0);
+  // ★ абсолютная цена по номеру системы: base * k^exp (k = n+1)
+  const base = CFG.systemBaseCost || 90000000;
+  const exp  = CFG.systemCostExp || 1.5;
+  const min  = CFG.systemCostMin  || 1e6;
+  const cost = base * Math.pow((n || 0) + 1, exp);
   const discount = 1 - (S.techLevels?.eng || 0) * 0.05;
   return Math.max(min, Math.floor(cost * discount));
 }
@@ -233,6 +256,7 @@ function getResourceCap(res) {
     let cap = Math.max(flat, rateCap);
     return isFinite(cap) ? Math.floor(cap) : 1000;
   }
+  if (res === 'metals') return metalsCap();
   return 1000;
 }
 
@@ -417,8 +441,8 @@ function processOfflineMissions(out) {
 
 function simulateOfflineInvasions(elapsedSec, out) {
   const cfg = INVASION_CFG;
-  const nightMode = (S.nightConfig && S.nightConfig.mode) || 'balanced';
   const nightCfg = NIGHT_CFG;
+  const nightMode = (S.nightConfig && S.nightConfig.mode) || 'balanced';
   const hours = elapsedSec / 3600;
 
   if (S.shieldUntil && S.shieldUntil > Date.now() - elapsedSec * 1000) {
@@ -426,119 +450,114 @@ function simulateOfflineInvasions(elapsedSec, out) {
     return;
   }
 
-  let attacks = Math.min(cfg.offlineAttackMax, Math.floor(hours / 2));
-  const extraSystems = Math.floor((S.systems - 1) / cfg.offlineAttackPerSystems);
-  attacks = Math.min(cfg.offlineAttackMax + extraSystems, attacks + extraSystems);
+  // ★ Реже, но тяжелее: 1 атака на offlineAttackInterval, не более offlineAttackMax
+  const perHours = (cfg.offlineAttackInterval || 5 * 3600 * 1000) / 3600000;
+  let attacks = Math.min(cfg.offlineAttackMax || 4, Math.floor(hours / perHours));
   if (attacks <= 0) return;
 
-  const totalObjects = (S.stage === 'galaxy') ? S.systems : S.planets.length;
-  const maxLosses = Math.floor(totalObjects * (nightCfg.lossCaps[nightMode] || 0.25));
+  const def = (S.nightConfig && S.nightConfig.defenseEnabled) ? (S.defenseLevel || 0) : 0;
+  const k = Math.max(0, 1 - def * (cfg.defenseLossReduction || 0.2));
+  const capShare = cfg.nightLossCapShare || 0.4;
+  const caps = { dust: (S.dust || 0) * capShare, energy: (S.energy || 0) * capShare, civ: (S.civLevel || 0) * capShare };
 
-  const defenseBonus = (S.nightConfig.defenseEnabled) ? calcDefenseBonus() : 0;
+  const defenseBonus = (S.nightConfig && S.nightConfig.defenseEnabled) ? calcDefenseBonus() : 0;
   const expPenalty = calcExpeditionPenalty();
+  const capE = Math.max(1, getResourceCap('energy'));
+  const capC = Math.max(1, getResourceCap('civ'));
 
-  let losses = 0, defended = 0, lost = 0, totalDrainE = 0, totalDrainC = 0;
+  let defended = 0, lostDust = 0, lostE = 0, lostC = 0, disabled = 0;
 
   for (let i = 0; i < attacks; i++) {
     const tierKey = rollInvasionTier();
-    const tier = cfg.tiers[tierKey];
-
-    const capE = Math.max(1, getResourceCap('energy'));
-    const capC = Math.max(1, getResourceCap('civ'));
-    const thresh = cfg.resourceThresholdShare;
-    const eF = Math.min(1, Math.max(0, S.energy - totalDrainE) / (thresh * capE));
-    const cF = Math.min(1, Math.max(0, S.civLevel - totalDrainC) / (thresh * capC));
-    const resFactor = Math.min(eF, cF);
-
-    let chance = tier.baseChance * resFactor + defenseBonus - expPenalty;
+    const tier = cfg.tiers[tierKey] || cfg.tiers.raid;
+    const eF = Math.min(1, Math.max(0, (S.energy || 0) - lostE) / (cfg.resourceThresholdShare * capE));
+    const cF = Math.min(1, Math.max(0, (S.civLevel || 0) - lostC) / (cfg.resourceThresholdShare * capC));
+    let chance = tier.baseChance * Math.min(eF, cF) + defenseBonus - expPenalty;
     chance = Math.max(0, Math.min(tier.chanceCap, chance));
+    if (Math.random() < chance) { defended++; continue; }
 
-    const drainDurationSec = Math.min((INVASION_CFG.robberyDuration / 1000), elapsedSec / (attacks + 1));
-    const drain = calcDrainStatic(tierKey, drainDurationSec, totalDrainE, totalDrainC);
-    totalDrainE += drain.energy;
-    totalDrainC += drain.civ;
-
-    if (Math.random() < chance) {
-      defended++;
-    } else {
-      const dmg = (S.stage === 'galaxy')
-        ? NIGHT_CFG.damagePerHit[nightMode].systems
-        : NIGHT_CFG.damagePerHit[nightMode].planets;
-      const actualDmg = Math.min(dmg, maxLosses - losses);
-      if (actualDmg > 0) { losses += actualDmg; lost += actualDmg; }
-    }
-  }
-
-  S.energy = Math.max(0, S.energy - totalDrainE);
-  S.civLevel = Math.max(0, S.civLevel - totalDrainC);
-  out.invasionDrainE = Math.floor(totalDrainE);
-  out.invasionDrainC = Math.floor(totalDrainC);
-
-  if (lost > 0) {
-    if (S.stage === 'galaxy') applySystemLosses(lost);
-    else applyPlanetLosses(lost);
+    const hit = applyInvasionHit(tierKey, caps, k);
+    lostDust += hit.dust; lostE += hit.energy; lostC += hit.civ; disabled += hit.disabled;
+    caps.dust -= hit.dust; caps.energy -= hit.energy; caps.civ -= hit.civ;
   }
 
   out.invasionAttacks = attacks;
   out.invasionDefended = defended;
-  out.invasionLost = lost;
-}
-
-function calcDrainStatic(tierKey, dtSec, alreadyE, alreadyC) {
-  const tier = INVASION_CFG.tiers[tierKey];
-  if (!tier) return { energy: 0, civ: 0 };
-  const civPlanets = civPlanetCount();
-  if (civPlanets === 0) return { energy: 0, civ: 0 };
-
-  const capE = Math.max(1, getResourceCap('energy'));
-  const capC = Math.max(1, getResourceCap('civ'));
-  const planetMult = 1 + 0.3 * civPlanets;
-
-  let reduction = 0;
-  if (S.nightConfig && S.nightConfig.defenseEnabled) {
-    reduction = Math.min(0.25, (INVASION_CFG.defenseDrainReduction || 0.05) * (S.defenseLevel || 0));
-  }
-
-  const hours = dtSec / 3600;
-  const remainingE = Math.max(0, S.energy - alreadyE);
-  const remainingC = Math.max(0, S.civLevel - alreadyC);
-
-  const eDrain = Math.min(remainingE, capE * tier.energyDrain * planetMult * hours * (1 - reduction));
-  const cDrain = Math.min(remainingC, capC * tier.civDrain * planetMult * hours * (1 - reduction));
-
-  return { energy: eDrain, civ: cDrain };
-}
-
-function applyPlanetLosses(count) {
-  if (S.planets.length === 0) return;
-  const toRemove = Math.min(count, S.planets.length);
-  for (let i = 0; i < toRemove; i++) {
-    const idx = Math.floor(Math.random() * S.planets.length);
-    S.planets.splice(idx, 1);
-  }
-  if (typeof addEvent === 'function') {
-    addEvent('invasion_destroy', 'Вторжения уничтожили ' + toRemove + ' планет');
+  out.invasionLost = disabled;
+  out.invasionDrainE = Math.floor(lostE);
+  out.invasionDrainC = Math.floor(lostC);
+  out.invasionLostDust = Math.floor(lostDust);
+  if (disabled > 0 && typeof addEvent === 'function') {
+    addEvent('invasion_destroy', 'Вторжения повредили ' + disabled + ' планет(ы)');
   }
 }
+
+// ★ Наносит урон одного удачного вторжения. Возвращает фактический урон.
+function applyInvasionHit(tierKey, caps, kOverride) {
+  const cfg = INVASION_CFG;
+  const tier = cfg.tiers[tierKey] || cfg.tiers.raid;
+  const def = (S.nightConfig && S.nightConfig.defenseEnabled) ? (S.defenseLevel || 0) : 0;
+  const k = (kOverride != null) ? kOverride : Math.max(0, 1 - def * (cfg.defenseLossReduction || 0.2));
+  const out = { dust: 0, energy: 0, civ: 0, disabled: 0 };
+  if (k <= 0) return out;                       // оборона ур.5 — иммунитет
+
+  const now = Date.now();
+  const minutes = (tier.theftMin || 0) * k;
+  const capD = caps ? Math.max(0, caps.dust) : Infinity;
+  const capEn = caps ? Math.max(0, caps.energy) : Infinity;
+  const capCi = caps ? Math.max(0, caps.civ) : Infinity;
+
+  // 1) кража «минут экономики» из каждого пула
+  const stealD = Math.min(S.dust || 0, capD, dustPerSec() * minutes * 60);
+  if (stealD > 0) { S.dust -= stealD; out.dust = stealD; }
+  const eps = energyPerSec();
+  if (eps > 0) {
+    const stealE = Math.min(S.energy || 0, capEn, eps * minutes * 60);
+    if (stealE > 0) { S.energy -= stealE; out.energy = stealE; }
+  }
+  const cps = civPerSec();
+  if (cps > 0) {
+    const stealC = Math.min(S.civLevel || 0, capCi, cps * minutes * 60);
+    if (stealC > 0) { S.civLevel -= stealC; out.civ = stealC; }
+  }
+
+  // 2) «оккупация»: штраф к доходу на N часов (стек до debuffStackCap)
+  const pct = (tier.debuffPct || 0) * k;
+  const durH = (tier.debuffHours || 0) * k;
+  if (pct > 0 && durH > 0) {
+    const cur = (S.invasionDebuff && S.invasionDebuff.until > now) ? Number(S.invasionDebuff.pct) || 0 : 0;
+    S.invasionDebuff = {
+      pct: Math.min(cfg.debuffStackCap || 0.6, cur + pct),
+      until: Math.max((S.invasionDebuff && S.invasionDebuff.until) || 0, now + durH * 3600 * 1000),
+    };
+  }
+
+  // 3) повреждение планет: простой N часов, но НЕ удаление
+  const alive = (S.planets || []).filter(function(p) { return p && !p.forming && !(p.disabledUntil > now); });
+  const canDisable = Math.max(0, Math.min(tier.disablePlanets || 0, (S.planets || []).length - 1));
+  for (let i = 0; i < canDisable && alive.length > 0; i++) {
+    const idx = Math.floor(Math.random() * alive.length);
+    const victim = alive.splice(idx, 1)[0];
+    victim.disabledUntil = now + (tier.disableHours || 2) * k * 3600 * 1000;
+    out.disabled++;
+  }
+  return out;
+}
+window.applyInvasionHit = applyInvasionHit;
 
 function applySystemLosses(count) {
-  if (S.systems <= 1) {
-    applyPlanetLosses(count * 3);
-    return;
-  }
-  let removed = 0;
-  for (let i = S.otherSystems.length - 1; i >= 1 && removed < count; i--) {
-    if (S.otherSystems[i]) {
-      S.otherSystems[i] = null;
-      S.systems--;
-      removed++;
+  // ★ Системы больше не удаляются: вторжение лишь выводит их из строя.
+  let damaged = 0;
+  const until = Date.now() + (INVASION_CFG.planetDisabledHours || 2) * 3600 * 1000;
+  for (let i = 1; i < S.otherSystems.length && damaged < count; i++) {
+    const sys = S.otherSystems[i];
+    if (sys && !(sys.damagedUntil > Date.now())) {
+      sys.damagedUntil = until;
+      damaged++;
     }
   }
-  if (S.activeSystemIdx > 0 && !S.otherSystems[S.activeSystemIdx]) {
-    if (typeof switchToSystem === 'function') switchToSystem(0);
-  }
-  if (typeof addEvent === 'function') {
-    addEvent('invasion_destroy', 'Вторжения уничтожили ' + removed + ' систем');
+  if (damaged > 0 && typeof addEvent === 'function') {
+    addEvent('invasion_destroy', 'Вторжения повредили ' + damaged + ' систем(ы)');
   }
 }
 

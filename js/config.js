@@ -6,7 +6,7 @@
 const CFG = {
   // ─── Общие настройки ───
   offlineCapHours: 8,
-  offlineEfficiency: 1.0,
+  offlineEfficiency: 0.6,
   offlineAttackMinSec: 3600,  // Офлайн-вторжения срабатывают только если игрок отсутствовал > 1 часа
   eventInterval: 200,
   eventChance: 0.5,
@@ -15,8 +15,8 @@ const CFG = {
   civClickBoost: 0.0,
 
   // ─── Экономика планет и систем ───
-  planetBaseCost: 500000, planetCostGrowth: 1.8,
-  systemBaseCost: 20000000, systemGrowth: 2.5, systemCostMin: 20000000,
+  planetBaseCost: 3530000, planetCostGrowth: 2.0, planetCostExp: 2.0,
+  systemBaseCost: 71000000, systemGrowth: 1.5, systemCostExp: 1.5, systemCostMin: 1000000,
   systemIncomeMultPerSystem: 1.0,
   storageInstantStars: 50,
 
@@ -83,24 +83,24 @@ const STAGES = {
   cloud:      { tag: 'ФАЗА I', scale: 'ОБЛАКО', name: 'Молекулярное облако', goal: 2000, baseRate: 0, clickRate: 0 },
   condense:   { tag: 'ФАЗА II', scale: 'ДИСК', name: 'Протопланетный диск', goal: 25000, baseRate: 0, clickRate: 0 },
   protostar:  { tag: 'ФАЗА III', scale: 'ЗВЕЗДА', name: 'Протозвезда', goal: null, baseRate: 0, clickRate: 0 },
-  firstPlanet:{ tag: 'ФАЗА IV', scale: 'ЗВЕЗДА', name: 'Первая планета', goal: null, baseRate: 40, clickRate: 0 },
-  system:     { tag: 'ФАЗА V', scale: 'СИСТЕМА', name: 'Формирование системы', goal: null, baseRate: 200, clickRate: 50 },
-  galaxy:     { tag: 'ФАЗА VI', scale: 'ГАЛАКТИКА', name: 'Межзвёздная экспансия', goal: null, baseRate: 2000, clickRate: 100 },
+  firstPlanet:{ tag: 'ФАЗА IV', scale: 'ЗВЕЗДА', name: 'Первая планета', goal: null, baseRate: 800, clickRate: 0 },
+  system:     { tag: 'ФАЗА V', scale: 'СИСТЕМА', name: 'Формирование системы', goal: null, baseRate: 1200, clickRate: 50 },
+  galaxy:     { tag: 'ФАЗА VI', scale: 'ГАЛАКТИКА', name: 'Межзвёздная экспансия', goal: null, baseRate: 2500, clickRate: 100 },
 };
 
 // ─── ЗВЕЗДЫ И СИСТЕМЫ ───
 const STAR_TYPES = {
-  M: { name: 'Красный карлик', color: 8, sat: 92, light: 60, rateMult: 6, civ: false, size: 0.65, maxCiv: 0 },
-  K: { name: 'Оранжевый карлик', color: 32, sat: 88, light: 68, rateMult: 3, civ: true, size: 0.85, maxCiv: 7 },
-  G: { name: 'Жёлтый карлик', color: 50, sat: 95, light: 74, rateMult: 1.5, civ: true, size: 1.0, maxCiv: 10 },
-  A: { name: 'Белая звезда', color: 210, sat: 25, light: 88, rateMult: 2, civ: false, size: 1.25, maxCiv: 0 },
-  B: { name: 'Голубая звезда', color: 220, sat: 78, light: 78, rateMult: 3.5, civ: false, size: 1.6, maxCiv: 0 },
+  M: { name: 'Красный карлик', color: 8, sat: 92, light: 60, rateMult: 2.2, civ: false, size: 0.65, maxCiv: 0 },
+  K: { name: 'Оранжевый карлик', color: 32, sat: 88, light: 68, rateMult: 2.1, civ: true, size: 0.85, maxCiv: 7 },
+  G: { name: 'Жёлтый карлик', color: 50, sat: 95, light: 74, rateMult: 1.8, civ: true, size: 1.0, maxCiv: 10 },
+  A: { name: 'Белая звезда', color: 210, sat: 25, light: 88, rateMult: 1.9, civ: false, size: 1.25, maxCiv: 0 },
+  B: { name: 'Голубая звезда', color: 220, sat: 78, light: 78, rateMult: 2.0, civ: false, size: 1.6, maxCiv: 0 },
 };
 
 const SYSTEM_TYPES = {
   single:   { name: 'Одиночная', stars: 1, chance: 0.50, rateMult: 1.0, collisionRate: 0.08, civPassiveMult: 1.0, civClickMult: 1.0, icon: '⭐', color: '#6b4de6', eccentricity: 0.00, precession: 0.000002, orbitDriftRate: 0.0, chaosticPulse: 0.0 },
-  binary:   { name: 'Двойная', stars: 2, chance: 0.38, rateMult: 1.7, collisionRate: 0.20, civPassiveMult: 0.65, civClickMult: 3.0, icon: '✨', color: '#8b5cf6', eccentricity: 0.06, precession: 0.00002, orbitDriftRate: 0.3, chaosticPulse: 0.0003 },
-  trinary:  { name: 'Кратная', stars: 3, chance: 0.12, rateMult: 2.5, collisionRate: 0.35, civPassiveMult: 0.40, civClickMult: 6.0, icon: '💫', color: '#a855f7', eccentricity: 0.09, precession: 0.00004, orbitDriftRate: 0.5, chaosticPulse: 0.0008 },
+  binary:   { name: 'Двойная', stars: 2, chance: 0.38, rateMult: 1.15, collisionRate: 0.20, civPassiveMult: 0.65, civClickMult: 3.0, icon: '✨', color: '#8b5cf6', eccentricity: 0.06, precession: 0.00002, orbitDriftRate: 0.3, chaosticPulse: 0.0003 },
+  trinary:  { name: 'Кратная', stars: 3, chance: 0.12, rateMult: 1.3, collisionRate: 0.35, civPassiveMult: 0.40, civClickMult: 6.0, icon: '💫', color: '#a855f7', eccentricity: 0.09, precession: 0.00004, orbitDriftRate: 0.5, chaosticPulse: 0.0008 },
 };
 
 // ─── ПЛАНЕТЫ И ОРБИТЫ ───
@@ -109,7 +109,7 @@ const PLANET_TYPES = {
   superEarth: { name: 'Земля', color: '#5a9c6e', civ: true, rate: 500, size: 1.3, bonus: { type: 'civ', civMult: 1.5 } },
   iceGiant:   { name: 'Ледяной гигант', color: '#7ec8e3', civ: false, rate: 700, size: 1.5, bonus: { type: 'comet' } },
   gasGiant:   { name: 'Газовый гигант', color: '#d4a76a', civ: false, rate: 900, size: 1.8, bonus: { type: 'shield', cometFailReduction: 0.3 } },
-  lava:       { name: 'Лава-планета', color: '#ff4a22', civ: false, rate: 1400, size: 0.9, bonus: { type: 'metals', metalsPerSec: 0.5 } },
+  lava:       { name: 'Лава-планета', color: '#ff4a22', civ: false, rate: 1400, size: 0.9, bonus: { type: 'metals', metalsPerSec: 0.15 } },
 };
 
 const PHYS = { refRadius: 100, refTemp: 280, refPeriod: 8 };
@@ -183,25 +183,35 @@ function getAllowedOrbitsForType(starType, planetType) {
 
 // ─── ВТОРЖЕНИЯ ───
 const INVASION_CFG = {
-  intervalMin: 60 * 60 * 1000,  // 1 час
-  intervalMax: 5 * 60 * 60 * 1000, // 5 часов
-  chance: 0.6,
+  intervalMin: 3 * 60 * 60 * 1000,  // 3 часа — вторжения редкие, но тяжёлые
+  intervalMax: 8 * 60 * 60 * 1000,  // 8 часов
+  chance: 0.7,
 
   shipsBase: 3,   // Базовое число кораблей вторжения
   shipsMax: 5,    // Максимум кораблей
   robberyDuration: 45 * 60 * 1000, destructionDuration: 15 * 60 * 1000, totalDuration: 60 * 60 * 1000,
-  robberyMultiplier: 4, planetMaxHP: 100, hitRadius: 20,
+  planetMaxHP: 100, hitRadius: 20,
+  // ★ Урон вторжений (v2): измеряется в МИНУТАХ экономики, а не в xN дохода/сек.
+  // theftMin — сколько минут дохода уносит; debuffPct/debuffHours — штраф к доходу;
+  // targets — сколько планет атакуется одновременно; disablePlanets/disableHours — простой.
   tiers: {
-    scout:  { weight: 0.60, baseChance: 0.70, planets: 1, energyDrain: 0.03, civDrain: 0.05, lootMult: 1.0, chanceCap: 0.90, label: 'Разведка' },
-    raid:   { weight: 0.30, baseChance: 0.50, planets: 2, energyDrain: 0.06, civDrain: 0.10, lootMult: 1.5, chanceCap: 0.80, label: 'Рейд' },
-    siege:  { weight: 0.10, baseChance: 0.25, planets: 3, energyDrain: 0.10, civDrain: 0.15, lootMult: 2.5, chanceCap: 0.65, label: 'Осада' },
+    scout:  { weight: 0.55, baseChance: 0.70, planets: 1, targets: 1, theftMin: 25, debuffPct: 0.15, debuffHours: 2, disablePlanets: 1, disableHours: 1.5, energyDrain: 0.03, civDrain: 0.05, lootMult: 1.0, chanceCap: 0.90, label: 'Разведка' },
+    raid:   { weight: 0.30, baseChance: 0.50, planets: 2, targets: 2, theftMin: 50, debuffPct: 0.25, debuffHours: 3, disablePlanets: 2, disableHours: 2, energyDrain: 0.06, civDrain: 0.10, lootMult: 1.5, chanceCap: 0.80, label: 'Рейд' },
+    siege:  { weight: 0.15, baseChance: 0.25, planets: 3, targets: 3, theftMin: 90, debuffPct: 0.35, debuffHours: 5, disablePlanets: 3, disableHours: 3, energyDrain: 0.10, civDrain: 0.15, lootMult: 2.5, chanceCap: 0.65, label: 'Осада' },
   },
+  defenseLossReduction: 0.20,      // -20% урона за уровень обороны (ур.5 = иммунитет)
+  debuffStackCap: 0.60,            // суммарный штраф к доходу не более -60%
+  nightLossCapShare: 0.40,         // за офлайн-сессию не более 40% каждой валюты
+  nightCapHours: 4,                // и не более 4 часов прогресса
+  planetDisabledHours: 2,          // сколько планета простаивает после повреждения
+  repairCostShare: 0.15,           // ремонт планеты стоит 15% её цены в пыли
+  offlineAttackMax: 4,
   resourceThresholdShare: 0.25,
   defenseBonusBase: 6, defenseBonusExp: 0.8, defenseDrainReduction: 0.05,
-  defenseCost: [0, 300, 700, 1500, 3000, 6000],
-  defenseCostMultiplierPerSystem: 0.5, // +50% к цене за каждую систему свыше 1
+  defenseCost: [0, 150, 350, 750, 1500, 3000],
+  defenseCostMultiplierPerSystem: 0.15, // +15% к цене за каждую систему свыше 1
   expeditionDefensePenalty: 0.15,
-  offlineAttackInterval: 2 * 60 * 60 * 1000, offlineAttackMax: 5, offlineAttackPerSystems: 3,
+  offlineAttackInterval: 3 * 60 * 60 * 1000, offlineAttackMax: 5, offlineAttackPerSystems: 3,
 };
 
 // ─── НОЧНОЙ РЕЖИМ ───
@@ -233,31 +243,37 @@ const TROPHY_CFG = {
 
 // ─── ПРЕМИУМ (Металлы) ───
 const PREMIUM_CFG = {
-  shield: { hours: 8, costMetals: 1000 },
-  booster: { hours: 2, costMetals: 1000, incomeMult: 2.0 },
+  shield: { hours: 8, costMetals: 600 },
+  booster: { hours: 2, costMetals: 600, incomeMult: 2.0 },
 };
 
 // ─── МИССИИ ───
 const MISSIONS_CFG = {
   cometFlightBase: 5 * 60 * 1000, cometFlightMinMult: 1.0, cometFlightMaxMult: 3.0,
   cometRewardBase: 1000000, cometRewardPerPlanet: 0.15, cometFailChance: 0.20,
+  cometRewardMult: 1.35,       // ★ награда = стоимость кометы * 1.35 (EV +8% при fail 20%)
   cometDamageRange: 2.5, cometDamageChance: 0.35,
   expeditionCostBase: 3000, expeditionCostRatio: 1.5,
   expeditionFlightMin: 10 * 60 * 1000, expeditionFlightMax: 20 * 60 * 1000,
   expeditionRewardBase: 2000000, expeditionRewardPerPlanet: 0.25, expeditionFailChance: 0.25,
+  expeditionRewardShare: 0.5,  // ★ награда = доход * 0.5 * время полёта (EV x1.375)
+  expeditionEnergySeconds: 300, // ★ цена = 5 минут дохода энергии
   colonyChance: 0.03, colonyEnergyCost: 50000, colonyEnergyRatio: 2, colonyCivCost: 50, colonyCivRatio: 1.8,
 };
 
 // ─── МАГАЗИН СИСТЕМ ───
 const SYSTEM_SHOP_CFG = {
   dustSeconds: 1800, energyCapShare: 0.5, civCapShare: 0.4,
+  shopEnergySeconds: 1800, shopCivSeconds: 900, // ★ цена шкал = 30/15 мин дохода, а не % капа
   energyBonusPlanets: 2, energyBonusIncome: 0.5,
   colonyChanceFull: 0.60, gasChance: 0.30,
   primeChance: 0,
 };
 
-const PRESTIGE_CFG = { firstRequirement: 5, stepMultiplier: 2, multiplierPerGalaxy: 2.0 };
-const METALS_CFG = { expeditionCostMetals: 200, cometBoostCostMetals: 100, cometBoostSurvival: 0.3, colonyCostMetals: 500 };
+const PRESTIGE_CFG = { firstRequirement: 5, stepMultiplier: 1.4, multiplierPerGalaxy: 2.0, requirements: [5, 8, 11, 14, 18] };
+const METALS_CFG = { expeditionCostMetals: 200, cometBoostCostMetals: 100, cometBoostSurvival: 0.3, colonyCostMetals: 500,
+  capBase: 750, capGrowth: 2.0,            // ★ кап металлов: 750 x 2^(уровень хранилища-1)
+  capStorage: 'energy' };
 
 // ─── ФЛОТ (Верфь) ───
 const FLEET_CFG = {

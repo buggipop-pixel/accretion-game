@@ -910,7 +910,7 @@ function openNightMode() {
         ${defenseButtons}
       </div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;margin-top:4px;">
-        <span>Металлы: ${fmt(S.metalAmount || 0)} ⚙</span>
+        <span>Металлы: ${fmt(S.metalAmount || 0)} / ${fmt(typeof metalsCap === 'function' ? metalsCap() : 0)} ⚙</span>
         <span>Активация съедает металл</span>
       </div>
       <div class="pour-btn-group" style="margin-top:4px;">

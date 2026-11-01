@@ -114,6 +114,8 @@ function resetStateValues() {
   S.storageLevels = { dust: 1, energy: 1, civ: 1 };
   S.storageProgress = { dust: 0, energy: 0, civ: 0 };
   S.boosters = { incomeUntil: 0 };
+  S.invasionDebuff = { pct: 0, until: 0 };
+  S.invasionWaveApplied = null;
 
   S.starType = null; S.systemType = null;
   S.planets = [];
@@ -268,6 +270,8 @@ function saveGame() {
       
       // Вторжения
       invasions: S.invasions, lastInvasionCheck: S.lastInvasionCheck,
+      invasionDebuff: S.invasionDebuff || null,
+      saveVersion: S.saveVersion || 0,
       activeEvent: S.activeEvent,
       lastEventAt: S.lastEventAt,
       
@@ -313,6 +317,8 @@ function loadGame() {
     if (typeof S.assemblyCooldownUntil !== 'number') S.assemblyCooldownUntil = 0;
     if (typeof S.evolutionPopupSuspended !== 'boolean') S.evolutionPopupSuspended = false;
     if (typeof S.metalAmount !== 'number') S.metalAmount = 0;
+    if (!S.invasionDebuff || typeof S.invasionDebuff !== 'object') S.invasionDebuff = { pct: 0, until: 0 };
+    if (typeof S.saveVersion !== 'number') S.saveVersion = 0;
     if (!S.fleet || typeof S.fleet !== 'object' || Array.isArray(S.fleet)) {
       S.fleet = { interceptor: 0, cruiser: 0, dreadnought: 0 };
     }

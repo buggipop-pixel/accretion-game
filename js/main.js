@@ -12,22 +12,87 @@ let W, H, cx, cy, dpr;
 let cachedBgGradient = null; // Оптимизация: кэш градиента фона
 
 // ─── Fullscreen ─────────────────────────────────────────────────
+// ★ Полноэкранный режим — это ЦЕПОЧКА фолбэков, а не один вызов:
+//   1) Telegram WebApp API (Bot API 8.0+), 2) нативный Fullscreen API,
+//   3) webkit-фолбэк, 4) расширение вьюпорта (expand).
+// Раньше стоял латч-флаг: первый неудачный вызов (например, iframe без
+// allowfullscreen или Telegram < 8.0) навсегда блокировал повтор — поэтому
+// режим «перестал работать». Теперь флаг ставится только по факту успеха,
+// а при неудаче следующее касание пробует снова.
 let fullscreenRequested = false;
-function requestFullscreen() {
-  if (fullscreenRequested) return;
-  fullscreenRequested = true;
-  
-  const tg = window.Telegram && window.Telegram.WebApp;
-  try {
-    if (tg && tg.requestFullscreen && (!tg.isVersionAtLeast || tg.isVersionAtLeast('8.0'))) {
-      tg.requestFullscreen();
-    } else {
-      const el = document.documentElement;
-      if (el.requestFullscreen) el.requestFullscreen().catch(function() {});
-      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-    }
-  } catch (e) {}
+let fullscreenAttempts = 0;
+
+function _fsActive() {
+  return !!(document.fullscreenElement || document.webkitFullscreenElement);
 }
+
+function _afterFullscreenEnter() {
+  fullscreenRequested = true;
+  document.body.classList.add('fs-active');
+  if (typeof resize === 'function') setTimeout(resize, 60);
+  setTimeout(function() {
+    if (typeof resize === 'function') resize();
+    if (typeof syncTelegramLayout === 'function') syncTelegramLayout();
+  }, 350);
+}
+
+function requestFullscreen() {
+  if (fullscreenRequested || _fsActive()) return;
+  fullscreenAttempts++;
+
+  const tg = window.Telegram && window.Telegram.WebApp;
+
+  // 1) Telegram native fullscreen (Bot API 8.0+)
+  try {
+    if (tg && typeof tg.requestFullscreen === 'function' &&
+        (!tg.isVersionAtLeast || tg.isVersionAtLeast('8.0'))) {
+      tg.requestFullscreen();
+      // Telegram пришлёт fullscreenChanged; флаг поставим там же
+      return;
+    }
+  } catch (e) { /* падаем в фолбэк ниже */ }
+
+  // 2) Нативный Fullscreen API (жест пользователя уже есть — pointerdown)
+  const el = document.documentElement;
+  const done = function() { _afterFullscreenEnter(); };
+  const fail = function() {
+    // 3) webkit-фолбэк
+    if (el.webkitRequestFullscreen) {
+      try { el.webkitRequestFullscreen(); return; } catch (e2) {}
+    }
+    // 4) хотя бы развернуть вьюпорт Telegram
+    try { if (tg && tg.expand) tg.expand(); } catch (e3) {}
+  };
+  try {
+    if (el.requestFullscreen) {
+      const p = el.requestFullscreen({ navigationUI: 'hide' });
+      if (p && typeof p.then === 'function') p.then(done).catch(fail);
+      else done();
+      return;
+    }
+    if (el.webkitRequestFullscreen) { el.webkitRequestFullscreen(); return; }
+  } catch (e) { /* ignore */ }
+  fail();
+}
+
+// События входа/выхода: синхронизируем состояние и размеры канваса
+(function initFullscreenEvents() {
+  const onEnter = function() { _afterFullscreenEnter(); };
+  const onExit = function() {
+    fullscreenRequested = false;
+    document.body.classList.remove('fs-active');
+    if (typeof resize === 'function') setTimeout(resize, 60);
+  };
+  if (document.addEventListener) {
+    document.addEventListener('fullscreenchange', function() {
+      if (_fsActive()) onEnter(); else onExit();
+    });
+    document.addEventListener('webkitfullscreenchange', function() {
+      if (_fsActive()) onEnter(); else onExit();
+    });
+    document.addEventListener('fullscreenerror', function() { fullscreenRequested = false; });
+  }
+})();
 
 // ─── Защита от жестов (скролл страницы и т.д.) ───────────────────
 document.addEventListener('touchmove', function(e) {
@@ -560,7 +625,10 @@ const actualEGain = Math.min(energyCap - S.energy, eGain);
 if (actualEGain > 0) S.energy = (S.energy || 0) + actualEGain;
 }
 const metalGain = safeMetalsPerSec() * dt;
-if (metalGain > 0) S.metalAmount = (S.metalAmount || 0) + metalGain;
+if (metalGain > 0) {
+  const mCap = (typeof metalsCap === 'function') ? metalsCap() : Infinity;
+  S.metalAmount = Math.min(mCap, (S.metalAmount || 0) + metalGain);
+}
 // Тики и логика систем
 if (typeof tickCiv === 'function') tickCiv(dt);
 if (typeof updateParticles === 'function') updateParticles(dt, time);
@@ -669,6 +737,16 @@ function syncTelegramLayout() {
     document.body.classList.add('in-telegram');
     const fullscreen = (tg.isFullscreen === true) || (tg.isExpanded === true);
     document.body.classList.toggle('tg-fullscreen', fullscreen);
+    // Telegram сообщил, что мы в полноэкранном режиме — фиксируем состояние
+    if (tg.isFullscreen === true && !fullscreenRequested) {
+      fullscreenRequested = true;
+      document.body.classList.add('fs-active');
+      if (typeof resize === 'function') setTimeout(resize, 120);
+    } else if (tg.isFullscreen !== true && !_fsActive() && fullscreenRequested) {
+      fullscreenRequested = false;
+      document.body.classList.remove('fs-active');
+      if (typeof resize === 'function') setTimeout(resize, 120);
+    }
   } catch (e) { /* ignore */ }
 }
 // ─── Старт ──────────────────────────────────────────────────────

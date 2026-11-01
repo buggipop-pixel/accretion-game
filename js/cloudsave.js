@@ -10,7 +10,16 @@ const CLOUD_AUTOSYNC = true;
 const CLOUD_AUTOSAVE_MS = 60 * 1000;
 const CLOUD_SYNC_FLAG = 'accretion_cloud_synced';
 const CLOUD_RESET_FLAG = 'accretion_reset_pending';
+const CLOUD_VER_KEY = 'accretion_cloud_version';
 
+// ★ Версия облачного сейва — общий монотонный счётчик сервера.
+// Без него два устройства затирали друг друга «вслепую».
+function getCloudVersion() {
+  try { return Number(localStorage.getItem(CLOUD_VER_KEY)) || 0; } catch (e) { return 0; }
+}
+function setCloudVersion(v) {
+  try { localStorage.setItem(CLOUD_VER_KEY, String(Number(v) || 0)); } catch (e) { /* ignore */ }
+}
 // ─── Вспомогательные функции ────────────────────────────────────
 function getSaveKey() {
   try {
@@ -99,15 +108,48 @@ async function cloudSaveGame() {
     const saveData = readLocalSave();
     if (!saveData) return { ok: false, error: 'no-save' };
     
-    // ★ Прямой fetch с keepalive: true
+    // ★ Прямой fetch с keepalive: true + версия, которую клиент видел
+    const baseVersion = getCloudVersion();
     const response = await fetch(CLOUD_API + '/api/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData, saveData }),
+      body: JSON.stringify({ initData, saveData, baseVersion }),
       keepalive: true // Позволяет отправить запрос даже при закрытии окна
     });
-    
+
+    // ★ КОНФЛИКТ: облако уже новее (играли с другого устройства)
+    if (response.status === 409) {
+      const conflict = await response.json().catch(function() { return null; });
+      const cloud = conflict && conflict.data;
+      setCloudVersion(conflict && conflict.version);
+
+      const localTs = Number(saveData.lastTick) || 0;
+      const cloudTs = Number(cloud && cloud.lastTick) || 0;
+
+      if (cloud && cloudTs > localTs + 60000) {
+        // Облако действительно новее — принимаем его, не затираем
+        applyCloudSaveToRuntime(cloud);
+        if (typeof toast === 'function') toast('☁️ Прогресс обновлён', 'Сейв новее с другого устройства');
+        return { ok: false, conflict: 'cloud-newer', saved_at: conflict.saved_at };
+      }
+
+      // Локальный новее — форсируем запись поверх актуальной версии
+      const retry = await fetch(CLOUD_API + '/api/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData, saveData, baseVersion: (conflict && conflict.version) || 0 }),
+        keepalive: true
+      });
+      if (retry.ok) {
+        const rr = await retry.json();
+        setCloudVersion(rr && rr.version);
+        return { ok: true, saved_at: rr && rr.saved_at };
+      }
+      return { ok: false, conflict: 'unresolved' };
+    }
+
     const r = await response.json();
+    if (r && typeof r.version === 'number') setCloudVersion(r.version);
     return { ok: true, saved_at: r && r.saved_at };
   } catch (e) {
     console.warn('[cloudSave] save failed:', e.message);
@@ -147,6 +189,7 @@ async function cloudLoadGame(force) {
   try {
     const r = await cloudApi('/api/load', { initData });
     if (!r || !r.data) return { ok: false, error: 'no-cloud-save' };
+    if (typeof r.version === 'number') setCloudVersion(r.version);
 
     if (!force && r.saved_at && r.saved_at <= localSavedAt()) {
       return { ok: false, error: 'local-newer', saved_at: r.saved_at };
@@ -234,6 +277,7 @@ async function syncCloudOnStart() {
       body: JSON.stringify({ initData: initData })
     });
     const json = await res.json();
+    if (json && typeof json.version === 'number') setCloudVersion(json.version);
 
     // ★ КРИТИЧЕСКАЯ ЗАЩИТА: сервер ответил ok, но данных нет — локальный сейв не трогаем
     if (!json.ok || !json.data) return false;

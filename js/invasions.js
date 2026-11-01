@@ -87,36 +87,95 @@ function spawnInvasion() {
     return;
   }
 
-  // ★ Если система всего одна — бьем по планете
-  const active = S.planets.filter(function(p) { return !p.forming && !isPlanetInvaded(p); });
+  // ★ Если система всего одна — бьём СРАЗУ ПО НЕСКОЛЬКИМ планетам (tier.targets)
+  const active = S.planets.filter(function(p) { return !p.forming && !isPlanetInvaded(p) && !(p.disabledUntil > now); });
   if (active.length === 0) return;
 
-  const victim = active[Math.floor(Math.random() * active.length)];
-  const shipCount = Math.min(INVASION_CFG.shipsMax, INVASION_CFG.shipsBase + 1);
-  
-  S.invasions.push({
-    id: Math.random().toString(36).slice(2),
-    tierKey: tierKey,
-    targetType: 'planet',
-    systemIdx: S.activeSystemIdx,
-    planetSeed: victim.seed,
-    ships: makeShips(shipCount),
-    spawnedAt: now,
-    robberyEndsAt: now + INVASION_CFG.robberyDuration,
-    destructionEndsAt: now + INVASION_CFG.totalDuration,
-    hp: INVASION_CFG.planetMaxHP,
-    maxHp: INVASION_CFG.planetMaxHP,
-    stolen: 0,
-    drainedEnergy: 0,
-    drainedCiv: 0,
-    defenseBroken: false,
-    notified: true,
-  });
+  const wantTargets = Math.max(1, Math.min(tier.targets || 1, active.length));
+  const waveId = 'w' + now.toString(36) + Math.random().toString(36).slice(2, 6);
+  const victimNames = [];
 
-  toast('⚔️ Вторжение!', PLANET_TYPES[victim.type].name + ' атакована');
+  for (let t = 0; t < wantTargets; t++) {
+    const idx = Math.floor(Math.random() * active.length);
+    const victim = active.splice(idx, 1)[0];
+    if (!victim) break;
+    victimNames.push(PLANET_TYPES[victim.type].name);
+
+    S.invasions.push({
+      id: Math.random().toString(36).slice(2),
+      waveId: waveId,
+      tierKey: tierKey,
+      targetType: 'planet',
+      systemIdx: S.activeSystemIdx,
+      planetSeed: victim.seed,
+      ships: makeShips(Math.min(INVASION_CFG.shipsMax, INVASION_CFG.shipsBase + 1)),
+      spawnedAt: now,
+      robberyEndsAt: now + INVASION_CFG.robberyDuration,
+      destructionEndsAt: now + INVASION_CFG.totalDuration,
+      hp: INVASION_CFG.planetMaxHP,
+      maxHp: INVASION_CFG.planetMaxHP,
+      stolen: 0,
+      drainedEnergy: 0,
+      drainedCiv: 0,
+      defenseBroken: false,
+      notified: true,
+    });
+  }
+
+  if (wantTargets === 0) return;
+  toast('⚔️ ' + tier.label + '!', wantTargets > 1 ? ('Атаковано планет: ' + wantTargets) : (victimNames[0] + ' атакована'));
   if (typeof playSFX === 'function') playSFX('invasion');
-  if (typeof addEvent === 'function') addEvent('invasion_spawn', tier.label + ': ' + PLANET_TYPES[victim.type].name);
+  if (typeof addEvent === 'function') addEvent('invasion_spawn', tier.label + ': ' + victimNames.join(', '));
 }
+
+// ─── Урон второго порядка: оккупация и простой планет ───────────
+function invasionDefK() {
+  const def = (S.nightConfig && S.nightConfig.defenseEnabled) ? (S.defenseLevel || 0) : 0;
+  return Math.max(0, 1 - def * (INVASION_CFG.defenseLossReduction || 0.2));
+}
+
+function applyInvasionAftermath(inv, victim) {
+  const tier = INVASION_CFG.tiers[inv.tierKey] || INVASION_CFG.tiers.raid;
+  const k = invasionDefK();
+  if (k <= 0) return;
+  const now = Date.now();
+
+  // 1) штраф к доходу — один раз на волну
+  if (!inv.waveId || S.invasionWaveApplied !== inv.waveId) {
+    S.invasionWaveApplied = inv.waveId || ('solo' + now);
+    const pct = (tier.debuffPct || 0) * k;
+    const durH = (tier.debuffHours || 0) * k;
+    if (pct > 0 && durH > 0) {
+      const cur = (S.invasionDebuff && S.invasionDebuff.until > now) ? (Number(S.invasionDebuff.pct) || 0) : 0;
+      S.invasionDebuff = {
+        pct: Math.min(INVASION_CFG.debuffStackCap || 0.6, cur + pct),
+        until: Math.max((S.invasionDebuff && S.invasionDebuff.until) || 0, now + durH * 3600 * 1000),
+      };
+      if (typeof toast === 'function') toast('⚠️ Оккупация', 'Доход −' + Math.round(pct * 100) + '% на ' + durH.toFixed(1) + ' ч');
+    }
+  }
+
+  // 2) планеты простаивают, но НЕ удаляются
+  const victims = [];
+  const direct = victim || (S.planets || []).find(function(p) { return p.seed === inv.planetSeed; });
+  if (direct) victims.push(direct);
+  if (!direct && (S.planets || []).length > 1) {
+    const pool = (S.planets || []).filter(function(p) { return !p.forming && !(p.disabledUntil > now); });
+    const need = Math.min(tier.disablePlanets || 1, pool.length - 1);
+    for (let i = 0; i < need; i++) {
+      const idx = Math.floor(Math.random() * pool.length);
+      victims.push(pool.splice(idx, 1)[0]);
+    }
+  }
+  const dur = (tier.disableHours || 2) * k * 3600 * 1000;
+  for (const p of victims) {
+    if (!p) continue;
+    if ((S.planets || []).length <= 1) break;  // последнюю планету не выключаем
+    p.disabledUntil = now + dur;
+  }
+}
+
+window.applyInvasionAftermath = applyInvasionAftermath;
 
 // ─── Тик вторжений ──────────────────────────────────────────────
 function tickInvasions(dt) {
@@ -231,8 +290,10 @@ function tickInvasions(dt) {
       }
 
       if (now < inv.robberyEndsAt && S.dust > 0) {
-        const drain = dustPerSec() * INVASION_CFG.robberyMultiplier * tier.lootMult * aliveShips * dt;
-        S.dust -= Math.min(S.dust, drain);
+        const theftTotal = dustPerSec() * (tier.theftMin / Math.max(1, tier.targets || 1)) * 60 * invasionDefK();
+        const rate = theftTotal / (INVASION_CFG.robberyDuration / 1000);
+        const take = Math.min(S.dust, rate * dt);
+        S.dust -= take; inv.stolen = (inv.stolen || 0) + take;
       }
 
       const robbingDone = now >= inv.robberyEndsAt || S.dust <= 0;
@@ -241,18 +302,9 @@ function tickInvasions(dt) {
       if (robbingDone && aliveShips > 0) {
         const hpDrain = inv.maxHp / (INVASION_CFG.destructionDuration / 1000);
         inv.hp -= hpDrain * dt;
-        
         if (inv.hp <= 0 || now >= inv.destructionEndsAt) {
-          if (inv.systemIdx > 0) {
-            S.otherSystems[inv.systemIdx] = null;
-            S.systems--;
-            if (S.activeSystemIdx === inv.systemIdx) {
-              if (typeof switchToSystem === 'function') switchToSystem(0);
-              S.stage = S.systems >= 5 ? 'galaxy' : 'system';
-            }
-            toast('💀 Система уничтожена', 'Врагам удалось прорваться');
-            if (typeof addEvent === 'function') addEvent('invasion_destroy', 'Система уничтожена вторжением');
-          }
+          applyInvasionAftermath(inv);
+          if (inv.notified) toast('⚠️ Система повреждена', 'Доход снижен, часть планет простаивает');
           S.invasions.splice(i, 1);
           continue;
         }
@@ -282,21 +334,20 @@ function tickInvasions(dt) {
     }
 
     if (now < inv.robberyEndsAt && S.dust > 0) {
-      const drain = dustPerSec() * INVASION_CFG.robberyMultiplier * tier.lootMult * aliveShips * dt;
-      S.dust -= Math.min(S.dust, drain);
+      const theftTotal = dustPerSec() * (tier.theftMin / Math.max(1, tier.targets || 1)) * 60 * invasionDefK();
+      const rate = theftTotal / (INVASION_CFG.robberyDuration / 1000);
+      const take = Math.min(S.dust, rate * dt);
+      S.dust -= take; inv.stolen = (inv.stolen || 0) + take;
     }
 
     const robbingDone = now >= inv.robberyEndsAt || S.dust <= 0;
     if (robbingDone && aliveShips > 0) {
-      const hpDrainPerSec = inv.maxHp / (INVASION_CFG.destructionDuration / 1000);
-      inv.hp -= hpDrainPerSec * dt;
       if (inv.hp <= 0 || now >= inv.destructionEndsAt) {
-        destroyPlanetByInvasion(victim);
+        applyInvasionAftermath(inv, victim);
         S.invasions.splice(i, 1);
         continue;
       }
     }
-
     for (let s = 0; s < inv.ships.length; s++) {
       if (!inv.ships[s].destroyed) inv.ships[s].angle += inv.ships[s].speed * dt;
     }
@@ -304,17 +355,11 @@ function tickInvasions(dt) {
 }
 
 function destroyPlanetByInvasion(victim) {
-  const pt = PLANET_TYPES[victim.type];
-  const nowSec = performance.now() / 1000;
-  const pos = getPlanetWorldPos(victim, nowSec);
-  const sp = worldToScreen(pos.x, pos.y);
-
-  S.explosions.push({ x: sp.x, y: sp.y, type: 'destroy', startAt: Date.now(), endAt: Date.now() + 2000, size: 60 });
-  S.planets = S.planets.filter(function(p) { return p !== victim; });
-
-  toast('💀 Планета уничтожена', pt.name);
-  if (typeof playSFX === 'function') playSFX('explosion');
-  if (typeof logPlanetDestroyed === 'function') logPlanetDestroyed(pt.name, 'invasion');
+  // ★ удаление планет отключено: вторжение только повреждает (disabledUntil)
+  if (!victim) return;
+  victim.disabledUntil = Date.now() + (INVASION_CFG.planetDisabledHours || 2) * 3600 * 1000;
+  toast('⚠️ Планета повреждена', PLANET_TYPES[victim.type].name);
+  if (typeof addEvent === 'function') addEvent('invasion_destroy', PLANET_TYPES[victim.type].name + ' повреждена');
 }
 
 // ─── Клик по кораблю ────────────────────────────────────────────

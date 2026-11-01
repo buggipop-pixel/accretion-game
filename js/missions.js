@@ -33,7 +33,7 @@ function expeditionEnergyCost() {
     if (PLANET_TYPES[S.planets[i].type].civ && !S.planets[i].forming) lifeCount++;
   }
   // ★ Цена = 5 минут текущего дохода энергии (минимум 3000).
-  const baseCost = Math.max(cfg.expeditionCostBase, energyPerSec() * 300);
+  const baseCost = Math.max(cfg.expeditionCostBase, energyPerSec() * (cfg.expeditionEnergySeconds || 300));
   const lifeMult = 1 + lifeCount * 0.4;
   const systemMult = Math.pow(cfg.expeditionCostRatio, S.systems - 1);
   return Math.floor(baseCost * lifeMult * systemMult);
@@ -81,7 +81,7 @@ function missionDistanceOptions() {
       desc: d.desc,
       flightMin: (cfg.expeditionFlightMin * d.mult) / 60000,
       cost: Math.floor(baseCost * d.mult),
-      reward: Math.floor(dustPerSec() * 3600 * 2 * d.mult),
+      reward: Math.floor(dustPerSec() * (cfg.expeditionRewardShare || 0.5) * (cfg.expeditionFlightMin * d.mult / 1000)),
     };
   });
 }
@@ -167,10 +167,8 @@ function launchComet(sizePct) {
     (cfg.cometFlightMaxMult - cfg.cometFlightMinMult) * sizePct;
   const flightMs = Math.floor(cfg.cometFlightBase * flightMult * (0.9 + Math.random() * 0.2));
 
-  // ─── Награда ───
-  let reward = Math.floor(cfg.cometRewardBase *
-    (1 + S.planets.length * cfg.cometRewardPerPlanet) *
-    check.ice * (0.3 + sizePct * 3));
+  // ─── Награда: привязана к стоимости (EV +8% при fail 20%) ───
+  let reward = Math.floor(cost * (cfg.cometRewardMult || 1.35));
   if (S.activeEvent && typeof EVENT_CFG !== 'undefined' && Array.isArray(EVENT_CFG.types)) {
     const evt = EVENT_CFG.types.find(t => t.id === S.activeEvent.id);
     if (evt && evt.dustCometMult) reward = Math.floor(reward * evt.dustCometMult);
@@ -237,7 +235,7 @@ function launchComet(sizePct) {
 function canLaunchExpedition(distanceMultiplier) {
   const mult = Math.max(1, Math.min(3, parseInt(distanceMultiplier) || 1));
   if (S.civLevel < 6) return { ok: false, reason: 'Нужен цив. 6' };
-  const cost = Math.floor(energyPerSec() * 120 * mult);
+  const cost = Math.floor(Math.max(MISSIONS_CFG.expeditionCostBase || 3000, energyPerSec() * (MISSIONS_CFG.expeditionEnergySeconds || 300)) * mult);
   if (S.energy < cost) return { ok: false, reason: 'Нужно ' + fmt(cost) + '⚡' };
   const now = Date.now();
   if (now - MISS.lastExpeditionAt < 60000) {
@@ -265,7 +263,7 @@ function launchExpedition(distanceMultiplier) {
 
   // ─── Время полёта и награда зависят от дальности ───
   const flightMs = Math.floor(cfg.expeditionFlightMin * mult);
-  const reward = Math.floor(dustPerSec() * 3600 * 2 * mult);
+  const reward = Math.floor(dustPerSec() * (cfg.expeditionRewardShare || 0.5) * (flightMs / 1000));
   // ─── Находим планету с жизнью для старта ───
   let civPlanet = null;
   for (let i = 0; i < S.planets.length; i++) {

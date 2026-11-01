@@ -88,10 +88,15 @@ window._systemRate = _systemRate;
 // ─── Требования по системам для каждой сверхновой ───────────────
 // 1-я на 5 систем, каждая следующая ×2: 5, 10, 20, 40, 80
 function prestigeRequirements() {
+  // ★ явный массив требований: каждый следующий престиж должен быть быстрее,
+  // поэтому шаг ~1.4, а не x2 (иначе 2-я галактика недостижима)
+  if (Array.isArray(PRESTIGE_CFG.requirements) && PRESTIGE_CFG.requirements.length) {
+    return PRESTIGE_CFG.requirements.slice();
+  }
   const first = PRESTIGE_CFG.firstRequirement || 5;
-  const step  = PRESTIGE_CFG.stepMultiplier || 2;
+  const step  = PRESTIGE_CFG.stepMultiplier || 1.4;
   const list = [];
-  for (let i = 0; i < 5; i++) list.push(first * Math.pow(step, i));
+  for (let i = 0; i < 5; i++) list.push(Math.round(first * Math.pow(step, i)));
   return list;
 }
 

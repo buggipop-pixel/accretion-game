@@ -12,8 +12,8 @@ function systemShopCosts() {
   }
   return {
     dust: dust,
-    energy: Math.max(1000, Math.floor(getResourceCap('energy') * (cfg.energyCapShare || 0.5))),
-    civ: Math.max(10, Math.floor(getResourceCap('civ') * (cfg.civCapShare || 0.4))),
+    energy: Math.max(1000, Math.floor(energyPerSec() * (cfg.shopEnergySeconds || 1800))),
+    civ: Math.max(10, Math.floor(civPerSec() * (cfg.shopCivSeconds || 900))),
   };
 }
 

@@ -196,7 +196,7 @@ const SAVE_RATE_LIMIT_MS = 5000;
 
 app.post('/api/save', async (req, res) => {
   try {
-    const { initData, saveData } = req.body || {};
+    const { initData, saveData, baseVersion } = req.body || {};
     const user = validateInitData(initData);
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
     if (!saveData || typeof saveData !== 'object') return res.status(400).json({ error: 'No saveData' });
@@ -209,10 +209,26 @@ app.post('/api/save', async (req, res) => {
     if (last && Date.now() - Number(last) < SAVE_RATE_LIMIT_MS) return res.status(429).json({ error: 'Too frequent' });
     await redisSet(rlKey, String(Date.now()));
 
-    const payload = { data: saveData, saved_at: Date.now(), user_id: user.id };
-    await redisSet(`cloudsave:${user.id}`, JSON.stringify(payload));
+    // ★ Оптимистическая блокировка: клиент присылает версию, которую он видел.
+    // Если на сервере уже новее — отдаём 409 + актуальный сейв, чтобы клиент
+    // не затёр прогресс с другого устройства «вслепую».
+    const cloudKey = `cloudsave:${user.id}`;
+    const existingRaw = await redisGet(cloudKey);
+    const existing = parseRedisJson(existingRaw);
+    const curVersion = (existing && typeof existing.version === 'number') ? existing.version : 0;
 
-    res.json({ ok: true, saved_at: payload.saved_at });
+    if (existing && existing.data && baseVersion !== undefined && baseVersion !== null &&
+        Number(baseVersion) !== curVersion) {
+      return res.status(409).json({
+        ok: false, conflict: true,
+        data: existing.data, saved_at: existing.saved_at, version: curVersion,
+      });
+    }
+
+    const payload = { data: saveData, saved_at: Date.now(), user_id: user.id, version: curVersion + 1 };
+    await redisSet(cloudKey, JSON.stringify(payload));
+
+    res.json({ ok: true, saved_at: payload.saved_at, version: payload.version });
   } catch (e) {
     console.error('[save]', e);
     res.status(500).json({ error: e.message });
@@ -230,7 +246,7 @@ app.post('/api/load', async (req, res) => {
 
     const payload = parseRedisJson(raw);
     if (!payload || typeof payload !== 'object') return res.status(500).json({ error: 'Corrupted cloud save' });
-    res.json({ ok: true, data: payload.data, saved_at: payload.saved_at });
+    res.json({ ok: true, data: payload.data, saved_at: payload.saved_at, version: payload.version || 0 });
   } catch (e) {
     console.error('[load]', e);
     res.status(500).json({ error: e.message });
