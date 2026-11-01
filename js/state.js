@@ -464,7 +464,7 @@ function loadGame() {
     // ─── 12. Автокоррекция фазы (защита от залипания) ───
     // В ранних фазах звезды быть не должно — чистим залипший starType из старых сейвов,
     // иначе включится панорамирование и тапы/драг перестанут работать
-    if (S.stage === 'cloud' || S.stage === 'condense' || S.stage === 'protostar') {
+    if ((S.stage === 'cloud' || S.stage === 'condense' || S.stage === 'protostar') && (S.dustTotal || 0) < 10000) {
       S.starType = null;
     }
     if (S.stage === 'firstPlanet' && S.planets && S.planets.length > 0) {

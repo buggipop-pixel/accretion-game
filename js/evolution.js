@@ -245,6 +245,7 @@ function _handlePlanetPlaced() {
     toast('⚠ Неверная планета', 'Нет места. Возврат ' + fmt(cost) + ' ✦. Перезарядка 30с.');
   }
   saveGame();
+  if (typeof autoSaveToCloud === 'function') autoSaveToCloud(true);
   if (typeof updateUI === 'function') updateUI();
 }
 

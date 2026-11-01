@@ -188,7 +188,12 @@ function getPlanetWorldPos(p, timeSec) {
 window.getPlanetWorldPos = getPlanetWorldPos;
 
 function addPlanet(preferredType) {
-  if (_tryPlacePlanetAt(preferredType)) return preferredType;
+  if (_tryPlacePlanetAt(preferredType)) {
+    // ★ Защита от потери прогресса: сразу фиксируем планету локально и в облаке
+    if (typeof saveGame === 'function') saveGame();
+    if (typeof autoSaveToCloud === 'function') autoSaveToCloud(true);
+    return preferredType;
+  }
   return false;
 }
 

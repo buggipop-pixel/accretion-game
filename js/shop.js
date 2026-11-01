@@ -131,7 +131,11 @@ function createSystemFromShop() {
     if (typeof updateUI === 'function') updateUI();
     if (typeof updateSystemSwitcher === 'function') updateSystemSwitcher();
     document.getElementById('modal').classList.remove('show');
-    saveGame(); updateUI(); updateSystemSwitcher();
+    if (typeof saveGame === 'function') saveGame();
+    if (typeof updateUI === 'function') updateUI();
+    if (typeof updateSystemSwitcher === 'function') updateSystemSwitcher();
+    // ★ Принудительно фиксируем покупку системы, чтобы прогресс не потерялся
+    if (typeof autoSaveToCloud === 'function') autoSaveToCloud(true);
     return true;
     
   } catch(e) {

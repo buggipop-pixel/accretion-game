@@ -115,6 +115,29 @@ async function cloudSaveGame() {
   }
 }
 
+// ★ Единая точка автосохранения в облако для игровых модулей.
+// force=true — сохраняем немедленно (критичные действия: покупки, сборка планет).
+let _autoCloudLastAt = 0;
+function autoSaveToCloud(force) {
+  try {
+    if (isResetInProgress()) return false;
+    if (!isCloudAvailable()) return false;
+
+    const now = Date.now();
+    // Без force не чаще раза в 20 секунд, чтобы не спамить сервер
+    if (!force && now - _autoCloudLastAt < 20000) return false;
+    _autoCloudLastAt = now;
+
+    // cloudSaveGame() сам вызывает saveGame() и отправляет сейв с keepalive
+    const p = cloudSaveGame();
+    if (p && typeof p.catch === 'function') p.catch(function() { /* сеть недоступна */ });
+    return true;
+  } catch (e) {
+    console.warn('[CloudSave] autoSaveToCloud error:', e);
+    return false;
+  }
+}
+
 // ─── Загрузить из облака ────────────────────────────────────────
 // force=false: облако применяется только если оно новее локального сейва.
 async function cloudLoadGame(force) {
@@ -212,22 +235,38 @@ async function syncCloudOnStart() {
     });
     const json = await res.json();
 
-    // Если в облаке пусто — ничего не загружаем, но и не заливаем пустоту
-    if (!json.ok || !json.data || !json.data.lastTick) {
+    // ★ КРИТИЧЕСКАЯ ЗАЩИТА: сервер ответил ok, но данных нет — локальный сейв не трогаем
+    if (!json.ok || !json.data) return false;
+
+    const cloudData = json.data;
+
+    // ★ КРИТИЧЕСКАЯ ЗАЩИТА: если в облаке нет stage или lastTick, это битый/пустой сейв
+    if (!cloudData || !cloudData.lastTick || !cloudData.stage) {
+      console.warn('[CloudSave] Облачный сейв пуст или поврежден, пропускаем загрузку.');
       return false;
     }
 
-    const cloudData = json.data;
     const localRaw = localStorage.getItem(getSaveKey());
-    const localData = localRaw ? JSON.parse(localRaw) : null;
+    let localData = null;
+    try { localData = localRaw ? JSON.parse(localRaw) : null; } catch (e) { localData = null; }
 
     // Если локального сейва нет вообще
     if (!localData || !localData.lastTick) {
+      // Если облако есть и валидно — грузим его
       localStorage.setItem(getSaveKey(), JSON.stringify(cloudData));
       Object.assign(S, cloudData);
       if (typeof updateUI === 'function') updateUI();
       if (typeof toast === 'function') toast('☁️ Сейв загружен', 'Восстановлен из облака');
       return true;
+    }
+
+    // Если локальный сейв есть, но в нем тоже пустота — грузим облако
+    if (localData.stage === 'cloud' && cloudData.stage !== 'cloud') {
+        localStorage.setItem(getSaveKey(), JSON.stringify(cloudData));
+        Object.assign(S, cloudData);
+        if (typeof updateUI === 'function') updateUI();
+        if (typeof toast === 'function') toast('☁️ Сейв загружен', 'Восстановлен более новый прогресс');
+        return true;
     }
 
     // Сравниваем время (разница должна быть существенной)
@@ -291,6 +330,7 @@ window.initCloudSave = initCloudSave;
 window.isCloudAvailable = isCloudAvailable;
 window.startCloudAutosave = startCloudAutosave;
 window.stopCloudAutosave = stopCloudAutosave;
+window.autoSaveToCloud = autoSaveToCloud;
 
 // Запуск: сначала подтягиваем более свежий облачный сейв, затем автосейв
 window.addEventListener('load', function() {
@@ -303,9 +343,11 @@ window.addEventListener('load', function() {
 // ─── Автосохранение при сворачивании/закрытии ───
 document.addEventListener('visibilitychange', function() {
   if (document.visibilityState === 'hidden') {
-    if (typeof cloudSaveGame === 'function') cloudSaveGame();
+    if (typeof saveGame === 'function') saveGame();
+    if (typeof autoSaveToCloud === 'function') autoSaveToCloud(true);
   }
 });
 window.addEventListener('beforeunload', function() {
-  if (typeof cloudSaveGame === 'function') cloudSaveGame();
+  if (typeof saveGame === 'function') saveGame();
+  if (typeof autoSaveToCloud === 'function') autoSaveToCloud(true);
 });
