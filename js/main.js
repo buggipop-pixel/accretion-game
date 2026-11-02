@@ -762,6 +762,9 @@ if (typeof loadGame === 'function') loadGame();
 // ★ Отложенный старт: даём Telegram WebApp SDK время инициализироваться,
 // иначе initData ещё пуст и синхронизация падает с «Нет initData».
 setTimeout(function() {
+  console.log('=== СТАРТ ИГРЫ ===');
+  console.log('Локальный ник:', S.playerName);
+  console.log('Локальная фаза:', S.stage);
   if (typeof syncCloudOnStart === 'function') syncCloudOnStart();
 }, 1000);
 if (typeof acInit === 'function') acInit();

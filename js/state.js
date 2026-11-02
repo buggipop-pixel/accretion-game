@@ -297,6 +297,10 @@ function saveGame() {
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
   } catch (e) { console.warn('save error', e); }
+
+  // ★ Любое действие, вызвавшее saveGame(), сразу уходит и в облако.
+  // autoSaveToCloud() сам проверяет Telegram и защищён от рекурсии.
+  if (typeof autoSaveToCloud === 'function') autoSaveToCloud(true);
 }
 
 function loadGame() {
