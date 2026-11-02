@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  UI.JS — HUD, квесты, тосты, переключатель систем, ночной режим
+//  UI.JS — HUD, квесты, тосты, переключатель систем, активная оборона
 // ═══════════════════════════════════════════════════════════════
 
 const UNITS = ['', 'К', 'М', 'Б', 'Т', 'Кв', 'Кт', 'Сх', 'Сп', 'Ок'];
@@ -789,7 +789,7 @@ function openTrophyModal() {
 window.openTrophyModal = openTrophyModal;
 
 // ═══════════════════════════════════════════════════════════════
-//  НОЧНОЙ РЕЖИМ
+//  АКТИВНАЯ ОБОРОНА (бывш. ночной режим)
 // ═══════════════════════════════════════════════════════════════
 let _tempNightConfig = null;
 
@@ -798,7 +798,13 @@ function openNightMode() {
   if (!card) return;
   
   if (!_tempNightConfig) {
+    const nowMs = Date.now();
     _tempNightConfig = JSON.parse(JSON.stringify(S.nightConfig || { mode: 'balanced', defenseEnabled: true, cometHours: 0, expeditionPercent: 0 }));
+    let defNow = 0;
+    if (typeof activeDefenseLevel === 'function') defNow = activeDefenseLevel(nowMs);
+    else if ((S.nightDefenseExpiresAt || 0) > nowMs) defNow = S.nightDefenseLevel || 0;
+    _tempNightConfig.defenseLevel = defNow;
+    _tempNightConfig.defenseDirty = false;
   }
   const nc = _tempNightConfig;
   const presets = NIGHT_CFG.presets;
@@ -807,56 +813,75 @@ function openNightMode() {
   // Кнопки пресетов
   const presetsHTML = Object.keys(presets).map(function(mode) {
     const labels = { cautious: '🛡️ Осторожный', balanced: '⚖️ Сбалансированный', aggressive: '🚀 Агрессивный', insane: '☠️ Безумный' };
-    const caps = NIGHT_CFG.lossCaps[mode];
+    const trophyChance = Math.round((TROPHY_CFG.dropChanceByMode[mode] || TROPHY_CFG.dropChanceByMode.default || 0.15) * 100);
     const active = curMode === mode ? 'active' : '';
     return `<button class="pour-btn ${active}" onclick="applyNightPreset('${mode}')" style="flex-direction:column;padding:8px 4px;font-size:10px; ${active ? 'background:rgba(139,127,212,0.5);border-color:#b9a8ff;' : ''}">
-      ${labels[mode]}<br><span style="font-size:9px;opacity:0.7;">потери ${Math.round(caps * 100)}%</span>
+      ${labels[mode]}<br><span style="font-size:9px;opacity:0.7;">трофей ${trophyChance}%</span>
     </button>`;
   }).join('');
 
   // Предпросмотр защиты: шанс отбития = уровни (до 50%) + флот (до 30%), общий кап 80%.
   const isDefActive = S.nightDefenseExpiresAt && S.nightDefenseExpiresAt > Date.now();
   const activeLvl = isDefActive ? (S.nightDefenseLevel || 0) : 0;
-  const effDefLvl = (typeof activeDefenseLevel === 'function')
+  const activeDefLvl = (typeof activeDefenseLevel === 'function')
     ? activeDefenseLevel()
     : (isDefActive ? activeLvl : 0);
-  const defChancePct = (typeof defenseRepelChance === 'function') ? defenseRepelChance() * 100 : effDefLvl * 10;
+  const selDefLvl = Math.max(0, Math.min(5, Number(nc.defenseLevel) || 0));
+  const defChancePct = selDefLvl * (Number(INVASION_CFG.repelDefensePerLevel) || 0.10) * 100;
   const fleetChancePct = (typeof fleetRepelChance === 'function') ? fleetRepelChance() * 100 : 0;
   const expPenalty = (nc.expeditionPercent / 100) * (NIGHT_CFG.expeditionDefensePenaltyMax || 0.30) * 100;
-  const totalChancePct = (typeof invasionRepelChance === 'function')
-    ? invasionRepelChance() * 100
-    : Math.max(0, Math.min(80, defChancePct + fleetChancePct - expPenalty));
   const shieldActive = !!(S.shieldUntil && S.shieldUntil > Date.now());
+  const fleetReqPreview = Number(FLEET_CFG.activationDefenseLevel) || 5;
+  const previewFleetPct = selDefLvl >= fleetReqPreview ? fleetChancePct : 0;
+  const totalChancePct = shieldActive
+    ? 100
+    : Math.max(0, Math.min(80, defChancePct + previewFleetPct) - expPenalty);
   const chanceColor = totalChancePct > 60 ? '#7ee0a8' : totalChancePct > 30 ? '#ffb347' : '#ff5e5e';
 
-  const lossCap = NIGHT_CFG.lossCaps[curMode] || 0.25;
-  const objCount = S.stage === 'galaxy' ? S.systems : S.planets.length;
-  const maxLoss = Math.floor(objCount * lossCap);
+  // Точные цифры для «Прогноза»:
+  let maxTheftMin = 0, maxDisablePlanets = 0, maxDisableHours = 0;
+  for (const tk in INVASION_CFG.tiers) {
+    const tr = INVASION_CFG.tiers[tk];
+    maxTheftMin = Math.max(maxTheftMin, Number(tr.theftMin) || 0);
+    maxDisablePlanets = Math.max(maxDisablePlanets, Number(tr.disablePlanets) || 0);
+    maxDisableHours = Math.max(maxDisableHours, Number(tr.disableHours) || 0);
+  }
+  const offlineIntervalH = (Number(INVASION_CFG.offlineAttackInterval) || 3 * 3600 * 1000) / 3600000;
+  const offlineMax = Number(INVASION_CFG.offlineAttackMax) || 5;
+  const debuffCapPct = Math.round((Number(INVASION_CFG.debuffStackCap) || 0.8) * 100);
+  const offlineCapPct = Math.round((Number(INVASION_CFG.nightLossCapShare) || 0.4) * 100);
+  const defenseHours = Number(INVASION_CFG.defenseHours) || 10;
   // Кнопки уровней обороны
   const defenseButtons = [1, 2, 3, 4, 5].map(lvl => {
     const systemsExtra = Math.max(0, (S.systems || 1) - 1);
     const cost = Math.floor(INVASION_CFG.defenseCost[lvl] * (1 + systemsExtra * INVASION_CFG.defenseCostMultiplierPerSystem));
     const bonus = Math.round(lvl * (INVASION_CFG.repelDefensePerLevel || 0.10) * 100);
-    const isCurrent = isDefActive && activeLvl === lvl;
+    const isCurrent = selDefLvl === lvl;
     return `<button class="pour-btn" style="flex-direction:column;padding:6px 2px;font-size:9px; line-height:1.2; ${isCurrent ? 'background:rgba(46,170,119,0.4);border-color:#2eaa77;' : ''}"
-      onclick="activateNightDefense(${lvl})" ${ (S.metalAmount || 0) >= cost ? '' : 'disabled' }>
+      onclick="selectDefenseLevel(${lvl})" ${ (S.metalAmount || 0) >= cost ? '' : 'disabled' }>
       Ур.${lvl}<br><span style="font-size:8px;">${cost}⚙</span><br>+${bonus}%
     </button>`;
   }).join('');
 
   let defenseLabel = 'Выключена';
-  if (effDefLvl > 0) {
-    const timeTag = (isDefActive && effDefLvl <= activeLvl)
-      ? `до ${new Date(S.nightDefenseExpiresAt).getHours()}:00`
-      : 'трофей';
-    defenseLabel = `Ур.${effDefLvl} · +${Math.round(defChancePct)}% (${timeTag})`;
+  if (selDefLvl > 0) {
+    const selPct = Math.round(selDefLvl * (Number(INVASION_CFG.repelDefensePerLevel) || 0.10) * 100);
+    let tag = 'к активации';
+    if (!nc.defenseDirty) {
+      if (isDefActive && selDefLvl <= activeLvl) {
+        tag = `до ${new Date(S.nightDefenseExpiresAt).getHours()}:00`;
+      } else if (activeDefLvl > 0) {
+        tag = 'трофей';
+      }
+    }
+    defenseLabel = `Ур.${selDefLvl} · +${selPct}% (${tag})`;
   }
 
   // ★ Флот: активация возможна только при активной Автобороне ур.5.
   const fleetActiveNow = (typeof isFleetActive === 'function') ? isFleetActive() : false;
   const fleetReqLvl = (typeof fleetDefenseLevelReq === 'function') ? fleetDefenseLevelReq() : 5;
   const fleetShips = (typeof fleetShipTotal === 'function') ? fleetShipTotal() : 0;
-  const fleetCanActivate = effDefLvl >= fleetReqLvl;
+  const fleetCanActivate = activeDefLvl >= fleetReqLvl;
   let fleetLabel = 'заблокирован';
   if (fleetActiveNow) fleetLabel = 'в бою';
   else if (fleetShips <= 0) fleetLabel = 'нет кораблей';
@@ -864,8 +889,8 @@ function openNightMode() {
   const fleetColor = fleetActiveNow ? '#7ee0a8' : (fleetCanActivate && fleetShips > 0 ? '#b9a8ff' : '#ffb347');
 
   card.innerHTML = `
-    <div class="modal-title">🌙 Ночной режим</div>
-    <div class="modal-sub">Настрой риск и награду на время отсутствия</div>
+    <div class="modal-title">🛡 Активная оборона</div>
+    <div class="modal-sub">Защита, флот и ночные миссии на время отсутствия</div>
 
     <div class="info-box">
       <div class="ach-sec-title">Пресеты</div>
@@ -875,7 +900,7 @@ function openNightMode() {
     <div class="info-box">
       <div class="row-stat">
         <span>🛡 Автооборона (на ${Number(INVASION_CFG.defenseHours) || 10}ч)</span>
-        <span style="color:${effDefLvl > 0 ? '#7ee0a8' : '#ff8a8a'}">${defenseLabel}</span>
+        <span style="color:${selDefLvl > 0 ? '#7ee0a8' : '#ff8a8a'}">${defenseLabel}</span>
       </div>
       <div class="pour-btn-group" style="flex-wrap:wrap;gap:4px;margin-top:8px;">
         ${defenseButtons}
@@ -886,11 +911,13 @@ function openNightMode() {
       </div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;margin-top:4px;">
         <span>Металлы: ${fmt(S.metalAmount || 0)} / ${fmt(typeof metalsCap === 'function' ? metalsCap() : 0)} ⚙</span>
-        <span>Активация съедает металл</span>
+        <span>Списывается при «Готово»</span>
       </div>
       <div class="pour-btn-group" style="margin-top:4px;">
-        <button class="pour-btn" onclick="toggleNightDefense()" style="background:${nc.defenseEnabled ? 'rgba(46,170,119,0.4)' : 'rgba(255,94,94,0.2)'};border-color:${nc.defenseEnabled ? '#2eaa77' : 'rgba(255,94,94,0.5)'};">
-          ${nc.defenseEnabled ? '✓ ВКЛ' : '✕ ВЫКЛ'}
+        <button class="pour-btn" onclick="toggleFleet('night')"
+          style="background:${fleetActiveNow ? 'rgba(46,170,119,0.4)' : 'rgba(139,127,212,0.25)'};border-color:${fleetActiveNow ? '#2eaa77' : 'rgba(139,127,212,0.6)'};"
+          ${(fleetActiveNow || (fleetCanActivate && fleetShips > 0)) ? '' : 'disabled'}>
+          ${fleetActiveNow ? '✕ Отключить флот' : '🚀 Активировать флот'}
         </button>
       </div>
     </div>
@@ -923,14 +950,15 @@ function openNightMode() {
 
     <div class="info-box">
       <div class="ach-sec-title">Прогноз защиты</div>
-      <div class="row-stat" style="font-size:10px;color:#8b7fd4;margin-top:4px;">
-        <span>Офлайн-атаки:</span><span>только при отсутствии >1 часа</span>
-      </div>
       <div class="row-stat"><span>Шанс отбития:</span><span style="color:${chanceColor}">${Math.round(totalChancePct)}%</span></div>
-      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Оборона +${Math.round(defChancePct)}% · Флот +${Math.round(fleetChancePct)}%</span></div>
-      ${expPenalty > 0 ? `<div class="row-stat" style="font-size:10px;color:#ffb347;"><span>Экспедиция:</span><span>−${expPenalty.toFixed(1)}%</span></div>` : ''}
+      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Оборона +${Math.round(defChancePct)}% · Флот +${Math.round(previewFleetPct)}%${expPenalty > 0 ? ' · Экспедиция −' + expPenalty.toFixed(1) + '%' : ''}</span></div>
       ${shieldActive ? `<div class="row-stat"><span>⭐ Премиум-щит:</span><span style="color:#7ee0a8">100%</span></div>` : ''}
-      <div class="row-stat"><span>Макс. потерь:</span><span style="color:#ff5e5e">${maxLoss} ${S.stage === 'galaxy' ? 'систем' : 'планет'}</span></div>
+      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Офлайн-атаки:</span><span>раз в ${offlineIntervalH} ч, до ${offlineMax} за сессию</span></div>
+      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Кража за атаку:</span><span>до ${maxTheftMin} мин каждого ресурса</span></div>
+      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Штраф к доходу:</span><span>до −${debuffCapPct}%</span></div>
+      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Кап потерь за офлайн:</span><span>${offlineCapPct}% каждого ресурса</span></div>
+      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Планеты:</span><span>до ${maxDisablePlanets} в простой на ${maxDisableHours} ч</span></div>
+      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Длительность обороны:</span><span>${defenseHours} ч (щит 24 ч)</span></div>
     </div>
 
     <div class="pour-btn-group" style="margin-top:10px;">
@@ -948,44 +976,75 @@ function openNightMode() {
 }
 
 function saveNightConfig() {
-  if (_tempNightConfig) {
-    // Проверка и списание ресурсов
-    let mCostComet = _tempNightConfig.cometHours * 100;
-    let dCostComet = Math.floor(Math.max(500000, dustPerSec() * 600));
-    let eCostExp = Math.floor(S.energy * (_tempNightConfig.expeditionPercent / 100));
-    let mCostExp = Math.floor((S.metalAmount || 0) * (_tempNightConfig.expeditionPercent / 100));
-    let cCostExp = Math.floor(S.civLevel * (_tempNightConfig.expeditionPercent / 100));
+  if (!_tempNightConfig) return;
 
-    if (_tempNightConfig.cometHours > 0 && (S.metalAmount < mCostComet || S.dust < dCostComet)) {
-      toast('Ошибка', 'Не хватает на комету');
-      _tempNightConfig.cometHours = 0;
-      mCostComet = 0; dCostComet = 0;
+  // ★ Оборона: металл списывается ТОЛЬКО здесь, по кнопке «Готово».
+  const systemsExtra = Math.max(0, (S.systems || 1) - 1);
+  const selDefLvl = Math.max(0, Math.min(5, Number(_tempNightConfig.defenseLevel) || 0));
+  let mCostDefense = 0;
+  if (selDefLvl > 0 && _tempNightConfig.defenseDirty) {
+    mCostDefense = Math.floor(INVASION_CFG.defenseCost[selDefLvl] * (1 + systemsExtra * INVASION_CFG.defenseCostMultiplierPerSystem));
+    if ((S.metalAmount || 0) < mCostDefense) {
+      toast('Не хватает металла', 'Нужно ' + mCostDefense + ' ⚙');
+      return;
     }
-    if (_tempNightConfig.expeditionPercent > 0 && (eCostExp <= 0 || mCostExp <= 0 || cCostExp <= 0)) {
-      toast('Ошибка', 'Не хватает на экспедицию');
-      _tempNightConfig.expeditionPercent = 0;
-      eCostExp = 0; mCostExp = 0; cCostExp = 0;
-    }
+  }
 
-    // Списываем ресурсы
-    if (mCostComet > 0) { S.metalAmount -= mCostComet; S.dust -= dCostComet; }
-    if (eCostExp > 0) { S.energy -= eCostExp; S.metalAmount -= mCostExp; S.civLevel -= cCostExp; }
+  // Проверка и списание ресурсов миссий
+  let mCostComet = _tempNightConfig.cometHours * 100;
+  let dCostComet = Math.floor(Math.max(500000, dustPerSec() * 600));
+  let eCostExp = Math.floor(S.energy * (_tempNightConfig.expeditionPercent / 100));
+  let mCostExp = Math.floor((S.metalAmount || 0) * (_tempNightConfig.expeditionPercent / 100));
+  let cCostExp = Math.floor(S.civLevel * (_tempNightConfig.expeditionPercent / 100));
 
-    S.nightConfig = JSON.parse(JSON.stringify(_tempNightConfig));
-    _tempNightConfig = null;
-    
-    saveGame();
-    document.getElementById('modal').classList.remove('show');
-    
-    let totalCostText = '';
-    if (mCostComet > 0) totalCostText += `Комета: ${mCostComet}⚙ ${fmt(dCostComet)}✦. `;
-    if (eCostExp > 0) totalCostText += `Экспедиция: ${eCostExp}⚡ ${mCostExp}⚙ ${cCostExp}🧬. `;
-    
-    if (totalCostText) {
-      toast('🌙 Ночной режим активирован', 'Списано: ' + totalCostText);
-    } else {
-      toast('🌙 Настройки сохранены', 'Ресурсы на миссии не списаны');
-    }
+  if (_tempNightConfig.cometHours > 0 && (S.metalAmount < mCostComet || S.dust < dCostComet)) {
+    toast('Ошибка', 'Не хватает на комету');
+    _tempNightConfig.cometHours = 0;
+    mCostComet = 0; dCostComet = 0;
+  }
+  if (_tempNightConfig.expeditionPercent > 0 && (eCostExp <= 0 || mCostExp <= 0 || cCostExp <= 0)) {
+    toast('Ошибка', 'Не хватает на экспедицию');
+    _tempNightConfig.expeditionPercent = 0;
+    eCostExp = 0; mCostExp = 0; cCostExp = 0;
+  }
+
+  // Сначала проверяем, что хватает металла на всё сразу
+  const totalMetalCost = mCostDefense + mCostComet + mCostExp;
+  if ((S.metalAmount || 0) < totalMetalCost) {
+    toast('Не хватает металла', 'Нужно ' + totalMetalCost + ' ⚙');
+    return;
+  }
+
+  // Списываем ресурсы
+  if (mCostComet > 0) { S.metalAmount -= mCostComet; S.dust -= dCostComet; }
+  if (eCostExp > 0) { S.energy -= eCostExp; S.metalAmount -= mCostExp; S.civLevel -= cCostExp; }
+  if (mCostDefense > 0) {
+    S.metalAmount -= mCostDefense;
+    S.nightDefenseLevel = selDefLvl;
+    const hours = Number(INVASION_CFG.defenseHours) || 10;
+    S.nightDefenseExpiresAt = Date.now() + hours * 3600 * 1000;
+  }
+
+  S.nightConfig = {
+    mode: _tempNightConfig.mode || 'balanced',
+    defenseEnabled: true,
+    cometHours: _tempNightConfig.cometHours || 0,
+    expeditionPercent: _tempNightConfig.expeditionPercent || 0,
+  };
+  _tempNightConfig = null;
+
+  saveGame();
+  document.getElementById('modal').classList.remove('show');
+
+  let totalCostText = '';
+  if (mCostDefense > 0) totalCostText += `Оборона ур.${selDefLvl}: ${mCostDefense}⚙. `;
+  if (mCostComet > 0) totalCostText += `Комета: ${mCostComet}⚙ ${fmt(dCostComet)}✦. `;
+  if (eCostExp > 0) totalCostText += `Экспедиция: ${eCostExp}⚡ ${mCostExp}⚙ ${cCostExp}🧬. `;
+
+  if (totalCostText) {
+    toast('🛡 Активная оборона', 'Списано: ' + totalCostText);
+  } else {
+    toast('🛡 Настройки обороны сохранены', 'Ресурсы не списаны');
   }
 }
 
@@ -998,17 +1057,11 @@ function applyNightPreset(mode) {
   if (!NIGHT_CFG.presets[mode] || !_tempNightConfig) return;
   const p = NIGHT_CFG.presets[mode];
   _tempNightConfig.mode = mode;
-  _tempNightConfig.defenseEnabled = p.defense > 0;
   _tempNightConfig.cometHours = p.cometHours;
   _tempNightConfig.expeditionPercent = p.expPercent;
   openNightMode();
 }
 
-function toggleNightDefense() {
-  if (!_tempNightConfig) return;
-  _tempNightConfig.defenseEnabled = !_tempNightConfig.defenseEnabled;
-  openNightMode();
-}
 
 function setNightComet(hours) {
   if (!_tempNightConfig) return;
@@ -1024,23 +1077,18 @@ function setNightExpedition(pct) {
   openNightMode();
 }
 
-function activateNightDefense(lvl) {
+// Выбор уровня обороны в окне — без списания. Металл спишется по «Готово».
+function selectDefenseLevel(lvl) {
+  if (!_tempNightConfig) return;
+  lvl = Math.max(1, Math.min(5, Number(lvl) || 1));
   const systemsExtra = Math.max(0, (S.systems || 1) - 1);
   const cost = Math.floor(INVASION_CFG.defenseCost[lvl] * (1 + systemsExtra * INVASION_CFG.defenseCostMultiplierPerSystem));
   if ((S.metalAmount || 0) < cost) {
     toast('Не хватает металла', 'Нужно ' + cost + ' ⚙');
     return;
   }
-  S.metalAmount -= cost;
-  S.nightDefenseLevel = lvl;
-  const defenseHours = Number(INVASION_CFG.defenseHours) || 10;
-  S.nightDefenseExpiresAt = Date.now() + defenseHours * 3600 * 1000;
-  if (_tempNightConfig) _tempNightConfig.defenseEnabled = true;
-  S.nightConfig.defenseEnabled = true;
-  
-  toast('🛡 Оборона активирована', 'Ур.' + lvl + ' на ' + defenseHours + ' ч');
-  saveGame();
-  updateUI();
+  _tempNightConfig.defenseLevel = lvl;
+  _tempNightConfig.defenseDirty = true;
   openNightMode();
 }
 // ═══════════════════════════════════════════════════════════════
@@ -1264,7 +1312,6 @@ window.openNightMode = openNightMode;
 window.saveNightConfig = saveNightConfig;
 window.cancelNightConfig = cancelNightConfig;
 window.applyNightPreset = applyNightPreset;
-window.toggleNightDefense = toggleNightDefense;
+window.selectDefenseLevel = selectDefenseLevel;
 window.setNightComet = setNightComet;
 window.setNightExpedition = setNightExpedition;
-window.activateNightDefense = activateNightDefense;

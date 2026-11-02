@@ -565,9 +565,7 @@ function openShipyard() {
 
   let fleetHint = '';
   if (!defActive) {
-    fleetHint = (S.nightConfig && S.nightConfig.defenseEnabled === false)
-      ? 'Автоборона выключена тумблером в «Ночном режиме».'
-      : 'Автоборона не активна — включите её в «Ночном режиме».';
+    fleetHint = 'Автоборона не активна — включите её в «Активной обороне».';
   } else if (defLvl < reqLvl) {
     fleetHint = `Нужен уровень Автобороны ${reqLvl} (сейчас ур.${defLvl}).`;
   } else if (totalShips <= 0) {
@@ -650,13 +648,17 @@ function buyShip(key, amount) {
   openShipyard();
 }
 window.openShipyard = openShipyard;
-function toggleFleet() {
+function toggleFleet(returnTo) {
+  const refresh = () => {
+    if (returnTo === 'night' && typeof openNightMode === 'function') openNightMode();
+    else openShipyard();
+  };
   if (S.fleetActive) {
     S.fleetActive = false;
     if (typeof saveGame === 'function') saveGame();
     if (typeof updateUI === 'function') updateUI();
     if (typeof toast === 'function') toast('🚀 Флот отключён', 'Корабли больше не отбивают вторжения');
-    openShipyard();
+    refresh();
     return;
   }
 
@@ -675,7 +677,7 @@ function toggleFleet() {
   if (typeof saveGame === 'function') saveGame();
   if (typeof updateUI === 'function') updateUI();
   if (typeof toast === 'function') toast('🚀 Флот активирован', 'Корабли ведут автооборону');
-  openShipyard();
+  refresh();
 }
 window.buyShip = buyShip;
 window.toggleFleet = toggleFleet;

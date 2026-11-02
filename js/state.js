@@ -478,7 +478,8 @@ function loadGame() {
       S.nightConfig = { mode: 'balanced', defenseEnabled: true, cometHours: 0, expeditionPercent: 0 };
     }
     if (typeof S.nightConfig.mode !== 'string') S.nightConfig.mode = 'balanced';
-    if (typeof S.nightConfig.defenseEnabled !== 'boolean') S.nightConfig.defenseEnabled = true;
+    // ★ Тумблер ВКЛ/ВЫКЛ убран: обороной управляют уровень и срок.
+    S.nightConfig.defenseEnabled = true;
     if (typeof S.nightConfig.cometHours !== 'number') S.nightConfig.cometHours = 0;
     if (typeof S.nightConfig.expeditionPercent !== 'number') S.nightConfig.expeditionPercent = 0;
     if (typeof S.nightDefenseLevel !== 'number') S.nightDefenseLevel = 0;

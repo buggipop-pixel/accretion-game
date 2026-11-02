@@ -49,8 +49,9 @@ function createGame() {
     removeItem: (k) => { delete storage[k]; },
     clear: () => { for (const k in storage) delete storage[k]; },
   };
+  const modalCard = makeElement();
   const documentMock = {
-    getElementById: () => makeElement(),
+    getElementById: (id) => (id === 'modalCard' ? modalCard : makeElement()),
     querySelector: () => makeElement(),
     querySelectorAll: () => [],
     getElementsByClassName: () => [],
@@ -84,7 +85,7 @@ function createGame() {
   });
   vm.createContext(context);
 
-  ['config.js', 'state.js', 'economy.js', 'planets.js', 'prime.js', 'invasions.js', 'fleet.js', 'premium.js'].forEach((f) => {
+  ['config.js', 'state.js', 'economy.js', 'planets.js', 'prime.js', 'invasions.js', 'fleet.js', 'ui.js', 'premium.js'].forEach((f) => {
     const code = fs.readFileSync(path.join(__dirname, '../js', f), 'utf8');
     vm.runInContext(code, context, { filename: f });
   });
@@ -250,6 +251,42 @@ function testIncomeDebuffCap() {
   assert('Штраф к доходу: кап 80%', g.S.invasionDebuff.pct <= 0.8000001 && g.S.invasionDebuff.pct > 0.7);
 }
 
+function testDefenseCostDeferred() {
+  const g = createGame();
+  const S = prepare(g);
+  S.metalAmount = 10000;
+  S.systems = 1;
+  S.nightDefenseLevel = 0;
+  S.nightDefenseExpiresAt = 0;
+
+  g.openNightMode();
+  const card = g.document.getElementById('modalCard');
+  assert('Окно: кнопка флота вместо ВКЛ', card.innerHTML.includes('Активировать флот') && !card.innerHTML.includes('✓ ВКЛ'));
+  const opens = (card.innerHTML.match(/<div/g) || []).length;
+  const closes = (card.innerHTML.match(/<\/div>/g) || []).length;
+  assert('Окно: HTML div сбалансирован', opens === closes);
+  assert('Окно: переименовано в «Активную оборону»', card.innerHTML.includes('Активная оборона') && !card.innerHTML.includes('Ночной режим'));
+  g.selectDefenseLevel(3);
+  assert('Выбор уровня НЕ списывает металл', S.metalAmount === 10000);
+  assert('Выбор уровня показывает «к активации»', g.document.getElementById('modalCard').innerHTML.includes('к активации'));
+
+  g.saveNightConfig();
+  const cost = Math.floor(g.INVASION_CFG.defenseCost[3]);
+  assert('«Готово» списывает металл', S.metalAmount === 10000 - cost);
+  assert('«Готово» применяет уровень', S.nightDefenseLevel === 3);
+  const hours = g.INVASION_CFG.defenseHours;
+  assert('Активация на 10 ч', S.nightDefenseExpiresAt > Date.now() + (hours * 3600 * 1000 - 5000));
+}
+function testDefenseSurvivesReturn() {
+  const g = createGame();
+  const S = prepare(g);
+  setDefense(S, 5);
+  const until = S.nightDefenseExpiresAt;
+  S.lastTick = Date.now() - 4 * 3600 * 1000;
+  g.applyOfflineProgress();
+  assert('Оборона не обнуляется при возврате игрока', S.nightDefenseExpiresAt === until);
+}
+
 (function run() {
   console.log('========================================');
   console.log('🧪 ТЕСТЫ ФЛОТА: ВИЗУАЛ, ЦЕНЫ, КРАЖА');
@@ -261,6 +298,8 @@ function testIncomeDebuffCap() {
     testAllResourceTheft();
     testDefenseTenHours();
     testIncomeDebuffCap();
+    testDefenseCostDeferred();
+    testDefenseSurvivesReturn();
   } catch (e) {
     console.error('❌ Исключение в тестах: ' + (e && e.stack || e));
     failed++;

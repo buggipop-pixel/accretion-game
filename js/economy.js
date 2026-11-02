@@ -360,11 +360,10 @@ function applyOfflineProgress() {
     simulateOfflineInvasions(elapsedSec, out);
   }
 
-  // Отключение ночного режима, если он был активен
-  if (out.nightEnded || (S.nightDefenseExpiresAt > 0)) {
-    S.nightDefenseExpiresAt = 0;
+  // Ночные миссии завершились — сбрасываем их бюджет. Сама оборона
+  // живёт свой срок (10 ч) и не обнуляется при возвращении игрока.
+  if (out.nightEnded) {
     if (S.nightConfig) {
-      S.nightConfig.defenseEnabled = false;
       S.nightConfig.cometHours = 0;
       S.nightConfig.expeditionPercent = 0;
     }

@@ -219,16 +219,11 @@ const INVASION_CFG = {
 
 // ─── НОЧНОЙ РЕЖИМ ───
 const NIGHT_CFG = {
-  lossCaps: { cautious: 0.05, balanced: 0.25, aggressive: 0.50, insane: 0.75 },
-  damagePerHit: {
-    cautious: { planets: 1, systems: 0 }, balanced: { planets: 2, systems: 1 },
-    aggressive: { planets: 3, systems: 2 }, insane: { planets: 5, systems: 3 },
-  },
   presets: {
-    cautious: { defense: 5, cometHours: 0, expPercent: 0 },
-    balanced: { defense: 3, cometHours: 3, expPercent: 30 },
-    aggressive: { defense: 0, cometHours: 6, expPercent: 70 },
-    insane: { defense: 0, cometHours: 8, expPercent: 100 },
+    cautious: { cometHours: 0, expPercent: 0 },
+    balanced: { cometHours: 3, expPercent: 30 },
+    aggressive: { cometHours: 6, expPercent: 70 },
+    insane: { cometHours: 8, expPercent: 100 },
   },
   expeditionDefensePenaltyMax: 0.30,
 };

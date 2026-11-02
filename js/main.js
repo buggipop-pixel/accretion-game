@@ -812,7 +812,7 @@ if (offline.expEarned > 0 && typeof fmt === 'function') parts.push('🚀 +' + fm
 setTimeout(function() {
 if (typeof toast !== 'function') return;
 if (offline.nightEnded) {
-let msg = 'Ночной режим завершён. ';
+let msg = 'Ночные миссии завершены. ';
 if (offline.cometEarned > 0 || offline.expEarned > 0) msg += 'Миссии вернулись с частью наград. ';
 if (offline.invasionLost > 0) msg += '⚠️ Потеряно объектов: ' + offline.invasionLost + '. ';
 if (parts.length > 0) msg += parts.join(' · ');
