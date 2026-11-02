@@ -329,6 +329,38 @@ function settle() {
   assert('save 400: dirty-флаг не сброшен',
     Reject.localStorage.getItem('accretion_cloud_dirty') === '1');
 
+  // 6е2. ★ 429 — лимит частоты, dirty сохраняется, клиент не считает это успехом
+  const rateServer = makeServer();
+  rateServer.handle = function(url, body, init) {
+    this.requests.push({ url, body, init });
+    if (url.endsWith('/api/save')) {
+      return { __status: 429, ok: false, error: 'Too frequent' };
+    }
+    return { ok: true, data: null, saved_at: 0, version: 0 };
+  };
+  const Rate = makeDevice(rateServer, {
+    initialSave: { stage: 'star', lastTick: 1, dust: 10 },
+  });
+  Rate.localStorage.setItem('accretion_cloud_dirty', '1');
+  const rateRes = await Rate.context.window.cloudSaveGame();
+  assert('save 429: клиент видит лимит, а не ошибку данных',
+    rateRes.ok === false && rateRes.status === 429 && rateRes.retryAfter > 0);
+  assert('save 429: dirty-флаг не сброшен',
+    Rate.localStorage.getItem('accretion_cloud_dirty') === '1');
+
+  // 6е3. ★ Троттлинг: два действия подряд не могут дать два save за секунду
+  const throttleServer = makeServer();
+  const Throttle = makeDevice(throttleServer, {
+    initialSave: { stage: 'star', lastTick: 1, dust: 5 },
+  });
+  Throttle.S.dust = 10;
+  Throttle.context.saveGame();
+  Throttle.S.dust = 11;
+  Throttle.context.saveGame();
+  await settle();
+  assert('Троттлинг: два действия за секунду дают один save',
+    throttleServer.writes === 1);
+
   // 6ж. ★ Есть несохранённый локальный прогресс — старое облако не применяем
   const dirtyServer = makeServer();
   dirtyServer.data = { stage: 'system', lastTick: 9, dust: 100 };

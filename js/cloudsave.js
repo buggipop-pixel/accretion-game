@@ -17,6 +17,9 @@ const CLOUD_API = 'https://accretion-game.onrender.com';
 // Автосинхронизация при старте и автосохранение в облако
 const CLOUD_AUTOSYNC = true;
 const CLOUD_AUTOSAVE_MS = 60 * 1000;
+// Сервер принимает не чаще 1 save / 5 c и не больше 300 в час.
+// 12.5 c — максимум 288 сохранений в час, поэтому 429 не появляется.
+const CLOUD_SAVE_MIN_INTERVAL_MS = 12500;
 const CLOUD_SYNC_FLAG = 'accretion_cloud_synced';
 const CLOUD_RESET_FLAG = 'accretion_reset_pending';
 const CLOUD_VER_KEY = 'accretion_cloud_version';
@@ -31,6 +34,9 @@ const CLOUD_DIRTY_KEY = 'accretion_cloud_dirty';
 // Сколько запросов сохранения сейчас в полёте (чтобы опрос не принял
 // свой же сейв за чужой и чтобы saveGame() не ушёл в рекурсию).
 let _cloudSaveInFlight = 0;
+// true только на время внутреннего saveGame() внутри cloudSaveGame(),
+// чтобы он не запускал бесконечную цепочку ретраев.
+let _cloudSaveInternal = false;
 
 // ★ Версия облачного сейва — общий монотонный счётчик сервера.
 function getCloudVersion() {
@@ -296,6 +302,19 @@ function applyCloudSaveAuthoritative(cloudData) {
   return applyCloudSaveToRuntime(safe || cloudData);
 }
 
+// ★ Применение серверного сейва ВНУТРИ cloudSaveGame(). loadGame() может
+// вызвать checkAchievements() → saveGame(), и без этого флага мы бы
+// запланировали ещё один save из самого процесса save.
+function applyCloudSaveInternal(cloudData) {
+  const prev = _cloudSaveInternal;
+  _cloudSaveInternal = true;
+  try {
+    return applyCloudSaveAuthoritative(cloudData);
+  } finally {
+    _cloudSaveInternal = prev;
+  }
+}
+
 // ─── Сетевой слой ───────────────────────────────────────────────
 async function cloudApi(path, payload) {
   const res = await fetch(CLOUD_API + path, {
@@ -329,7 +348,12 @@ async function cloudSaveGame(options) {
   try {
     // ★ saveGame() сам вызовет autoSaveToCloud(true); защита от рекурсии —
     // проверка _cloudSaveInFlight в autoSaveToCloud().
-    if (typeof saveGame === 'function') saveGame();
+    _cloudSaveInternal = true;
+    try {
+      if (typeof saveGame === 'function') saveGame();
+    } finally {
+      _cloudSaveInternal = false;
+    }
 
     // ★ В режиме кошелька сначала сообщаем серверу о «прочем» доходе.
     if (window.__serverWallet) {
@@ -359,8 +383,8 @@ async function cloudSaveGame(options) {
 
       // Сервер главнее: принимаем его сейв и не перезаписываем чужой прогресс.
       if (isValidCloudSave(cloud)) {
+        applyCloudSaveInternal(cloud);
         clearCloudDirty(); // приняли серверную версию — локальные изменения больше не висят
-        applyCloudSaveAuthoritative(cloud);
         if (typeof toast === 'function') toast('☁️ Прогресс обновлён', 'Сейв новее с другого устройства');
         return { ok: false, conflict: 'cloud-newer', saved_at: conflict.saved_at, version: serverVersion };
       }
@@ -371,6 +395,17 @@ async function cloudSaveGame(options) {
     if (response.status === 401) {
       console.warn('[CloudSave] Сервер отклонил initData (401). Сохранение отключено.');
       return { ok: false, error: 'unauthorized', status: 401 };
+    }
+
+    // ★ 429 — не ошибка данных, а лимит частоты. Не пугаем игрока тостом,
+    // просто повторим отправку позже.
+    if (response.status === 429) {
+      let errData = null;
+      try { errData = await response.json(); } catch (e) { errData = null; }
+      const msg = (errData && errData.error) ? errData.error : 'Too frequent';
+      const retryAfter = /hour/i.test(msg) ? 60000 : CLOUD_SAVE_MIN_INTERVAL_MS;
+      console.warn('[CloudSave] save throttled:', msg, 'retry in', retryAfter, 'ms');
+      return { ok: false, error: 'rate-limited', status: 429, retryAfter: retryAfter };
     }
 
     // ★ Любой не-2xx — это НЕ успешное сохранение. Раньше 400/500
@@ -388,7 +423,7 @@ async function cloudSaveGame(options) {
 
     // Сервер сверил баланс и что-то обрезал — принимаем его данные.
     if (r && r.clamped && r.data) {
-      applyCloudSaveAuthoritative(r.data);
+      applyCloudSaveInternal(r.data);
       if (typeof toast === 'function') toast('⚖️ Баланс сверен', 'Ресурсы приведены к серверным');
     }
 
@@ -408,6 +443,21 @@ async function cloudSaveGame(options) {
 // ★ Единая точка автосохранения в облако для игровых модулей.
 // force=true — сохраняем немедленно (критичные действия: покупки, сборка планет).
 let _autoCloudLastAt = 0;
+let _autoCloudRetryTimer = null;
+
+function scheduleCloudRetry(delayMs) {
+  if (_autoCloudRetryTimer) return;
+  const delay = Math.max(500, Math.floor(Number(delayMs) || CLOUD_SAVE_MIN_INTERVAL_MS));
+  _autoCloudRetryTimer = setTimeout(function() {
+    _autoCloudRetryTimer = null;
+    autoSaveToCloud(true);
+  }, delay);
+  // В Node-тестах таймер не должен держать процесс живым.
+  if (_autoCloudRetryTimer && typeof _autoCloudRetryTimer.unref === 'function') {
+    _autoCloudRetryTimer.unref();
+  }
+}
+
 function autoSaveToCloud(force) {
   try {
     if (isResetInProgress()) return false;
@@ -415,17 +465,31 @@ function autoSaveToCloud(force) {
     if (!isCloudAvailable()) return false;
 
     // ★ Защита от рекурсии: cloudSaveGame() вызывает saveGame(), а saveGame()
-    // снова зовёт autoSaveToCloud(true). Если запрос уже в полёте — выходим.
-    if (_cloudSaveInFlight > 0) return false;
+    // снова зовёт autoSaveToCloud(true). Внутренний вызов не должен планировать
+    // ретрай, иначе получится бесконечное сохранение раз в 12 секунд.
+    if (_cloudSaveInFlight > 0) {
+      if (!_cloudSaveInternal && force) scheduleCloudRetry(1000);
+      return false;
+    }
 
     const now = Date.now();
-    // Без force не чаще раза в 20 секунд, чтобы не спамить сервер
-    if (!force && now - _autoCloudLastAt < 20000) return false;
+    const minGap = force ? CLOUD_SAVE_MIN_INTERVAL_MS : 20000;
+    if (now - _autoCloudLastAt < minGap) {
+      // Действие важное, но сервер ещё в лимите — отправим последнее состояние позже.
+      if (force) scheduleCloudRetry(minGap - (now - _autoCloudLastAt) + 100);
+      return false;
+    }
     _autoCloudLastAt = now;
 
     // ★ Принудительное сохранение с keepalive: true — переживает закрытие вкладки.
     const p = cloudSaveGame({ keepalive: true });
-    if (p && typeof p.catch === 'function') p.catch(function() { /* сеть недоступна */ });
+    if (p && typeof p.then === 'function') {
+      p.then(function(res) {
+        if (res && res.status === 429) {
+          scheduleCloudRetry(res.retryAfter || CLOUD_SAVE_MIN_INTERVAL_MS);
+        }
+      }).catch(function() { /* сеть недоступна */ });
+    }
     return true;
   } catch (e) {
     console.warn('[CloudSave] autoSaveToCloud error:', e);
@@ -575,6 +639,12 @@ async function syncCloudOnStart() {
           return true;
         }
         if (pushed && pushed.conflict === 'cloud-newer') return true;
+        if (pushed && (pushed.status === 429 || pushed.error === 'in-flight')) {
+          // Это не потеря данных: локальный сейв остался, повторим позже без пугающего тоста.
+          console.warn('[Sync] save отложен (лимит/в полёте), повторяем позже.');
+          scheduleCloudRetry((pushed && pushed.retryAfter) || 1500);
+          return false;
+        }
         console.warn('[Sync] Локальный прогресс отправить не удалось — облако не применяем, чтобы не потерять данные.');
         showCloudNotice('__cloudPushErrorShown', '⚠️ Синхронизация',
           'Не удалось сохранить прогресс. Проверьте сеть и попробуйте ещё раз.');
