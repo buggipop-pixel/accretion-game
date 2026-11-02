@@ -272,6 +272,10 @@ function handleCanvasClick(x, y) {
   if (typeof trackDaily === 'function') trackDaily('d_click', 1);
   if (!S.stats) S.stats = {};
   S.stats.clicks = (S.stats.clicks || 0) + 1;
+
+  // ★ В режиме серверного кошелька сообщаем о клике (батчами, раз в 3 с).
+  // Доход всё равно считает сервер своей формулой clickGain().
+  if (typeof reportClickToServer === 'function') reportClickToServer(1);
 }
 
 

@@ -38,9 +38,23 @@ async function getInvoiceLink(product) {
 // Подтверждение выдачи покупки на сервере (не блокирует выдачу в игре)
 function claimPurchase(product) {
   const initData = getPremiumInitData();
-  if (!initData) return;
-  premiumApiPost('/api/claim', { initData: initData, product: product }).catch(function(e) {
+  if (!initData) return Promise.resolve(null);
+
+  return premiumApiPost('/api/claim', { initData: initData, product: product }).then(function(r) {
+    // ★ Право на платный щит выдаёт сервер. Применяем его абсолютную метку,
+    // чтобы покупка переживала переустановку и не зависела от сейва.
+    if (r && r.entitlement && r.entitlement.shieldUntil) {
+      const until = Number(r.entitlement.shieldUntil) || 0;
+      if (until > (S.shieldUntil || 0)) {
+        S.shieldUntil = until;
+        if (typeof saveGame === 'function') saveGame();
+        if (typeof updateUI === 'function') updateUI();
+      }
+    }
+    return r;
+  }).catch(function(e) {
     console.warn('[premium] claim failed:', e.message);
+    return null;
   });
 }
 window.API_BASE = API_BASE;
@@ -172,9 +186,14 @@ async function buyPrimeChest() {
     
     tg.openInvoice(invoiceLink, function(status) {
       if (status === 'paid') {
-        claimPurchase('chest');
         toast('✅ Оплата прошла', 'Сундук открывается...');
-        startChestRoulette();
+        // ★ Награду выбирает сервер; клиент только доигрывает рулетку.
+        // Если сервер недоступен — старый локальный выбор как fallback.
+        claimPurchase('chest').then(function(r) {
+          startChestRoulette(r && r.reward);
+        }).catch(function() {
+          startChestRoulette();
+        });
       } else if (status === 'cancelled') {
         toast('Оплата отменена', 'Вы не были списаны');
       } else {
@@ -230,16 +249,27 @@ function activatePremiumShieldReward() {
   document.getElementById('modal').classList.remove('show');
 }
 
-function startChestRoulette() {
+function startChestRoulette(forcedKey) {
   // 1. Определяем победителя
   const loot = CHEST_CFG.lootTable;
-  const totalWeight = loot.reduce((sum, item) => sum + item.weight, 0);
-  let roll = Math.random() * totalWeight;
-  let selectedKey = loot[0].key;
+  let selectedKey = null;
 
-  for (let i = 0; i < loot.length; i++) {
-    roll -= loot[i].weight;
-    if (roll <= 0) { selectedKey = loot[i].key; break; }
+  // ★ Ключ от сервера (оплата подтверждена, лут выбран им) — приоритет.
+  // Клиент принимает только ключи из легальной таблицы лута.
+  if (typeof forcedKey === 'string' && loot.some(function(item) { return item.key === forcedKey; })) {
+    selectedKey = forcedKey;
+  }
+
+  if (!selectedKey) {
+    // Локальный fallback (сервер недоступен)
+    const totalWeight = loot.reduce((sum, item) => sum + item.weight, 0);
+    let roll = Math.random() * totalWeight;
+    selectedKey = loot[0].key;
+
+    for (let i = 0; i < loot.length; i++) {
+      roll -= loot[i].weight;
+      if (roll <= 0) { selectedKey = loot[i].key; break; }
+    }
   }
 
   const winningPrime = createPrimeSystem(selectedKey);
