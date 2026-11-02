@@ -321,6 +321,7 @@ try {
   const uiCode = fs.readFileSync(path.join(__dirname, '..', 'js/ui.js'), 'utf8');
   const mainCode = fs.readFileSync(path.join(__dirname, '..', 'js/main.js'), 'utf8');
   assert('Полный экран: кнопка ⛶ есть в верхнем HUD', /id="fullscreenBtn"/.test(html));
+  assert('Полный экран: SDK Telegram загружается по верному пути', /@twa-dev\/sdk@8\.0\.2\/dist\/telegram-web-apps\.js/.test(html) && !/telegram-web-app\.js/.test(html));
   assert('Полный экран: кнопка подключена в ui.js', /getElementById\('fullscreenBtn'\)/.test(uiCode));
   assert('Полный экран: в main.js есть нативный Fullscreen API', /_nativeFullscreen/.test(mainCode) && /requestFullscreen\(/.test(mainCode));
 } catch (e) {

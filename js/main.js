@@ -27,6 +27,7 @@ function _fsActive() {
 
 function _afterFullscreenEnter() {
   fullscreenRequested = true;
+  window._fsWarned = false;
   document.body.classList.add('fs-active');
   if (typeof resize === 'function') setTimeout(resize, 60);
   setTimeout(function() {
@@ -36,8 +37,10 @@ function _afterFullscreenEnter() {
 }
 
 function _tgFullscreenAvailable(tg) {
-  return !!(tg && typeof tg.requestFullscreen === 'function' &&
-    (!tg.isVersionAtLeast || tg.isVersionAtLeast('8.0')));
+  // ★ Ориентируемся на наличие метода, а не только на строку версии:
+  // клиент может сообщать устаревшую версию через старый SDK, но сам
+  // полноэкранный режим уже поддерживать. Если метода нет — её и не будет.
+  return !!(tg && typeof tg.requestFullscreen === 'function');
 }
 
 // Нативный Fullscreen API + webkit-фолбэк. Вызывать только по жесту.
@@ -55,7 +58,12 @@ function _nativeFullscreen(tg, manual) {
     if (manual && !window._fsWarned) {
       window._fsWarned = true;
       if (typeof toast === 'function') {
-        toast('Полный экран недоступен', 'Откройте игру в Telegram 8.0+ или разрешите fullscreen в браузере');
+        const tgModern = !!(tg && typeof tg.isVersionAtLeast === 'function' && tg.isVersionAtLeast('8.0'));
+        if (tg && !tgModern) {
+          toast('Обновите Telegram', 'Встроенный полный экран появился в Bot API 8.0 — обновите приложение');
+        } else {
+          toast('Полный экран недоступен', 'Браузер не разрешил полноэкранный режим');
+        }
       }
     }
   };
@@ -91,15 +99,38 @@ function requestFullscreen(manual) {
       setTimeout(function() {
         if (fullscreenRequested || _fsActive()) return;
         if (tg && tg.isFullscreen === true) { _afterFullscreenEnter(); return; }
-        // Telegram не переключил — пробуем нативный API (жест ещё активен).
-        _nativeFullscreen(tg, manual);
-      }, 350);
+        // Нативный Fullscreen API пробуем только там, где он реально есть.
+        // На iOS его нет: там ждём событие Telegram и не пугаем игрока тостом.
+        if (document.fullscreenEnabled || document.webkitFullscreenEnabled) {
+          _nativeFullscreen(tg, manual);
+        } else if (manual && !window._fsWarned) {
+          window._fsWarned = true;
+          if (typeof toast === 'function') {
+            toast('Полный экран недоступен', 'Обновите Telegram: встроенный полный экран требует Bot API 8.0');
+          }
+        }
+      }, 600);
       return;
     }
   }
 
   // 2) Нативный Fullscreen API (вызов из клика по кнопке — жест есть)
   _nativeFullscreen(tg, manual);
+}
+
+// Telegram сообщил, что войти в полный экран не удалось (Bot API 8.0+).
+function _tgFullscreenFailed(err) {
+  fullscreenRequested = false;
+  document.body.classList.remove('fs-active');
+  if (typeof resize === 'function') setTimeout(resize, 60);
+  if (err === 'ALREADY_FULLSCREEN') { _afterFullscreenEnter(); return; }
+  if (typeof toast !== 'function') return;
+  window._fsWarned = true;
+  if (err === 'UNSUPPORTED') {
+    toast('Полный экран недоступен', 'Обновите Telegram: встроенный полный экран требует Bot API 8.0');
+  } else {
+    toast('Не удалось включить полный экран', 'Попробуйте ещё раз');
+  }
 }
 
 // Ручной тумблер из окна настроек: вход/выход из полного экрана.
@@ -813,11 +844,8 @@ if (tg.expand) tg.expand();
 if (tg.setHeaderColor) tg.setHeaderColor('#02010a');
 if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
 if (tg.setBackgroundColor) tg.setBackgroundColor('#02010a');
-// Пробуем сразу (в Telegram часто срабатывает без жеста); если клиент
-// требует жест — первое касание повторит попытку через requestFullscreen().
-if (_tgFullscreenAvailable(tg)) {
-  try { tg.requestFullscreen(); } catch (e) { /* ниже сработает жест */ }
-}
+// ★ Автозапрос при старте убран: без жеста он часто падал и пугал тостом.
+// Теперь полный экран включает кнопка ⛶ (или Telegram сам при открытии).
 } catch (e) {}
 
 // Полноэкранный Telegram: сверху висят системные кнопки — опускаем HUD
@@ -826,6 +854,8 @@ if (tg.onEvent) {
   try {
     tg.onEvent('viewportChanged', syncTelegramLayout);
     tg.onEvent('fullscreenChanged', syncTelegramLayout);
+    // ★ Точная причина отказа (UNSUPPORTED и т.п.) вместо общей подсказки.
+    tg.onEvent('fullscreenFailed', function(ev) { _tgFullscreenFailed(ev && ev.error); });
   } catch (e) { /* старые клиенты */ }
 }
 }

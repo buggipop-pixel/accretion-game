@@ -150,3 +150,16 @@
 - `tests/smoke-test.js` — проверка наличия и подключения кнопки.
 
 **Проверка:** `node tests/smoke-test.js` — 18/18; полный набор тестов — без провалов.
+
+## Сессия: полноэкранный режим в Telegram на телефоне
+
+**Проблема:** на телефоне кнопка ⛶ показывала «Полный экран недоступен». Причина — сломанный путь к SDK: `@twa-dev/sdk@7.0.0/dist/telegram-web-app.js` отдаёт 404 (файл называется `telegram-web-apps.js`, с «s»), поэтому `window.Telegram.WebApp.requestFullscreen` либо отсутствовал, либо был из старой версии 7.0 без fullscreen. Плюс проверка требовала `isVersionAtLeast('8.0')` ещё до попытки вызова.
+
+**Что сделано:**
+- `index.html` — SDK 8.0.2 по верному пути `dist/telegram-web-apps.js` (jsDelivr + unpkg-фолбэк).
+- `js/main.js` — `_tgFullscreenAvailable()` ориентируется на наличие `requestFullscreen`, а не на строку версии; на iOS нативный API не вызывается (его там нет); добавлен обработчик `fullscreenFailed` с точной причиной; автозапрос при старте убран.
+- `tests/smoke-test.js` — проверка, что SDK грузится по верному пути.
+
+**Проверка:** `node tests/smoke-test.js` — 19/19; `node tests/prime-protection-test.js` — 23/23.
+
+**Важно:** Telegram WebView кэширует JS — после деплоя нужно закрыть и заново открыть мини-приложение (или очистить кэш Telegram).
