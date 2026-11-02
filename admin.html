@@ -5,100 +5,340 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Админ-панель Аккреция</title>
   <style>
-    body { font-family: -apple-system, sans-serif; background: #0a0620; color: #e8e2ff; padding: 20px; }
-    h1 { font-size: 20px; color: #b9a8ff; }
-    table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 13px; }
-    th, td { padding: 10px; border: 1px solid rgba(139, 127, 212, 0.3); text-align: left; }
-    th { background: rgba(139, 127, 212, 0.1); color: #b9a8ff; }
-    input, button { padding: 8px 12px; margin: 5px 0; border-radius: 8px; border: 1px solid rgba(139, 127, 212, 0.4); background: rgba(20, 15, 45, 0.8); color: #fff; font-family: inherit; outline: none; }
-    button { cursor: pointer; background: #6b4de6; border: none; font-weight: bold; transition: 0.2s; }
+    body { font-family: -apple-system, sans-serif; background: #0a0620; color: #e8e2ff; padding: 20px; margin: 0; }
+    h1 { font-size: 24px; color: #b9a8ff; margin-bottom: 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
+    th, td { padding: 12px; border: 1px solid rgba(139, 127, 212, 0.3); text-align: left; }
+    th { background: rgba(139, 127, 212, 0.15); color: #b9a8ff; font-weight: 600; }
+    tr:hover { background: rgba(139, 127, 212, 0.05); cursor: pointer; }
+    button { padding: 8px 16px; border-radius: 8px; border: none; background: #6b4de6; color: #fff; font-weight: bold; cursor: pointer; transition: 0.2s; font-family: inherit; }
     button:hover { background: #8b5cf6; }
-    .btn-sm { padding: 5px 8px; font-size: 11px; margin: 0 2px; }
-    .hidden { display: none; }
-    .auth-box { background: rgba(25, 15, 50, 0.8); padding: 20px; border-radius: 12px; border: 1px solid rgba(139, 127, 212, 0.3); max-width: 300px; margin: 50px auto; text-align: center; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-danger { background: #ff4a4a; color: #fff; }
+    .btn-danger:hover { background: #ff2a2a; }
+    .btn-warning { background: #ffb347; color: #1a0f35; }
+    .btn-warning:hover { background: #ffcc00; }
+
+    /* Модалка и карточка игрока */
+    #playerModal { display: none; position: fixed; inset: 0; background: rgba(2, 1, 10, 0.9); backdrop-filter: blur(5px); z-index: 100; align-items: center; justify-content: center; padding: 20px; overflow-y: auto; }
+    .modal-content { background: linear-gradient(180deg, #1a1030, #0a0620); border: 1px solid #6b4de6; border-radius: 16px; padding: 24px; max-width: 600px; width: 100%; box-shadow: 0 10px 40px rgba(0,0,0,0.8); max-height: 90vh; overflow-y: auto; }
+
+    .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid rgba(139, 127, 212, 0.3); padding-bottom: 10px; }
+    .section-title { font-size: 12px; color: #8b7fd4; text-transform: uppercase; letter-spacing: 1px; margin: 15px 0 10px; font-weight: bold; border-bottom: 1px dashed rgba(139, 127, 212, 0.2); padding-bottom: 4px; }
+
+    .input-group { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+    .input-group label { font-size: 12px; color: #a89ce0; }
+    .input-group input, .input-group select { padding: 10px; border-radius: 8px; border: 1px solid rgba(139, 127, 212, 0.5); background: rgba(0,0,0,0.5); color: #fff; font-family: inherit; font-size: 14px; }
+    .input-group input:focus, .input-group select:focus { outline: none; border-color: #b9a8ff; }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .btn-row { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+
+    /* Вход */
+    .auth-box { background: rgba(25, 15, 50, 0.8); padding: 30px; border-radius: 16px; border: 1px solid #6b4de6; max-width: 300px; margin: 100px auto; text-align: center; }
+    .auth-box input { width: 100%; box-sizing: border-box; margin-bottom: 15px; padding: 12px; border-radius: 8px; border: 1px solid #6b4de6; background: rgba(0,0,0,0.5); color: #fff; font-size: 16px; }
   </style>
 </head>
 <body>
+
   <div id="authBlock" class="auth-box">
     <h1>🛠 Вход в Админку</h1>
-    <input type="password" id="adminToken" placeholder="Введите ADMIN_TOKEN" style="width: 100%; box-sizing: border-box; margin-bottom: 10px;">
+    <input type="password" id="adminToken" placeholder="Введите ADMIN_TOKEN">
     <button onclick="loadPlayers()" style="width: 100%;">Войти</button>
   </div>
 
-  <div id="mainBlock" class="hidden">
-    <h1>🛠 Управление игроками</h1>
-    <button onclick="loadPlayers()">🔄 Обновить список</button>
+  <div id="mainBlock" style="display: none;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <h1>🛠 Управление игроками</h1>
+      <button onclick="loadPlayers()">🔄 Обновить</button>
+    </div>
+
+    <!-- Удалённые игроки исчезают из списка (у них нет сейва), поэтому
+         доступ возвращается по ID — см. /admin/api/player/:id/restore -->
+    <div style="display: flex; gap: 10px; align-items: center; margin-top: 14px; flex-wrap: wrap;">
+      <input type="text" id="restoreId" placeholder="ID удалённого игрока"
+             style="flex: 1; min-width: 180px; padding: 10px; border-radius: 8px;
+                    border: 1px solid rgba(139,127,212,0.5); background: rgba(0,0,0,0.4); color: #fff;">
+      <button class="btn-warning" onclick="restorePlayer()">♻️ Восстановить доступ</button>
+    </div>
+
     <table id="playersTable">
       <thead>
         <tr>
-          <th>Telegram ID</th>
+          <th>ID</th>
+          <th>Ник (Telegram)</th>
           <th>Имя системы</th>
           <th>Фаза</th>
-          <th>Пыль</th>
-          <th>Металлы</th>
-          <th>Системы</th>
-          <th>Действия</th>
+          <th>Действие</th>
         </tr>
       </thead>
       <tbody></tbody>
     </table>
   </div>
 
+  <!-- Модалка управления игроком -->
+  <div id="playerModal">
+    <div class="modal-content">
+      <div class="header-row">
+        <h2 id="modalTitle" style="margin: 0; color: #fff;">Игрок</h2>
+        <button class="btn-danger" onclick="closePlayerModal()">✕ Закрыть</button>
+      </div>
+
+      <!-- РЕСУРСЫ -->
+      <div class="section-title">💰 Ресурсы</div>
+      <div class="grid-2">
+        <div class="input-group">
+          <label>Пыль (Dust)</label>
+          <input type="number" id="edit-dust">
+        </div>
+        <div class="input-group">
+          <label>Энергия (Energy)</label>
+          <input type="number" id="edit-energy">
+        </div>
+        <div class="input-group">
+          <label>Цивилизация (Civ)</label>
+          <input type="number" id="edit-civ">
+        </div>
+        <div class="input-group">
+          <label>Металлы (Metals)</label>
+          <input type="number" id="edit-metals">
+        </div>
+      </div>
+      <button onclick="saveResources()" style="width: 100%;">Сохранить ресурсы</button>
+
+      <!-- ФАЗА -->
+      <div class="section-title">🌀 Фаза игры</div>
+      <div class="input-group">
+        <select id="edit-stage">
+          <option value="cloud">Фаза I: Облако</option>
+          <option value="condense">Фаза II: Диск</option>
+          <option value="protostar">Фаза III: Протозвезда</option>
+          <option value="firstPlanet">Фаза IV: Первая планета</option>
+          <option value="system">Фаза V: Система</option>
+          <option value="galaxy">Фаза VI: Галактика</option>
+        </select>
+      </div>
+      <button onclick="saveStage()" style="width: 100%;">Сменить фазу</button>
+
+      <!-- ПРАЙМ ОБЪЕКТ -->
+      <div class="section-title">👑 Прайм-объект</div>
+      <div class="grid-2">
+        <div class="input-group">
+          <label>Тип объекта</label>
+          <select id="edit-prime-obj" onchange="togglePrimeLevel()">
+            <option value="none">Нет</option>
+            <option value="blackHole">Чёрная дыра</option>
+            <option value="wormhole">Кротовая нора</option>
+            <option value="quasar">Квазар</option>
+            <option value="pulsar">Пульсар</option>
+            <option value="magnetar">Магнетар</option>
+            <option value="gravLens">Гравитационная линза</option>
+            <option value="darkMatter">Тёмная материя</option>
+            <option value="quarkVoid">Кварковый войд</option>
+            <option value="primeBH">Первичная ЧД</option>
+          </select>
+        </div>
+        <div class="input-group" id="primeLevelBox" style="display: none;">
+          <label>Уровень</label>
+          <select id="edit-prime-lvl">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+          </select>
+        </div>
+      </div>
+      <button onclick="savePrime()" style="width: 100%;">Выдать Прайм</button>
+
+      <!-- ПРЕМИУМ -->
+      <div class="section-title">🎁 Премиум</div>
+      <div class="btn-row">
+        <button class="btn-warning" onclick="giveShield()">🛡 Выдать Щит (24ч)</button>
+        <button class="btn-warning" onclick="giveChest()">🎁 Выдать Сундук</button>
+      </div>
+
+      <!-- ВТОРЖЕНИЯ -->
+      <div class="section-title">⚔️ Вторжения</div>
+      <div class="btn-row">
+        <button class="btn-danger" onclick="triggerInvasion()">⚔️ Запустить Вторжение</button>
+      </div>
+
+      <!-- ХРАНИЛИЩЕ -->
+      <div class="section-title">📦 Хранилище</div>
+      <div class="grid-3">
+        <div class="input-group">
+          <label>Ресурс</label>
+          <select id="edit-storage-res" onchange="syncStorageLevel()">
+            <option value="dust">Пыль</option>
+            <option value="energy">Энергия</option>
+            <option value="civ">Цивилизация</option>
+          </select>
+        </div>
+        <div class="input-group">
+          <label>Уровень (1-7)</label>
+          <input type="number" id="edit-storage-lvl" min="1" max="7" value="1">
+        </div>
+        <div class="input-group" style="justify-content: flex-end;">
+          <button onclick="saveStorage()">Применить</button>
+        </div>
+      </div>
+
+      <!-- УДАЛЕНИЕ -->
+      <div class="section-title" style="color: #ff4a4a; border-color: rgba(255,74,74,0.3);">Опасная зона</div>
+      <button class="btn-danger" onclick="deletePlayer()" style="width: 100%;">🗑 Удалить аккаунт</button>
+    </div>
+  </div>
+
   <script>
-    // Если админка на том же сервере, что и игра, API_BASE можно оставить пустым.
-    // Если на другом (например, GitHub Pages), укажи ссылку на Render: 'https://accretion-game.onrender.com'
-    const API_BASE = ''; 
+    const API_BASE = '';
     let currentToken = '';
+    let currentPlayerId = null;
+    let currentPlayerData = null;
+
+    // ─── Данные Прайм-объектов (копия js/prime.js) ───
+    // Нужны админке, чтобы записывать в сейв настоящее имя и настоящие бонусы,
+    // а не технический ключ с пустым объектом (иначе игрок видит «blackHole»
+    // и не получает множителей).
+    const PRIME_OBJECTS = {
+      blackHole:  { name: 'Чёрная дыра',              icon: 'blackHole',  bonus: { dustMult: 0.25 },   absorbRadius: 150 },
+      massiveBH:  { name: 'Массивная ЧД',             icon: 'massiveBH',  bonus: { dustMult: 0.50 },   absorbRadius: 200 },
+      superBH:    { name: 'Сверхмассивная ЧД',        icon: 'superBH',    bonus: { dustMult: 1.00 },   absorbRadius: 260 },
+      quasar:     { name: 'Квазар',                   icon: 'quasar',     bonus: { allMult: 0.30 },    absorbRadius: 130 },
+      pulsar:     { name: 'Пульсар',                  icon: 'pulsar',     bonus: { energyMult: 0.50 }, absorbRadius: 100 },
+      magnetar:   { name: 'Магнетар',                 icon: 'magnetar',   bonus: { planetHP: 2.0 },    absorbRadius: 120 },
+      wormhole:   { name: 'Малая кротовая нора',      icon: 'wormhole',   bonus: { keepSystems: 0.2 }, absorbRadius: 90  },
+      wormhole2:  { name: 'Кротовая нора',            icon: 'wormhole',   bonus: { keepSystems: 0.3 }, absorbRadius: 120 },
+      wormhole3:  { name: 'Гигантская кротовая нора', icon: 'wormhole',   bonus: { keepSystems: 0.5 }, absorbRadius: 150 },
+      darkMatter: { name: 'Тёмная материя',            icon: 'darkMatter', bonus: { incomePerHour: 0.005 }, absorbRadius: 0 },
+      gravLens:   { name: 'Гравитационная линза',      icon: 'gravLens',   bonus: { autoClick: 2 },     absorbRadius: 0 },
+      quarkVoid:  { name: 'Кварковый войд',            icon: 'quarkVoid',  bonus: { offlineMult: 2.0, capPenalty: 0.2 }, absorbRadius: 220 },
+      primeBH:    { name: 'Первичная ЧД',              icon: 'primeBH',    bonus: { rareChance: 0.05 }, absorbRadius: 300 },
+    };
+
+    // Уровни есть ТОЛЬКО у чёрной дыры и кротовой норы — остальные объекты
+    // (quasar, primeBH, massiveBH/superBH и т.д.) уже отдельные сущности.
+    const PRIME_MAP = {
+      blackHole: { name: 'Чёрная дыра', lvl2: 'massiveBH', lvl3: 'superBH' },
+      wormhole:  { name: 'Кротовая нора', lvl2: 'wormhole2', lvl3: 'wormhole3' },
+    };
+    const PRIME_LEVELABLE = Object.keys(PRIME_MAP);
+
+    // Таблица лута сундука (копия js/config.js: CHEST_CFG.lootTable).
+    const CHEST_LOOT = [
+      { key: 'blackHole', weight: 20 }, { key: 'pulsar', weight: 20 }, { key: 'wormhole', weight: 20 },
+      { key: 'quasar', weight: 10 }, { key: 'magnetar', weight: 10 }, { key: 'gravLens', weight: 10 },
+      { key: 'massiveBH', weight: 4 }, { key: 'superBH', weight: 2 }, { key: 'darkMatter', weight: 2 },
+      { key: 'quarkVoid', weight: 1 }, { key: 'primeBH', weight: 1 },
+    ];
+
+    // ─── Копии игровых генераторов (js/config.js, js/premium.js) ───
+    const ORBIT_BASE_R = 170, ORBIT_RATIO = 1.22;
+    const PLANET_MASS = { rocky: 1.0, superEarth: 2.5, iceGiant: 4.0, gasGiant: 8.0, lava: 1.5 };
+    const PLANET_DIAMETER = { rocky: 1.0, superEarth: 1.3, iceGiant: 1.5, gasGiant: 1.8, lava: 0.9 };
+    const SYS_PREFIXES = ['Альфа','Бета','Гамма','Дельта','Эпсилон','Дзета','Эта','Тета','Йота','Каппа','Лямбда','Мю','Ню','Кси','Омикрон','Пи','Ро','Сигма','Тау','Ипсилон','Фи','Хи','Пси','Омега'];
+    const SYS_NAMES = ['Кентавра','Центавра','Ориона','Лебедя','Лира','Дракона','Феникса','Кита','Гидры','Пегаса','Кассиопеи','Персея','Андромеды','Волопаса','Геркулеса','Змееносца','Ворона','Орла','Павлина','Журавля','Тукана','Единорога'];
+    const SYS_SUFFIXES = ['',' I',' II',' III',' IV',' V',' A',' B'];
+
+    function getOrbitR(i) { return ORBIT_BASE_R * Math.pow(ORBIT_RATIO, i); }
+
+    function generateSystemName() {
+      const prefix = SYS_PREFIXES[Math.floor(Math.random() * SYS_PREFIXES.length)];
+      const base = SYS_NAMES[Math.floor(Math.random() * SYS_NAMES.length)];
+      const suffix = SYS_SUFFIXES[Math.floor(Math.random() * SYS_SUFFIXES.length)];
+      return prefix + ' ' + base + suffix;
+    }
+
+    // Планета ровно в той форме, что и в generatePerfectPrimeSystem().
+    function makePlanet(type, orbitR) {
+      return {
+        type: type,
+        angle: Math.random() * Math.PI * 2,
+        speed: 0.2 / Math.pow(orbitR / 90, 1.5),
+        baseOrbitR: orbitR,
+        orbitR: orbitR,
+        driftPhase: Math.random() * Math.PI * 2,
+        rotation: Math.random() * Math.PI * 2,
+        seed: Math.random() * 1e6,
+        forming: false,
+        formUntil: 0,
+        mass: PLANET_MASS[type] || 1.0,
+        diameter: PLANET_DIAMETER[type] || 1.0,
+        moons: [],
+        precession: 0,
+        trueAnomaly: 0,
+      };
+    }
+
+    // Упрощённая серверная версия generatePerfectPrimeSystem():
+    // идеальная звезда «G», 8 планет от центра к краю.
+    function makePerfectPrimeSystem(primeData) {
+      const perfect = ['lava','lava','superEarth','superEarth','gasGiant','gasGiant','iceGiant','iceGiant'];
+      const planets = [];
+      for (let i = 0; i < perfect.length; i++) planets.push(makePlanet(perfect[i], getOrbitR(i)));
+      return {
+        name: generateSystemName(),
+        starType: 'G',
+        systemType: 'single',
+        planets: planets,
+        isPrime: true,
+        primeData: primeData,
+      };
+    }
+
+    // Объект Прайм-системы — как createPrimeSystem() в js/prime.js.
+    function makePrimeData(objKey) {
+      const def = PRIME_OBJECTS[objKey];
+      return {
+        name: generateSystemName(),
+        objectKey: objKey,
+        objectName: def.name,
+        objectIcon: def.icon,
+        bonus: Object.assign({}, def.bonus),
+        absorbRadius: def.absorbRadius,
+        createdAt: Date.now(),
+      };
+    }
+
+    // Экранирование: ник и имя системы вводит игрок, вставлять их в innerHTML
+    // «как есть» — это XSS в админке и ломаная вёрстка строки.
+    function esc(value) {
+      return String(value == null ? '' : value).replace(/[&<>"']/g, function(ch) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+      });
+    }
 
     async function loadPlayers() {
       const tokenInput = document.getElementById('adminToken').value;
       if (tokenInput) currentToken = tokenInput;
-
-      if (!currentToken) {
-        alert('Введите токен!');
-        return;
-      }
+      if (!currentToken) { alert('Введите токен!'); return; }
 
       try {
         const res = await fetch(API_BASE + '/admin/api/players', {
           headers: { 'X-Admin-Token': currentToken }
         });
-        
-        if (res.status === 401) {
-          alert('Неверный токен!');
-          return;
-        }
-
+        if (res.status === 401) { alert('Неверный токен!'); return; }
         const json = await res.json();
         if (!json.ok) throw new Error(json.error || 'Ошибка сервера');
 
-        document.getElementById('authBlock').classList.add('hidden');
-        document.getElementById('mainBlock').classList.remove('hidden');
+        document.getElementById('authBlock').style.display = 'none';
+        document.getElementById('mainBlock').style.display = 'block';
 
         const tbody = document.querySelector('#playersTable tbody');
         tbody.innerHTML = '';
-        
+
         if (json.players.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">Игроков пока нет</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">Игроков пока нет</td></tr>';
           return;
         }
 
         json.players.forEach(p => {
           const tr = document.createElement('tr');
           tr.innerHTML = `
-            <td>${p.id}</td>
-            <td>${p.name}</td>
-            <td>${p.stage}</td>
-            <td>${Math.floor(p.dust || 0).toLocaleString()}</td>
-            <td>${Math.floor(p.metals || 0).toLocaleString()}</td>
-            <td>${p.systems || 1}</td>
-            <td>
-              <button class="btn-sm" onclick="giveResource('${p.id}', 'dust', 1000000)">+1M Пыли</button>
-              <button class="btn-sm" onclick="giveResource('${p.id}', 'metalAmount', 1000)">+1000 ⚙</button>
-              <button class="btn-sm" onclick="giveResource('${p.id}', 'energy', 100000)">+100K ⚡</button>
-              <button class="btn-sm" onclick="giveResource('${p.id}', 'civLevel', 500)">+500 🧬</button>
-              <button class="btn-sm" onclick="editPlayer('${p.id}')">✏️ JSON</button>
-            </td>
+            <td>${esc(p.id)}</td>
+            <td>${esc(p.name)}</td>
+            <td>${esc(p.systemName || '—')}</td>
+            <td>${esc(p.stage)}</td>
+            <td><button class="btn-warning" onclick="openPlayer('${esc(p.id)}')">Управлять</button></td>
           `;
           tbody.appendChild(tr);
         });
@@ -107,74 +347,281 @@
       }
     }
 
-    async function giveResource(playerId, resource, amount) {
-      if (!confirm(`Выдать ${amount} ресурса ${resource} игроку ${playerId}?`)) return;
-
-      try {
-        const res = await fetch(API_BASE + `/admin/api/player/${playerId}/give`, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'X-Admin-Token': currentToken 
-          },
-          body: JSON.stringify({ resource, amount })
-        });
-        const json = await res.json();
-        if (json.ok) {
-          loadPlayers(); // Обновить таблицу после выдачи
-        } else {
-          alert('Ошибка: ' + json.error);
-        }
-      } catch (e) {
-        alert('Ошибка сети: ' + e.message);
-      }
-    }
-
-    // Прямая запись одного поля в облачный сейв игрока.
-    async function setField(id, field, value) {
-      const res = await fetch(API_BASE + `/admin/api/player/${id}/set`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Token': currentToken },
-        body: JSON.stringify({ field, value })
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json.ok) throw new Error(json.error || 'Не удалось записать поле ' + field);
-      return json;
-    }
-
-    // Быстрый JSON-редактор сейва через prompt'ы.
-    async function editPlayer(id) {
+    async function openPlayer(id) {
       try {
         const res = await fetch(API_BASE + `/admin/api/player/${id}`, {
           headers: { 'X-Admin-Token': currentToken }
         });
         const json = await res.json();
-        if (!json.ok) throw new Error(json.error || 'Не удалось открыть сейв');
+        if (!json.ok) throw new Error(json.error);
 
-        const d = json.data || {};
+        currentPlayerId = id;
+        currentPlayerData = json.data;
 
-        const newStage = prompt('Введите новую фазу (cloud, condense, protostar, firstPlanet, system, galaxy):', d.stage || '');
-        if (newStage && newStage.trim() && newStage.trim() !== d.stage) {
-          await setField(id, 'stage', newStage.trim());
+        document.getElementById('modalTitle').textContent = `Игрок: ${json.data.playerName || 'Безымянный'} (${id})`;
+
+        // Заполняем поля
+        document.getElementById('edit-dust').value = Math.floor(json.data.dust || 0);
+        document.getElementById('edit-energy').value = Math.floor(json.data.energy || 0);
+        document.getElementById('edit-civ').value = Math.floor(json.data.civLevel || 0);
+        document.getElementById('edit-metals').value = Math.floor(json.data.metalAmount || 0);
+        document.getElementById('edit-stage').value = json.data.stage || 'cloud';
+
+        // Прайм: показываем в списках то, что уже есть у игрока.
+        // Уровневые варианты обратно разворачиваем в базовый объект + уровень.
+        const prime = json.data.primeSystem;
+        let primeObj = prime && PRIME_OBJECTS[prime.objectKey] ? prime.objectKey : 'none';
+        let primeLvl = '1';
+        for (const baseKey in PRIME_MAP) {
+          if (PRIME_MAP[baseKey].lvl2 === primeObj) { primeObj = baseKey; primeLvl = '2'; break; }
+          if (PRIME_MAP[baseKey].lvl3 === primeObj) { primeObj = baseKey; primeLvl = '3'; break; }
         }
+        const primeSelect = document.getElementById('edit-prime-obj');
+        // Объекты из сейва могут отсутствовать в <select> (новые/старые ключи).
+        if (!primeSelect.querySelector(`option[value="${primeObj}"]`)) primeObj = 'none';
+        primeSelect.value = primeObj;
+        document.getElementById('edit-prime-lvl').value = primeLvl;
+        togglePrimeLevel();
 
-        const newMetals = prompt('Введите количество металлов:', d.metalAmount != null ? d.metalAmount : 0);
-        if (newMetals !== null && newMetals !== '' && Number.isFinite(Number(newMetals))) {
-          await setField(id, 'metalAmount', Number(newMetals));
+        // Хранилище: показываем уровень того ресурса, который выбран в списке.
+        const storageRes = document.getElementById('edit-storage-res').value;
+        const levels = json.data.storageLevels || {};
+        document.getElementById('edit-storage-lvl').value = Number(levels[storageRes]) || 1;
+        document.getElementById('playerModal').style.display = 'flex';
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    function closePlayerModal() {
+      document.getElementById('playerModal').style.display = 'none';
+      currentPlayerId = null;
+      currentPlayerData = null;
+    }
+
+    // Записывает набор полей в сейв. Каждый ответ проверяем: раньше ошибки
+    // (401/404/500) молча проглатывались, а админ видел «Сохранено!».
+    async function setFields(fields) {
+      try {
+        for (const key in fields) {
+          const res = await fetch(API_BASE + `/admin/api/player/${currentPlayerId}/set`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Admin-Token': currentToken },
+            body: JSON.stringify({ field: key, value: fields[key] })
+          });
+          const json = await res.json().catch(function() { return {}; });
+          if (!res.ok || !json.ok) {
+            throw new Error(json.error || ('Не удалось записать поле ' + key + ' (HTTP ' + res.status + ')'));
+          }
         }
+        alert('Сохранено!');
+        await openPlayer(currentPlayerId); // Обновляем данные
+      } catch (e) { alert('Ошибка: ' + e.message); }
+    }
 
-        const newName = prompt('Введите ник игрока:', d.playerName || 'Безымянный');
-        if (newName) await setField(id, 'playerName', newName.trim());
+    // --- Обработчики кнопок ---
+    function saveResources() {
+      const dust = Number(document.getElementById('edit-dust').value);
+      // dustTotal — накопленная за всю игру пыль, она не должна уменьшаться.
+      // Админ может поднять dust, тогда поднимаем и dustTotal до нового значения,
+      // но при снижении dust оставляем прежний максимум.
+      const prevTotal = Number(currentPlayerData && currentPlayerData.dustTotal) || 0;
+      setFields({
+        dust: dust,
+        dustTotal: Math.max(prevTotal, Number.isFinite(dust) ? dust : 0),
+        energy: Number(document.getElementById('edit-energy').value),
+        civLevel: Number(document.getElementById('edit-civ').value),
+        metalAmount: Number(document.getElementById('edit-metals').value)
+      });
+    }
 
-        // Выдать премиум объект (например, blackHole)
-        const prime = prompt('Введите ключ Прайм-объекта (blackHole, quasar, pulsar, wormhole или оставьте пустым):');
-        if (prime && prime.trim()) {
-          const primeKey = prime.trim();
-          await setField(id, 'primeSystem', { objectKey: primeKey, objectName: primeKey });
-          alert('Прайм добавлен (потребуется вход в систему, если фаза system)');
+    function saveStage() {
+      const stage = document.getElementById('edit-stage').value;
+      setFields({ stage: stage });
+    }
+
+    function togglePrimeLevel() {
+      const obj = document.getElementById('edit-prime-obj').value;
+      // Уровни есть только у blackHole и wormhole. Для primeBH/massiveBH/
+      // superBH, квазара и прочих список уровней не показываем.
+      document.getElementById('primeLevelBox').style.display = PRIME_LEVELABLE.indexOf(obj) !== -1 ? 'flex' : 'none';
+    }
+
+    // Улучшение Прайм-объекта: имя/иконка/бонусы берём у нового объекта,
+    // но имя системы и дату создания сохраняем исходные (как в игре).
+    function upgradePrimeData(existing, nextKey) {
+      const def = PRIME_OBJECTS[nextKey];
+      return Object.assign({}, existing, {
+        objectKey: nextKey,
+        objectName: def.name,
+        objectIcon: def.icon,
+        bonus: Object.assign({}, def.bonus),
+        absorbRadius: def.absorbRadius,
+      });
+    }
+
+    function savePrime() {
+      let objKey = document.getElementById('edit-prime-obj').value;
+      if (objKey === 'none') { setFields({ primeSystem: null }); return; }
+      if (!PRIME_OBJECTS[objKey]) { alert('Неизвестный Прайм-объект: ' + objKey); return; }
+
+      const lvl = document.getElementById('edit-prime-lvl').value;
+      if (PRIME_MAP[objKey]) {
+        if (lvl === '2') objKey = PRIME_MAP[objKey].lvl2;
+        if (lvl === '3') objKey = PRIME_MAP[objKey].lvl3;
+      }
+
+      // Полноценный объект: настоящее имя, иконка, бонусы и радиус поглощения.
+      // Раньше сюда писался технический ключ и пустой bonus — игра показывала
+      // «blackHole» и не применяла множители.
+      setFields({ primeSystem: makePrimeData(objKey) });
+    }
+
+    async function giveShield() {
+      const until = Date.now() + 24 * 3600 * 1000;
+      setFields({ shieldUntil: until });
+    }
+
+    // ─── Сундук ───
+    // Как в игре (js/premium.js: showChestResult): выпадает случайный
+    // Прайм-объект. Если он уже есть — объект улучшается (blackHole→massiveBH
+    // →superBH, wormhole→wormhole2→wormhole3), иначе создаётся новая
+    // идеальная система (8 планет, звезда «G»).
+    const CHEST_UPGRADES = {
+      blackHole: 'massiveBH', massiveBH: 'superBH',
+      wormhole: 'wormhole2', wormhole2: 'wormhole3',
+    };
+
+    function pickChestKey() {
+      const total = CHEST_LOOT.reduce(function(sum, item) { return sum + item.weight; }, 0);
+      let roll = Math.random() * total;
+      for (let i = 0; i < CHEST_LOOT.length; i++) {
+        roll -= CHEST_LOOT[i].weight;
+        if (roll <= 0) return CHEST_LOOT[i].key;
+      }
+      return CHEST_LOOT[CHEST_LOOT.length - 1].key;
+    }
+
+    async function giveChest() {
+      if (!currentPlayerData) { alert('Сначала открой игрока'); return; }
+      if (!confirm('Выдать сундук? Выпадет случайный Прайм-объект (или слияние).')) return;
+
+      const key = pickChestKey();
+      const data = currentPlayerData;
+      const nextKey = CHEST_UPGRADES[key] || null;
+
+      // 1) Такой объект уже есть в текущей (домашней) системе — слияние.
+      if (data.primeSystem && data.primeSystem.objectKey === key) {
+        if (!nextKey) {
+          alert('Выпал «' + PRIME_OBJECTS[key].name + '», но улучшать его некуда.');
+          return;
         }
+        setFields({ primeSystem: upgradePrimeData(data.primeSystem, nextKey) });
+        return;
+      }
 
-        loadPlayers();
+      // 2) Такой объект есть на другой планете/в другой системе — слияние там.
+      const systems = Array.isArray(data.otherSystems) ? data.otherSystems.slice() : [];
+      for (let i = 1; i < systems.length; i++) {
+        const sys = systems[i];
+        if (sys && sys.primeData && sys.primeData.objectKey === key && nextKey) {
+          systems[i] = Object.assign({}, sys, { primeData: upgradePrimeData(sys.primeData, nextKey) });
+          setFields({ otherSystems: systems });
+          return;
+        }
+      }
+
+      // 3) Новый Прайм — добавляем идеальную систему, как после сундука.
+      // Индекс 0 в otherSystems зарезервирован под родную систему (null).
+      if (systems.length === 0 || systems[0] === undefined) systems[0] = null;
+      systems.push(makePerfectPrimeSystem(makePrimeData(key)));
+      setFields({
+        otherSystems: systems,
+        systems: (Number(data.systems) || 1) + 1,
+        totalSystemsCreated: (Number(data.totalSystemsCreated) || 1) + 1,
+      });
+    }
+
+    async function triggerInvasion() {
+      if (!currentPlayerId) { alert('Сначала открой игрока'); return; }
+      const stage = currentPlayerData && currentPlayerData.stage;
+      if (stage !== 'system' && stage !== 'galaxy') {
+        alert('Вторжение возможно только на фазе «Система» или «Галактика» (сейчас: ' + (stage || '—') + ')');
+        return;
+      }
+      if (!confirm('Запустить вторжение на этого игрока?')) return;
+      try {
+        const res = await fetch(API_BASE + `/admin/api/player/${currentPlayerId}/invasion`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Admin-Token': currentToken },
+          body: JSON.stringify({})
+        });
+        const json = await res.json().catch(function() { return {}; });
+        if (res.ok && json.ok) {
+          alert('Вторжение запущено! Игрок увидит его после синхронизации сейва.');
+          await openPlayer(currentPlayerId);
+        } else {
+          alert('Ошибка: ' + (json.error || ('HTTP ' + res.status)));
+        }
+      } catch (e) { alert(e.message); }
+    }
+
+    function saveStorage() {
+      const res = document.getElementById('edit-storage-res').value;
+      const lvl = Number(document.getElementById('edit-storage-lvl').value);
+      if (!Number.isFinite(lvl) || lvl < 1 || lvl > 7) {
+        alert('Уровень хранилища — целое число от 1 до 7');
+        return;
+      }
+      const newLevels = Object.assign({}, currentPlayerData.storageLevels || {}, { [res]: Math.floor(lvl) });
+      setFields({ storageLevels: newLevels });
+    }
+
+    // При смене ресурса в «Хранилище» показываем его текущий уровень.
+    function syncStorageLevel() {
+      if (!currentPlayerData) return;
+      const res = document.getElementById('edit-storage-res').value;
+      const levels = currentPlayerData.storageLevels || {};
+      document.getElementById('edit-storage-lvl').value = Number(levels[res]) || 1;
+    }
+
+    async function restorePlayer() {
+      const id = (document.getElementById('restoreId').value || '').trim();
+      if (!id) { alert('Введите Telegram ID игрока'); return; }
+      if (!confirm('Снять блокировку с игрока ' + id + '? Старый прогресс не вернётся — игрок начнёт с нуля.')) return;
+      try {
+        const res = await fetch(API_BASE + `/admin/api/player/${id}/restore`, {
+          method: 'POST',
+          headers: { 'X-Admin-Token': currentToken }
+        });
+        const json = await res.json().catch(function() { return {}; });
+        if (res.ok && json.ok) {
+          alert(json.wasDeleted ? 'Доступ восстановлен. Игрок начнёт с нуля.' : 'Этот игрок не был удалён.');
+          document.getElementById('restoreId').value = '';
+          loadPlayers();
+        } else {
+          alert('Ошибка: ' + (json.error || ('HTTP ' + res.status)));
+        }
+      } catch (e) { alert(e.message); }
+    }
+
+    async function deletePlayer() {
+      if (!currentPlayerId) { alert('Сначала открой игрока'); return; }
+      if (!confirm('ВЫ УВЕРЕНЫ? Аккаунт игрока будет удалён НАВСЕГДА!\n\nСейв и кошелёк удаляются, вход блокируется.')) return;
+      if (!confirm('Точно удалить? Вернуть можно только кнопкой «Восстановить доступ» — прогресс будет потерян.')) return;
+      try {
+        const res = await fetch(API_BASE + `/admin/api/player/${currentPlayerId}/delete`, {
+          method: 'POST',
+          headers: { 'X-Admin-Token': currentToken }
+        });
+        const json = await res.json().catch(function() { return {}; });
+        if (res.ok && json.ok) {
+          alert('Аккаунт удалён безвозвратно. Игрок больше не сможет сохранять прогресс.');
+          closePlayerModal();
+          loadPlayers();
+        } else {
+          alert('Ошибка: ' + (json.error || ('HTTP ' + res.status)));
+        }
       } catch (e) { alert(e.message); }
     }
   </script>

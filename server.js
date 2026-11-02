@@ -102,6 +102,46 @@ async function redisGet(key) {
   return result;
 }
 
+// Удаление ключа (админке нужно сносить сейв и кошелёк игрока).
+// Upstash REST: одиночную команду можно отправить путём /del/{key}.
+async function redisDel(key) {
+  const url = `${UPSTASH_REDIS_REST_URL}/del/${encodeURIComponent(key)}`;
+  try {
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` } });
+    if (!r.ok) {
+      console.warn(`[redis] DEL ${key} → HTTP ${r.status}`);
+      return false;
+    }
+    const data = await r.json().catch(function() { return null; });
+    if (data && data.error) {
+      console.warn(`[redis] DEL ${key} → ${data.error}`);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn(`[redis] DEL ${key} → ${e.message}`);
+    return false;
+  }
+}
+
+// ★ Надгробие удалённого аккаунта. Без него клиент при пустом облаке
+// заливает свой локальный сейв и «воскрешает» удалённого игрока.
+const DELETED_PREFIX = 'deleted:';
+
+async function isAccountDeleted(userId) {
+  try {
+    return (await redisGet(DELETED_PREFIX + userId)) != null;
+  } catch (e) {
+    // Redis недоступен — не блокируем игру, сохранение всё равно упадёт позже.
+    console.warn('[account] проверка удаления не удалась:', e.message);
+    return false;
+  }
+}
+
+function accountDeletedResponse(res) {
+  return res.status(410).json({ error: 'Account deleted', code: 'account_deleted' });
+}
+
 // Произвольная команда через REST (нужна для SCAN в админке).
 async function redisCommand(...args) {
   const r = await fetch(UPSTASH_REDIS_REST_URL, {
@@ -292,6 +332,7 @@ app.post('/api/create-invoice', async (req, res) => {
     const { initData, product } = req.body || {};
     const user = validateInitData(initData);
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
+    if (await isAccountDeleted(user.id)) return accountDeletedResponse(res);
 
     const prod = PRODUCTS[product];
     if (!prod) return res.status(400).json({ error: 'Unknown product' });
@@ -319,6 +360,10 @@ app.post('/api/claim', async (req, res) => {
     const { initData, product } = req.body || {};
     const user = validateInitData(initData);
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
+    if (await isAccountDeleted(user.id)) {
+      console.warn(`[claim] отказ: аккаунт user=${user.id} удалён`);
+      return accountDeletedResponse(res);
+    }
     if (!Object.prototype.hasOwnProperty.call(PRODUCTS, product)) {
       return res.status(400).json({ error: 'Unknown product' });
     }
@@ -401,7 +446,11 @@ app.post('/api/save', async (req, res) => {
     const { initData, saveData, baseVersion } = req.body || {};
     const user = validateInitData(initData);
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
-    // ★ Сейв приходит с чужой машины: проверяем форму, типы и метку времени.
+    // ★ Аккаунт удалён администратором: клиент не должен вернуть его сейв.
+    if (await isAccountDeleted(user.id)) {
+      console.warn(`[save] отказ: аккаунт user=${user.id} удалён`);
+      return accountDeletedResponse(res);
+    }
     // Без этого клиент мог прислать строку вместо числа (NaN ломает
     // сравнения цен), __proto__ (отравление прототипа) или 10 МБ мусора.
     const checked = validateSaveData(saveData);
@@ -580,7 +629,12 @@ app.post('/api/load', async (req, res) => {
     const { initData } = req.body || {};
     const user = validateInitData(initData);
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
-
+    // ★ Удалённый аккаунт не получает сейв — иначе клиент продолжит играть
+    // со своим локальным прогрессом и затрёт факт удаления.
+    if (await isAccountDeleted(user.id)) {
+      console.warn(`[load] отказ: аккаунт user=${user.id} удалён`);
+      return accountDeletedResponse(res);
+    }
     // Лимит на загрузки: без него можно долбить сервер/перебирать initData
     const minuteKey = `load_q:${user.id}:${Math.floor(Date.now() / 60000)}`;
     if (await bumpCounter(minuteKey, 120) > 120) {
@@ -695,6 +749,7 @@ app.post('/api/action', async (req, res) => {
     const { initData, clicks } = req.body || {};
     const user = validateInitData(initData);
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
+    if (await isAccountDeleted(user.id)) return accountDeletedResponse(res);
 
     // Пока флаг выключен — клики учитываются только клиентом
     if (!SERVER_AUTHORITATIVE || !gameCore) {
@@ -749,6 +804,7 @@ app.post('/api/reward', async (req, res) => {
     const { initData, report } = req.body || {};
     const user = validateInitData(initData);
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
+    if (await isAccountDeleted(user.id)) return accountDeletedResponse(res);
 
     if (!SERVER_AUTHORITATIVE || !gameCore) {
       return res.json({ ok: true, authoritative: false, credited: null });
@@ -810,6 +866,7 @@ app.post('/api/buy-booster', async (req, res) => {
     const { initData } = req.body || {};
     const user = validateInitData(initData);
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
+    if (await isAccountDeleted(user.id)) return accountDeletedResponse(res);
 
     if (!SERVER_AUTHORITATIVE || !gameCore) {
       return res.json({ ok: true, authoritative: false });
@@ -957,13 +1014,75 @@ function toAdminPlayer(userId, payload) {
     payload.data && typeof payload.data === 'object' ? payload.data : {};
   return {
     id: userId,
-    name: d.systemName || '—',
+    // Ник игрока и имя системы — разные поля: панель рисует их отдельными
+    // колонками, поэтому отдаём оба.
+    name: d.playerName || '—',
+    systemName: d.systemName || '—',
     stage: d.stage || '—',
     dust: Number(d.dust) || 0,
     metals: Number(d.metalAmount) || 0,
     systems: Number(d.systems) || 1,
     savedAt: (payload && payload.saved_at) || 0,
   };
+}
+
+// ★ Правка админа должна попасть и в серверный кошелёк, иначе следующая
+// сверка в /api/save обрежет её как необоснованный прирост (см. /give).
+async function syncAdminWallet(userId, data) {
+  if (!SERVER_AUTHORITATIVE) return false;
+  try {
+    const wallet = ensureWallet(await readWallet(userId), data, Date.now());
+    wallet.dust = Number(data.dust) || 0;
+    wallet.dustTotal = Number(data.dustTotal) || 0;
+    wallet.energy = Number(data.energy) || 0;
+    wallet.civLevel = Number(data.civLevel) || 0;
+    wallet.updatedAt = Date.now();
+    await writeWallet(userId, wallet);
+    return true;
+  } catch (e) {
+    console.warn('[admin] кошелёк не обновлён:', e.message);
+    return false;
+  }
+}
+
+// Параметры вторжений берём из настоящего js/config.js (через game-core),
+// с запасными значениями — чтобы админка работала и без игровых файлов.
+const ADMIN_INVASION_FALLBACK = {
+  shipsBase: 3, shipsMax: 5,
+  robberyDuration: 45 * 60 * 1000,
+  destructionDuration: 15 * 60 * 1000,
+  totalDuration: 60 * 60 * 1000,
+  planetMaxHP: 100,
+  tiers: {
+    scout: { label: 'Разведка', weight: 0.55 },
+    raid: { label: 'Рейд', weight: 0.30 },
+    siege: { label: 'Осада', weight: 0.15 },
+  },
+};
+// Для вторжения на систему игра использует фиксированные 200 HP.
+const ADMIN_INVASION_SYSTEM_HP = 200;
+
+function adminInvasionConfig() {
+  const cfg = gameCore && typeof gameCore.invasionConfig === 'function'
+    ? gameCore.invasionConfig() : null;
+  if (!cfg || !cfg.tiers || !Object.keys(cfg.tiers).length) return ADMIN_INVASION_FALLBACK;
+  return cfg;
+}
+
+// Корабли — ровно как makeShips() в js/invasions.js: клиент читает
+// angle/dist/speed/destroyed и рисует вторжение по этим полям.
+function makeAdminInvasionShips(count) {
+  const total = Math.max(1, Math.min(12, Number(count) || 1));
+  const ships = [];
+  for (let i = 0; i < total; i++) {
+    ships.push({
+      angle: (i / total) * Math.PI * 2 + Math.random() * 0.5,
+      dist: 1.2 + Math.random() * 0.6,
+      speed: 0.8 + Math.random() * 0.6,
+      destroyed: false,
+    });
+  }
+  return ships;
 }
 
 app.get('/admin/api/players', adminGuard, async (req, res) => {
@@ -1020,19 +1139,7 @@ app.post('/admin/api/player/:id/give', adminGuard, async (req, res) => {
 
     // ★ В режиме кошелька выдача админа должна попасть и в кошелёк,
     // иначе следующая сверка обрежет её как необоснованный прирост.
-    if (SERVER_AUTHORITATIVE) {
-      try {
-        const wallet = ensureWallet(await readWallet(id), payload.data, Date.now());
-        wallet.dust = Number(payload.data.dust) || 0;
-        wallet.dustTotal = Number(payload.data.dustTotal) || 0;
-        wallet.energy = Number(payload.data.energy) || 0;
-        wallet.civLevel = Number(payload.data.civLevel) || 0;
-        wallet.updatedAt = Date.now();
-        await writeWallet(id, wallet);
-      } catch (e) {
-        console.warn('[admin] кошелёк не обновлён:', e.message);
-      }
-    }
+    await syncAdminWallet(id, payload.data);
 
     await redisSet(key, JSON.stringify(payload));
     console.log(`[admin] игроку ${id} выдано ${resource} +${delta} → ${payload.data[resource]}`);
@@ -1095,11 +1202,189 @@ app.post('/admin/api/player/:id/set', adminGuard, async (req, res) => {
     // Поднимаем saved_at и версию, чтобы клиенты приняли правку
     payload.saved_at = Date.now();
     payload.version = (Number(payload.version) || 0) + 1;
+
+    // Правка ресурсов должна попасть и в серверный кошелёк — иначе
+    // /api/save обрежет её как необоснованный прирост.
+    await syncAdminWallet(id, payload.data);
+
     await redisSet(key, JSON.stringify(payload));
     console.log(`[admin] игроку ${id} установлено ${field} = ${JSON.stringify(payload.data[field])}`);
     res.json({ ok: true, field, value: payload.data[field] });
   } catch (e) {
     console.error('[admin] /admin/api/player/set', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /admin/api/player/:id/delete
+// Полное удаление игрока: облачный сейв + серверный кошелёк.
+// Платные права (entitlement:*) не трогаем — они восстановятся, если игрок
+// когда-нибудь вернётся с тем же Telegram ID.
+app.post('/admin/api/player/:id/delete', adminGuard, async (req, res) => {
+  const { id } = req.params;
+  console.log(`[admin] POST /admin/api/player/${id}/delete — ip=${req.ip}`);
+
+  if (!id || !String(id).trim()) {
+    return res.status(400).json({ error: 'Не указан id игрока' });
+  }
+
+  try {
+    const saveKey = `cloudsave:${id}`;
+    const walletKey = `wallet:${id}`;
+
+    const tombKey = DELETED_PREFIX + id;
+    const [saveRaw, walletRaw, tombRaw] = await Promise.all([
+      redisGet(saveKey),
+      redisGet(walletKey),
+      redisGet(tombKey),
+    ]);
+    if (saveRaw == null && walletRaw == null) {
+      // Повторное удаление не ошибка: показываем, что аккаунт уже удалён.
+      if (tombRaw != null) {
+        return res.json({ ok: true, id, deleted: [], alreadyDeleted: true });
+      }
+      return res.status(404).json({ error: 'У игрока нет облачного сейва' });
+    }
+
+
+    const results = [];
+    const deleted = [];
+    for (const key of [saveKey, walletKey]) {
+      const ok = await redisDel(key);
+      results.push({ key, ok });
+      if (ok) deleted.push(key);
+    }
+
+    // Проверяем, что сейв действительно исчез: без этого админка покажет
+    // «Аккаунт удален», а игрок останется в списке.
+    const stillThere = await redisGet(saveKey);
+    if (stillThere != null) {
+      console.error(`[admin] игрок ${id} не удалён: ключ ${saveKey} остался`);
+      return res.status(500).json({ error: 'Не удалось удалить сейв игрока', results });
+    }
+    // ★ Ставим «надгробие»: иначе клиент при пустом облаке зальёт свой
+    // локальный сейв и аккаунт вернётся при следующем запуске игры.
+    const tombstone = await redisSet(tombKey, JSON.stringify({ at: Date.now(), by: 'admin' }));
+    if (!tombstone) {
+      console.error(`[admin] игрок ${id} удалён, но tombstone ${tombKey} не записан`);
+      return res.status(500).json({ error: 'Сейв удалён, но отметка удаления не записана', results });
+    }
+
+    console.log(`[admin] игрок ${id} удалён: ${deleted.join(', ') || '—'}, tombstone=${tombKey}`);
+    res.json({ ok: true, id, deleted, tombstone: tombKey, results });
+  } catch (e) {
+    console.error('[admin] /admin/api/player/delete', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /admin/api/player/:id/restore
+// Снимает «надгробие»: игрок снова сможет создавать сейв (но старый уже удалён).
+// Нужен на случай ошибочного удаления — в списке игроков таких записей нет.
+app.post('/admin/api/player/:id/restore', adminGuard, async (req, res) => {
+  const { id } = req.params;
+  console.log(`[admin] POST /admin/api/player/${id}/restore — ip=${req.ip}`);
+  if (!id || !String(id).trim()) {
+    return res.status(400).json({ error: 'Не указан id игрока' });
+  }
+  try {
+    const tombKey = DELETED_PREFIX + id;
+    const existed = (await redisGet(tombKey)) != null;
+    const cleared = await redisDel(tombKey);
+    if (!cleared) {
+      return res.status(500).json({ error: 'Не удалось снять отметку удаления' });
+    }
+    console.log(`[admin] игрок ${id}: доступ восстановлен (был удалён: ${existed ? 'да' : 'нет'})`);
+    res.json({ ok: true, id, wasDeleted: existed });
+  } catch (e) {
+    console.error('[admin] /admin/api/player/restore', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /admin/api/player/:id/invasion  { tier? }
+// Запускает вторжение руками админа. Объект строим ровно в той структуре,
+// которую читает js/invasions.js, иначе клиент его проигнорирует.
+app.post('/admin/api/player/:id/invasion', adminGuard, async (req, res) => {
+  const { id } = req.params;
+  const { tier } = req.body || {};
+  console.log(`[admin] POST /admin/api/player/${id}/invasion tier=${tier || 'auto'} — ip=${req.ip}`);
+
+  if (!id || !String(id).trim()) {
+    return res.status(400).json({ error: 'Не указан id игрока' });
+  }
+
+  try {
+    const key = `cloudsave:${id}`;
+    const payload = parseRedisJson(await redisGet(key));
+    if (!payload || typeof payload !== 'object' ||
+        !payload.data || typeof payload.data !== 'object') {
+      return res.status(404).json({ error: 'У игрока нет облачного сейва' });
+    }
+
+    const data = payload.data;
+    if (data.stage !== 'system' && data.stage !== 'galaxy') {
+      return res.status(400).json({
+        error: 'Вторжение возможно только на фазе «Система» или «Галактика» (сейчас: ' + (data.stage || '—') + ')',
+      });
+    }
+
+    if (!Array.isArray(data.invasions)) data.invasions = [];
+    if (data.invasions.length >= 10) {
+      return res.status(409).json({ error: 'У игрока уже 10 активных вторжений' });
+    }
+
+    const cfg = adminInvasionConfig();
+    const tierKeys = Object.keys(cfg.tiers);
+    // Явно указанный уровень проверяем строго: опечатка админа не должна
+    // молча превращаться в «Рейд». Без параметра берём средний уровень.
+    let tierKey = cfg.tiers.raid ? 'raid' : (tierKeys[0] || 'scout');
+    if (typeof tier === 'string' && tier) {
+      if (!cfg.tiers[tier]) {
+        return res.status(400).json({
+          error: 'Неизвестный уровень вторжения: ' + tier + '. Доступны: ' + tierKeys.join(', '),
+        });
+      }
+      tierKey = tier;
+    }
+
+    const now = Date.now();
+    const systemsTotal = Math.max(1, Number(data.systems) || 1);
+    const otherSystems = Array.isArray(data.otherSystems) ? data.otherSystems : [];
+    let systemIdx = Number(data.activeSystemIdx) || 0;
+    systemIdx = Math.max(0, Math.min(systemIdx, Math.max(0, otherSystems.length - 1, systemsTotal - 1)));
+
+    const shipCount = Math.min(cfg.shipsMax, cfg.shipsBase + 2);
+    const inv = {
+      id: Math.random().toString(36).slice(2) + now.toString(36),
+      tierKey: tierKey,
+      targetType: 'system',
+      systemIdx: systemIdx,
+      ships: makeAdminInvasionShips(shipCount),
+      spawnedAt: now,
+      robberyEndsAt: now + cfg.robberyDuration,
+      destructionEndsAt: now + cfg.totalDuration,
+      hp: ADMIN_INVASION_SYSTEM_HP,
+      maxHp: ADMIN_INVASION_SYSTEM_HP,
+      stolen: 0,
+      drainedEnergy: 0,
+      drainedCiv: 0,
+      defenseBroken: false,
+      notified: true,
+    };
+
+    data.invasions.push(inv);
+
+    // Клиент принимает правку только по новой версии сейва.
+    payload.saved_at = now;
+    payload.version = (Number(payload.version) || 0) + 1;
+    await redisSet(key, JSON.stringify(payload));
+
+    const label = (cfg.tiers[tierKey] && cfg.tiers[tierKey].label) || tierKey;
+    console.log(`[admin] игроку ${id} запущено вторжение «${label}» (${inv.id}, systemIdx=${systemIdx}, ships=${inv.ships.length})`);
+    res.json({ ok: true, id, tier: tierKey, invasion: inv });
+  } catch (e) {
+    console.error('[admin] /admin/api/player/invasion', e);
     res.status(500).json({ error: e.message });
   }
 });

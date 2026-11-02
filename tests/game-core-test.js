@@ -84,7 +84,7 @@ function makeClientContext() {
     vm.runInContext(code, context, { filename: file });
   }
 
-  vm.runInContext('globalThis.__bridge = { S: S, dustPerSec, energyPerSec, civPerSec, getResourceCap, STORAGE_CFG, CFG, planetCost, systemCost, CFG_PREMIUM: PREMIUM_CFG };', context);
+  vm.runInContext('globalThis.__bridge = { S: S, dustPerSec, energyPerSec, civPerSec, getResourceCap, STORAGE_CFG, CFG, planetCost, systemCost, CFG_PREMIUM: PREMIUM_CFG, INVASION_CFG };', context);
   return vm.runInContext('__bridge', context);
 }
 
@@ -203,6 +203,20 @@ function makeClientContext() {
     booster.hours === client.CFG_PREMIUM.booster.hours &&
     booster.incomeMult === client.CFG_PREMIUM.booster.incomeMult,
     `server=${JSON.stringify(booster)}`);
+
+  // ── Параметры вторжений (нужны админ-панели) ───────────────
+  const inv = core.invasionConfig();
+  const clientInv = client.INVASION_CFG;
+  assert('Конфиг вторжений: длительности совпадают с клиентом',
+    inv && inv.robberyDuration === clientInv.robberyDuration &&
+    inv.destructionDuration === clientInv.destructionDuration &&
+    inv.totalDuration === clientInv.totalDuration &&
+    inv.planetMaxHP === clientInv.planetMaxHP,
+    `server=${JSON.stringify(inv)}`);
+  assert('Конфиг вторжений: корабли и уровни совпадают с клиентом',
+    inv && inv.shipsBase === clientInv.shipsBase && inv.shipsMax === clientInv.shipsMax &&
+    Object.keys(clientInv.tiers).every((key) => inv.tiers[key] && inv.tiers[key].label === clientInv.tiers[key].label),
+    `server tiers=${inv && Object.keys(inv.tiers).join(',')}`);
   console.log('========================================');
   console.log(`ИТОГО: Пройдено ${passed}, Провалено ${failed}`);
   if (failed > 0) process.exitCode = 1;
