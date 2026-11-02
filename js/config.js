@@ -283,6 +283,10 @@ const FLEET_CFG = {
     dreadnought: { name: 'Дредноут',    costMetals: 8000, damage: 40, fireRate: 0.4, hp: 200 },
   },
   shotLifetimeMs: 350,
+  // ★ Флот активируется только при активной Автобороне этого уровня.
+  activationDefenseLevel: 5,
+  // HP одного корабля вторжения (автооборона флотом тратит урон в HP).
+  invaderShipHp: 100,
 };
 const STAR_WEIGHTS = { M: 60, K: 15, G: 10, A: 10, B: 5 };
 

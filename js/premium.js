@@ -548,6 +548,44 @@ function openShipyard() {
   let html = `<div class="modal-title">🚀 Верфь</div>
     <div class="modal-sub">Металлы: ${fmt(S.metalAmount || 0)} ⚙</div>`;
 
+  // ★ Статус флота: активировать его можно только при активной Автобороне ур.5.
+  const totalShips = (typeof fleetShipTotal === 'function') ? fleetShipTotal() : 0;
+  const dps = (typeof fleetDps === 'function') ? fleetDps() : 0;
+  const reqLvl = (typeof fleetDefenseLevelReq === 'function') ? fleetDefenseLevelReq() : 5;
+  const fleetReady = (typeof fleetDefenseReady === 'function') ? fleetDefenseReady() : false;
+  const fleetActive = (typeof isFleetActive === 'function') ? isFleetActive() : false;
+  const defActive = (S.nightDefenseExpiresAt || 0) > Date.now();
+  const defLvl = S.nightDefenseLevel || 0;
+  const defLeftH = defActive ? Math.max(0, Math.ceil((S.nightDefenseExpiresAt - Date.now()) / 3600000)) : 0;
+
+  let fleetHint = '';
+  if (!defActive) fleetHint = 'Автоборона не активна — включите её в «Ночном режиме».';
+  else if (defLvl < reqLvl) fleetHint = `Нужен уровень Автобороны ${reqLvl} (сейчас ур.${defLvl}).`;
+  else if (!S.nightConfig || S.nightConfig.defenseEnabled !== true) fleetHint = 'Автоборона выключена тумблером в «Ночном режиме».';
+  else if (totalShips <= 0) fleetHint = 'Купите хотя бы один корабль.';
+
+  const fleetState = fleetActive
+    ? '<span style="color:#7ee0a8">В БОЮ</span>'
+    : (S.fleetActive ? '<span style="color:#ffb347">ЗАБЛОКИРОВАН</span>' : '<span style="color:#8b7fd4">В РЕЗЕРВЕ</span>');
+  const canToggleFleet = fleetActive || (fleetReady && totalShips > 0);
+
+  html += `<div class="info-box" style="border-color:${fleetActive ? 'rgba(46,170,119,0.6)' : 'rgba(139,127,212,0.4)'};">
+    <div class="row-stat"><span>🚀 Флот</span>${fleetState}</div>
+    <div class="row-stat" style="font-size:11px;opacity:0.85;">
+      <span>Кораблей: ${totalShips}</span>
+      <span>Урон: ${dps.toFixed(1)}/с</span>
+    </div>
+    <div class="row-stat" style="font-size:10px;color:#8b7fd4;">
+      <span>Автоборона: ${defActive ? 'ур.' + defLvl + ' · ' + defLeftH + ' ч' : 'выключена'}</span>
+      <span>требуется ур.${reqLvl}</span>
+    </div>
+    ${fleetHint ? `<div style="font-size:10px;color:#ffb347;margin-top:4px;">${fleetHint}</div>` : ''}
+    <button class="pour-btn" style="width:100%;margin-top:8px;${fleetActive ? 'background:rgba(255,94,94,0.2);border-color:rgba(255,94,94,0.5);color:#ff8a8a;' : ''}"
+      onclick="toggleFleet()" ${canToggleFleet ? '' : 'disabled'}>
+      ${fleetActive ? '✕ Отключить флот' : '🚀 Активировать флот'}
+    </button>
+  </div>`;
+
   for (const key in FLEET_CFG.ships) {
     const ship = FLEET_CFG.ships[key];
     const count = shipCount(key);
@@ -589,4 +627,32 @@ function buyShip(key, amount) {
   openShipyard();
 }
 window.openShipyard = openShipyard;
+function toggleFleet() {
+  if (S.fleetActive) {
+    S.fleetActive = false;
+    if (typeof saveGame === 'function') saveGame();
+    if (typeof updateUI === 'function') updateUI();
+    if (typeof toast === 'function') toast('🚀 Флот отключён', 'Корабли больше не отбивают вторжения');
+    openShipyard();
+    return;
+  }
+
+  if (fleetShipTotal() <= 0) {
+    if (typeof toast === 'function') toast('🚀 Флот пуст', 'Купите корабли на Верфи');
+    return;
+  }
+  if (!fleetDefenseReady()) {
+    if (typeof toast === 'function') {
+      toast('🚀 Флот заблокирован', 'Нужна активная Автоборона ур.' + fleetDefenseLevelReq());
+    }
+    return;
+  }
+
+  S.fleetActive = true;
+  if (typeof saveGame === 'function') saveGame();
+  if (typeof updateUI === 'function') updateUI();
+  if (typeof toast === 'function') toast('🚀 Флот активирован', 'Корабли ведут автооборону');
+  openShipyard();
+}
 window.buyShip = buyShip;
+window.toggleFleet = toggleFleet;

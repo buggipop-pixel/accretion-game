@@ -16,6 +16,81 @@ function hasActiveInvasions() {
 }
 window.hasActiveInvasions = hasActiveInvasions;
 
+// ─── ФЛОТ КАК АВТООБОРОНА ───────────────────────────────────────
+// Корабли из Верфи больше не сбивают врагов «сами по себе»: автообороной
+// управляет только активированный флот. Активировать его можно, лишь
+// когда активна Автоборона уровня FLEET_CFG.activationDefenseLevel (5).
+
+function fleetShipTotal() {
+  let total = 0;
+  if (!S.fleet) return 0;
+  for (const key in FLEET_CFG.ships) {
+    total += Math.max(0, Math.floor(Number(S.fleet[key]) || 0));
+  }
+  return total;
+}
+
+function fleetDps() {
+  let dps = 0;
+  if (!S.fleet) return 0;
+  for (const key in FLEET_CFG.ships) {
+    const cfg = FLEET_CFG.ships[key];
+    const count = Math.max(0, Number(S.fleet[key]) || 0);
+    dps += count * (Number(cfg.damage) || 0) * (Number(cfg.fireRate) || 0);
+  }
+  return dps;
+}
+
+function fleetDefenseLevelReq() {
+  return Math.max(1, Math.floor(Number(FLEET_CFG.activationDefenseLevel) || 5));
+}
+
+// Условие активации: Автоборона включена, её уровень >= 5 и она не истекла.
+function fleetDefenseReady(now) {
+  now = now || Date.now();
+  return !!(
+    S.nightConfig && S.nightConfig.defenseEnabled === true &&
+    (S.nightDefenseLevel || 0) >= fleetDefenseLevelReq() &&
+    (S.nightDefenseExpiresAt || 0) > now
+  );
+}
+
+function isFleetActive(now) {
+  return S.fleetActive === true && fleetShipTotal() > 0 && fleetDefenseReady(now);
+}
+
+// Наносит накопленный урон флота кораблям вторжения. HP врагов хранится
+// в сейве вместе с кораблями; для старых сейвов HP проставляется лениво.
+function applyFleetAutoDefense(inv, dt) {
+  let destroyed = 0;
+  const dps = fleetDps();
+  if (!(dps > 0) || !Array.isArray(inv.ships)) return 0;
+  const maxHp = Math.max(1, Number(FLEET_CFG.invaderShipHp) || 100);
+  inv.fleetDmgAcc = (Number(inv.fleetDmgAcc) || 0) + dps * dt;
+  for (let s = 0; s < inv.ships.length && inv.fleetDmgAcc > 0; s++) {
+    const ship = inv.ships[s];
+    if (ship.destroyed) continue;
+    if (!(Number(ship.hp) > 0)) ship.hp = maxHp;
+    const hit = Math.min(inv.fleetDmgAcc, ship.hp);
+    ship.hp -= hit;
+    inv.fleetDmgAcc -= hit;
+    if (ship.hp <= 0) { ship.hp = 0; ship.destroyed = true; destroyed++; }
+  }
+  if (!inv.fleetEngaged) {
+    inv.fleetEngaged = true;
+    if (inv.notified && typeof toast === 'function') {
+      toast('🚀 Флот в бой', 'Автоборона ур.' + (S.nightDefenseLevel || 0));
+    }
+  }
+  return destroyed;
+}
+
+window.fleetShipTotal = fleetShipTotal;
+window.fleetDps = fleetDps;
+window.fleetDefenseLevelReq = fleetDefenseLevelReq;
+window.fleetDefenseReady = fleetDefenseReady;
+window.isFleetActive = isFleetActive;
+
 // ─── Выбор сложности ────────────────────────────────────────────
 function rollInvasionTier() {
   const tiers = INVASION_CFG.tiers;
@@ -31,11 +106,14 @@ function rollInvasionTier() {
 // ─── Создание кораблей ──────────────────────────────────────────
 function makeShips(count) {
   const ships = [];
+  const shipHp = Math.max(1, Number(FLEET_CFG.invaderShipHp) || 100);
   for (let i = 0; i < count; i++) {
     ships.push({
       angle: (i / count) * Math.PI * 2 + Math.random() * 0.5,
       dist: 1.2 + Math.random() * 0.6,
       speed: 0.8 + Math.random() * 0.6,
+      hp: shipHp,
+      maxHp: shipHp,
       destroyed: false,
     });
   }
@@ -199,6 +277,16 @@ function tickInvasions(dt) {
   if (!S.invasions) S.invasions = [];
   const now = Date.now();
 
+  // Флот активен только пока держится Автоборона ур.5: истекла/снизилась —
+  // отводим корабли, чтобы игрок не получал «бесплатную» защиту.
+  if (S.fleetActive && !isFleetActive(now)) {
+    S.fleetActive = false;
+    const reason = fleetShipTotal() <= 0
+      ? 'Верфь пуста'
+      : 'Нужна активная Автоборона ур.' + fleetDefenseLevelReq();
+    if (typeof toast === 'function') toast('🚀 Флот отведён', reason);
+  }
+
   if (S.activeTrophyEffects) {
     S.activeTrophyEffects = S.activeTrophyEffects.filter(e => !e.expiresAt || e.expiresAt > now);
   }
@@ -251,32 +339,18 @@ function tickInvasions(dt) {
       S.invasions.splice(i, 1);
       continue;
     }
-    // Автооборона
-    if (S.nightDefenseExpiresAt > now && inv.ships) {
-      let alive = 0;
-      for (let s = 0; s < inv.ships.length; s++) if (!inv.ships[s].destroyed) alive++;
-      if (alive > 0) {
-        inv.autoDefenseTimer = (inv.autoDefenseTimer || 0) + dt;
-        const interval = 15 / (S.nightDefenseLevel || 1);
-        if (inv.autoDefenseTimer >= interval) {
-          inv.autoDefenseTimer = 0;
-          for (let s = 0; s < inv.ships.length; s++) {
-            if (!inv.ships[s].destroyed) {
-              inv.ships[s].destroyed = true;
-              break;
-            }
-          }
-          alive = 0;
-          for (let s = 0; s < inv.ships.length; s++) if (!inv.ships[s].destroyed) alive++;
-          
-          if (alive === 0) {
-            if (inv.notified) toast('✓ Отбито', 'Автооборона сбила флот');
-            if (!S.stats) S.stats = {};
-            S.stats.invasionsDefeated = (S.stats.invasionsDefeated || 0) + 1;
-            S.invasions.splice(i, 1);
-            continue;
-          }
-        }
+    // ★ Автооборона: её ведёт только активированный флот.
+    // Никакого автоматического сбития без кораблей больше нет.
+    if (isFleetActive(now) && inv.ships) {
+      const destroyedByFleet = applyFleetAutoDefense(inv, dt);
+      let fleetAlive = 0;
+      for (let s = 0; s < inv.ships.length; s++) if (!inv.ships[s].destroyed) fleetAlive++;
+      if (fleetAlive === 0) {
+        if (destroyedByFleet > 0 && inv.notified) toast('✓ Отбито', 'Флот уничтожил вражескую эскадру');
+        if (!S.stats) S.stats = {};
+        S.stats.invasionsDefeated = (S.stats.invasionsDefeated || 0) + 1;
+        S.invasions.splice(i, 1);
+        continue;
       }
     }
 

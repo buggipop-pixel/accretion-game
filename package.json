@@ -13,7 +13,8 @@
     "test:security": "node tests/save-validation-test.js",
     "test:economy": "node tests/game-core-test.js",
     "test:prime": "node tests/prime-protection-test.js",
-    "test:all": "node tests/smoke-test.js && node tests/prime-protection-test.js && node tests/cloud-sync-test.js && node tests/save-validation-test.js && node tests/game-core-test.js && node tests/economy-actions-test.js && node tests/wallet-test.js && node tests/chest-test.js && node tests/reward-test.js && node tests/capability-test.js"
+    "test:fleet": "node tests/fleet-test.js",
+    "test:all": "node tests/smoke-test.js && node tests/prime-protection-test.js && node tests/fleet-test.js && node tests/cloud-sync-test.js && node tests/save-validation-test.js && node tests/game-core-test.js && node tests/economy-actions-test.js && node tests/wallet-test.js && node tests/chest-test.js && node tests/reward-test.js && node tests/capability-test.js"
   },
   "dependencies": {
     "express": "^4.19.2",

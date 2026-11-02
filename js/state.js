@@ -17,6 +17,7 @@ const S = {
   energy: 0, civLevel: 0,
   metalAmount: 0,
   fleet: { interceptor: 0, cruiser: 0, dreadnought: 0 }, // Верфь: купленные корабли
+  fleetActive: false, // Флот включён в бой (нужна активная Автоборона ур.5)
   storageLevels: { dust: 1, energy: 1, civ: 1 },
   storageProgress: { dust: 0, energy: 0, civ: 0 },
   boosters: { incomeUntil: 0 }, // Временный бустер x2
@@ -111,6 +112,7 @@ function resetStateValues() {
   S.dust = 0; S.dustTotal = 0;
   S.energy = 0; S.civLevel = 0; S.metalAmount = 0;
   S.fleet = { interceptor: 0, cruiser: 0, dreadnought: 0 };
+  S.fleetActive = false;
   S.storageLevels = { dust: 1, energy: 1, civ: 1 };
   S.storageProgress = { dust: 0, energy: 0, civ: 0 };
   S.boosters = { incomeUntil: 0 };
@@ -303,7 +305,7 @@ function saveGame() {
       // Ресурсы
       dust: S.dust, dustTotal: S.dustTotal,
       energy: S.energy, civLevel: S.civLevel, metalAmount: S.metalAmount,
-      fleet: S.fleet,
+      fleet: S.fleet, fleetActive: S.fleetActive,
       storageLevels: S.storageLevels, storageProgress: S.storageProgress,
       boosters: S.boosters,
       dailyReward: S.dailyReward,
@@ -392,6 +394,7 @@ function loadGame() {
       const n = Number(S.fleet[shipKey]);
       S.fleet[shipKey] = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
     }
+    if (typeof S.fleetActive !== 'boolean') S.fleetActive = false;
     if (!S.dailyReward || typeof S.dailyReward !== 'object') S.dailyReward = { day: 0, lastClaimed: 0 };
     if (typeof S.dailyReward.day !== 'number') S.dailyReward.day = 0;
     if (typeof S.dailyReward.lastClaimed !== 'number') S.dailyReward.lastClaimed = 0;

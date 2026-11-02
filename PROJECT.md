@@ -134,6 +134,13 @@ Telegram Mini App — idle-игра про формирование солнеч
   achievements, metalAmount × 0.5, storageLevels, storageProgress
 - Кнопка внизу HUD с пульсацией, появляется при готовности
 
+### Флот (Верфь) и Автоборона
+- 3 класса кораблей за металлы: перехватчик / крейсер / дредноут (урон, HP, скорость стрельбы)
+- Флот активируется вручную и только при **активной Автобороне ур.5** (24 ч)
+- Активированный флот сам ведёт бой: урон = Σ(корабль × damage × fireRate), у врагов есть HP
+- Истекла / снизилась / выключена Автоборона — флот отключается автоматически
+- Старое «магическое» автосбитие без кораблей удалено
+- Тесты: `tests/fleet-test.js`
 ### Мобильные фиксы / Telegram
 - setupTelegram: ready, expand, disableVerticalSwipes, setHeaderColor,
   setBackgroundColor, requestFullscreen (Bot API 8.0+)

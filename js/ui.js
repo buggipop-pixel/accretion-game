@@ -899,6 +899,17 @@ function openNightMode() {
     ? `Ур.${activeLvl} · +${rawBonus.toFixed(1)}% (до ${new Date(S.nightDefenseExpiresAt).getHours()}:00)` 
     : 'Выключена';
 
+  // ★ Флот: активация возможна только при активной Автобороне ур.5.
+  const fleetActiveNow = (typeof isFleetActive === 'function') ? isFleetActive() : false;
+  const fleetReqLvl = (typeof fleetDefenseLevelReq === 'function') ? fleetDefenseLevelReq() : 5;
+  const fleetShips = (typeof fleetShipTotal === 'function') ? fleetShipTotal() : 0;
+  const fleetCanActivate = isDefActive && activeLvl >= fleetReqLvl;
+  let fleetLabel = 'заблокирован';
+  if (fleetActiveNow) fleetLabel = 'в бою';
+  else if (fleetShips <= 0) fleetLabel = 'нет кораблей';
+  else if (fleetCanActivate) fleetLabel = 'в резерве';
+  const fleetColor = fleetActiveNow ? '#7ee0a8' : (fleetCanActivate && fleetShips > 0 ? '#b9a8ff' : '#ffb347');
+
   card.innerHTML = `
     <div class="modal-title">🌙 Ночной режим</div>
     <div class="modal-sub">Настрой риск и награду на время отсутствия</div>
@@ -915,6 +926,10 @@ function openNightMode() {
       </div>
       <div class="pour-btn-group" style="flex-wrap:wrap;gap:4px;margin-top:8px;">
         ${defenseButtons}
+      </div>
+      <div class="row-stat" style="font-size:10px;color:#8b7fd4;margin-top:4px;">
+        <span>🚀 Флот: <span style="color:${fleetColor}">${fleetLabel}</span></span>
+        <span>активация с ур.${fleetReqLvl}</span>
       </div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;margin-top:4px;">
         <span>Металлы: ${fmt(S.metalAmount || 0)} / ${fmt(typeof metalsCap === 'function' ? metalsCap() : 0)} ⚙</span>
