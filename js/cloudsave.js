@@ -31,9 +31,6 @@ const CLOUD_RESET_SKIP_KEY = 'accretion_reset_skip_cloud';
 // Если save вернул 400/500/сеть, при следующем старте НЕ перетираем
 // этот прогресс старым облаком, а сначала пробуем отправить его.
 const CLOUD_DIRTY_KEY = 'accretion_cloud_dirty';
-// ★ Аккаунт удалён администратором: сервер ответил 410. Флаг живёт в
-// sessionStorage, чтобы не дёргать сервер каждые 20 секунд после удаления.
-const CLOUD_DELETED_KEY = 'accretion_account_deleted';
 // Сколько запросов сохранения сейчас в полёте (чтобы опрос не принял
 // свой же сейв за чужой и чтобы saveGame() не ушёл в рекурсию).
 let _cloudSaveInFlight = 0;
@@ -163,26 +160,54 @@ function showCloudNotice(key, title, message) {
   if (typeof toast === 'function') toast(title, message);
 }
 
-// ★ Аккаунт удалён администратором (ответ 410): клиент не должен ни
-// загружать, ни сохранять — иначе локальный сейв вернёт удалённый аккаунт.
-function isAccountDeleted() {
-  if (window.__accountDeleted === true) return true;
-  try { return sessionStorage.getItem(CLOUD_DELETED_KEY) === '1'; } catch (e) { return false; }
-}
-
-function handleAccountDeleted() {
-  window.__accountDeleted = true;
-  try { sessionStorage.setItem(CLOUD_DELETED_KEY, '1'); } catch (e) { /* ignore */ }
-  // Удалённый прогресс не должен остаться на устройстве.
+// ★ Сброс аккаунта администратором. Сервер отдаёт пустое облако с reset:true
+// и не принимает сейв, пока клиент не подтвердит, что стёр локальный прогресс.
+// Иначе старый локальный сейв «воскресил» бы удалённый аккаунт.
+function wipeLocalProgress() {
   try {
     localStorage.removeItem(getSaveKey());
     localStorage.removeItem(CLOUD_VER_KEY);
     localStorage.removeItem(CLOUD_BACKUP_KEY);
     localStorage.removeItem(CLOUD_DIRTY_KEY);
+    localStorage.removeItem(REWARD_BASELINE_KEY);
   } catch (e) { /* ignore */ }
-  stopCloudAutosave();
-  showCloudNotice('__accountDeletedShown', '⛔ Аккаунт удалён',
-    'Администратор удалил игровые данные. Облачное сохранение отключено.');
+}
+
+async function ackAccountReset(initData) {
+  try {
+    const res = await fetch(CLOUD_API + '/api/reset-ack', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData }),
+    });
+    if (!res.ok) return false;
+    const json = await res.json().catch(function() { return null; });
+    return !!(json && json.ok);
+  } catch (e) {
+    console.warn('[cloudsave] reset-ack failed:', e.message);
+    return false;
+  }
+}
+
+// Чистим локальный прогресс, подтверждаем сброс на сервере и начинаем заново.
+async function applyAccountReset(initData) {
+  const acked = await ackAccountReset(initData);
+  window.__resetHandled = true;
+
+  wipeLocalProgress();
+  showCloudNotice('__accountResetShown', '♻️ Аккаунт сброшен',
+    'Администратор удалил прогресс. Начинаем новую игру.');
+
+  // resetGame() чистит сейв, сбрасывает состояние и перезагружает страницу.
+  try {
+    if (typeof resetGame === 'function') {
+      resetGame();
+      return acked;
+    }
+  } catch (e) { /* ignore */ }
+
+  try { window.location.reload(); } catch (e) { /* ignore */ }
+  return acked;
 }
 // ★ Сброс прогресса в процессе? (флаг живёт в памяти и переживает перезагрузку в localStorage)
 function isResetInProgress() {
@@ -352,6 +377,7 @@ async function cloudApi(path, payload) {
     const msg = (data && data.error) ? data.error : ('HTTP ' + res.status);
     const err = new Error(msg);
     err.status = res.status;
+    if (data && data.code) err.code = data.code;
     throw err;
   }
   return data;
@@ -360,7 +386,6 @@ async function cloudApi(path, payload) {
 // ─── Сохранить в облако ─────────────────────────────────────────
 async function cloudSaveGame(options) {
   if (isResetInProgress()) return { ok: false, error: 'resetting' }; // ★ не сохраняем во время сброса
-  if (isAccountDeleted()) return { ok: false, error: 'account-deleted' }; // ★ аккаунт удалён админом
   const initData = getTgInitData();
   if (!initData) return { ok: false, error: 'not-telegram' };
   // Параллельные сохранения не нужны: сервер всё равно ответит 409/429.
@@ -420,6 +445,24 @@ async function cloudSaveGame(options) {
     if (response.status === 401) {
       console.warn('[CloudSave] Сервер отклонил initData (401). Сохранение отключено.');
       return { ok: false, error: 'unauthorized', status: 401 };
+    }
+
+    // ★ Аккаунт сброшен администратором: пока не подтверждён сброс, сейв не
+    // принимается (иначе старый локальный прогресс вернул бы аккаунт).
+    if (response.status === 410) {
+      const resetData = await response.json().catch(function() { return null; });
+      if (resetData && resetData.code === 'account_reset') {
+        console.warn('[CloudSave] save rejected: нужен сброс аккаунта');
+        if (window.__resetHandled !== true) {
+          // Админ удалил аккаунт, пока игрок был в игре — сбрасываемся.
+          await applyAccountReset(initData);
+        } else {
+          // Локальный прогресс уже очищен — просто подтверждаем сброс.
+          await ackAccountReset(initData);
+          scheduleCloudRetry(1500);
+        }
+        return { ok: false, error: 'account-reset', status: 410 };
+      }
     }
 
     // ★ 429 — не ошибка данных, а лимит частоты. Не пугаем игрока тостом,
@@ -486,7 +529,6 @@ function scheduleCloudRetry(delayMs) {
 function autoSaveToCloud(force) {
   try {
     if (isResetInProgress()) return false;
-    if (isAccountDeleted()) return false; // ★ удалённый аккаунт не сохраняем
     // Вне Telegram ничего не сохраняем — никаких 401 и «фантомных» сейвов.
     if (!isCloudAvailable()) return false;
 
@@ -543,10 +585,10 @@ async function cloudLoadGame(force) {
     applyCloudSaveAuthoritative(r.data);
     return { ok: true, saved_at: r.saved_at, applied: true };
   } catch (e) {
-    if (e && e.status === 410) {
-      console.warn('[cloudsave] аккаунт удалён администратором (410)');
-      handleAccountDeleted();
-      return { ok: false, error: 'account-deleted', status: 410 };
+    if (e && e.status === 410 && e.code === 'account_reset') {
+      console.warn('[cloudsave] аккаунт сброшен администратором — начинаем заново');
+      await applyAccountReset(initData);
+      return { ok: false, error: 'account-reset', status: 410 };
     }
     console.warn('[cloudsave] load failed:', e.message);
     return { ok: false, error: e.message, status: e.status };
@@ -606,7 +648,6 @@ function applyCloudSaveToRuntime(cloudData) {
 // Логика серверная и жёсткая: если в облаке есть сейв — применяем его всегда.
 async function syncCloudOnStart() {
   if (window.isResetting) return false;
-  if (isAccountDeleted()) return false; // ★ аккаунт удалён — синхронизация запрещена
 
   // Сброс прогресса: гасим возможное восстановление облака и убираем
   // временный флаг, иначе он навсегда заблокирует синхронизацию.
@@ -699,14 +740,15 @@ async function syncCloudOnStart() {
       return false;
     }
 
-    // ★ Аккаунт удалён администратором: очищаем локальный прогресс и больше
-    // не сохраняем, иначе клиент зальёт старый сейв при следующем запуске.
-    if (res.status === 410) {
-      console.warn('[Sync] Сервер сообщил, что аккаунт удалён (410).');
-      handleAccountDeleted();
+    const json = await res.json();
+
+    // ★ Аккаунт сброшен администратором: стираем локальный прогресс,
+    // подтверждаем сброс и начинаем новую игру.
+    if (json && json.reset === true) {
+      console.log('[Sync] Сервер сообщил о сбросе аккаунта — очищаем локальный прогресс.');
+      await applyAccountReset(initData);
       return false;
     }
-    const json = await res.json();
 
     // Облако пустое: играем локально, сейв уйдёт при следующем сохранении.
     if (!json || !json.ok || !json.data) {

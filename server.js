@@ -124,22 +124,27 @@ async function redisDel(key) {
   }
 }
 
-// ★ Надгробие удалённого аккаунта. Без него клиент при пустом облаке
-// заливает свой локальный сейв и «воскрешает» удалённого игрока.
-const DELETED_PREFIX = 'deleted:';
+// ★ Метка сброса аккаунта. Ставится при удалении: пока клиент не подтвердит
+// сброс (POST /api/reset-ack), сервер не принимает сейв — иначе старый
+// локальный прогресс «воскресил» бы удалённый аккаунт. После подтверждения
+// метка снимается, и игрок спокойно начинает новую игру.
+const RESET_PREFIX = 'reset:';
+// Метка старой схемы (вечная блокировка). Больше не используется, но чистим её,
+// чтобы ранее «удалённые» игроки тоже смогли начать заново.
+const LEGACY_DELETED_PREFIX = 'deleted:';
 
-async function isAccountDeleted(userId) {
+async function isResetPending(userId) {
   try {
-    return (await redisGet(DELETED_PREFIX + userId)) != null;
+    return (await redisGet(RESET_PREFIX + userId)) != null;
   } catch (e) {
     // Redis недоступен — не блокируем игру, сохранение всё равно упадёт позже.
-    console.warn('[account] проверка удаления не удалась:', e.message);
+    console.warn('[account] проверка сброса не удалась:', e.message);
     return false;
   }
 }
 
-function accountDeletedResponse(res) {
-  return res.status(410).json({ error: 'Account deleted', code: 'account_deleted' });
+function accountResetResponse(res) {
+  return res.status(410).json({ error: 'Account reset required', code: 'account_reset' });
 }
 
 // Произвольная команда через REST (нужна для SCAN в админке).
@@ -332,7 +337,7 @@ app.post('/api/create-invoice', async (req, res) => {
     const { initData, product } = req.body || {};
     const user = validateInitData(initData);
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
-    if (await isAccountDeleted(user.id)) return accountDeletedResponse(res);
+    if (await isResetPending(user.id)) return accountResetResponse(res);
 
     const prod = PRODUCTS[product];
     if (!prod) return res.status(400).json({ error: 'Unknown product' });
@@ -360,9 +365,9 @@ app.post('/api/claim', async (req, res) => {
     const { initData, product } = req.body || {};
     const user = validateInitData(initData);
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
-    if (await isAccountDeleted(user.id)) {
-      console.warn(`[claim] отказ: аккаунт user=${user.id} удалён`);
-      return accountDeletedResponse(res);
+    if (await isResetPending(user.id)) {
+      console.warn(`[claim] отказ: для user=${user.id} нужен сброс аккаунта`);
+      return accountResetResponse(res);
     }
     if (!Object.prototype.hasOwnProperty.call(PRODUCTS, product)) {
       return res.status(400).json({ error: 'Unknown product' });
@@ -446,10 +451,11 @@ app.post('/api/save', async (req, res) => {
     const { initData, saveData, baseVersion } = req.body || {};
     const user = validateInitData(initData);
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
-    // ★ Аккаунт удалён администратором: клиент не должен вернуть его сейв.
-    if (await isAccountDeleted(user.id)) {
-      console.warn(`[save] отказ: аккаунт user=${user.id} удалён`);
-      return accountDeletedResponse(res);
+    // ★ Пока клиент не подтвердил сброс, сейв не принимаем — иначе старый
+    // локальный прогресс вернёт удалённый аккаунт.
+    if (await isResetPending(user.id)) {
+      console.warn(`[save] отказ: для user=${user.id} нужен сброс аккаунта`);
+      return accountResetResponse(res);
     }
     // Без этого клиент мог прислать строку вместо числа (NaN ломает
     // сравнения цен), __proto__ (отравление прототипа) или 10 МБ мусора.
@@ -629,11 +635,21 @@ app.post('/api/load', async (req, res) => {
     const { initData } = req.body || {};
     const user = validateInitData(initData);
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
-    // ★ Удалённый аккаунт не получает сейв — иначе клиент продолжит играть
-    // со своим локальным прогрессом и затрёт факт удаления.
-    if (await isAccountDeleted(user.id)) {
-      console.warn(`[load] отказ: аккаунт user=${user.id} удалён`);
-      return accountDeletedResponse(res);
+    // ★ Удалённый аккаунт: отдаём пустое облако с флагом reset. Клиент
+    // сотрёт локальный прогресс, подтвердит сброс и начнёт заново.
+    if (await isResetPending(user.id)) {
+      console.log(`[load] user=${user.id}: ожидает подтверждения сброса`);
+      return res.json({ ok: true, data: null, saved_at: 0, reset: true });
+    }
+
+    // Миграция со старой схемы: ранее «удалённые» игроки тоже начинают заново.
+    const legacyRaw = await redisGet(LEGACY_DELETED_PREFIX + user.id);
+    if (legacyRaw != null) {
+      // Старую метку переводим в новую схему: клиент так же подтвердит сброс.
+      await redisSet(RESET_PREFIX + user.id, JSON.stringify({ at: Date.now(), by: 'legacy' }));
+      await redisDel(LEGACY_DELETED_PREFIX + user.id);
+      console.log(`[load] user=${user.id}: старая метка удаления переведена в reset`);
+      return res.json({ ok: true, data: null, saved_at: 0, reset: true });
     }
     // Лимит на загрузки: без него можно долбить сервер/перебирать initData
     const minuteKey = `load_q:${user.id}:${Math.floor(Date.now() / 60000)}`;
@@ -741,6 +757,26 @@ app.post('/api/load', async (req, res) => {
   }
 });
 
+// POST /api/reset-ack — клиент подтверждает, что стёр локальный прогресс.
+// Только после этого снимается метка сброса и разрешается сейв.
+app.post('/api/reset-ack', async (req, res) => {
+  try {
+    const { initData } = req.body || {};
+    const user = validateInitData(initData);
+    if (!user) return res.status(401).json({ error: 'Invalid initData' });
+
+    const key = RESET_PREFIX + user.id;
+    const wasPending = (await redisGet(key)) != null;
+    if (wasPending) await redisDel(key);
+
+    console.log(`[reset-ack] user=${user.id}: сброс подтверждён (метка была: ${wasPending ? 'да' : 'нет'})`);
+    res.json({ ok: true, reset: wasPending });
+  } catch (e) {
+    console.error('[reset-ack]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ─── 3б. Клики: сервер сам начисляет доход за тап ─────────────
 // Клиент присылает пачки кликов, сервер ограничивает частоту и считает
 // сумму игровой формулой clickGain() из game-core.
@@ -749,7 +785,7 @@ app.post('/api/action', async (req, res) => {
     const { initData, clicks } = req.body || {};
     const user = validateInitData(initData);
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
-    if (await isAccountDeleted(user.id)) return accountDeletedResponse(res);
+    if (await isResetPending(user.id)) return accountResetResponse(res);
 
     // Пока флаг выключен — клики учитываются только клиентом
     if (!SERVER_AUTHORITATIVE || !gameCore) {
@@ -804,7 +840,7 @@ app.post('/api/reward', async (req, res) => {
     const { initData, report } = req.body || {};
     const user = validateInitData(initData);
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
-    if (await isAccountDeleted(user.id)) return accountDeletedResponse(res);
+    if (await isResetPending(user.id)) return accountResetResponse(res);
 
     if (!SERVER_AUTHORITATIVE || !gameCore) {
       return res.json({ ok: true, authoritative: false, credited: null });
@@ -866,7 +902,7 @@ app.post('/api/buy-booster', async (req, res) => {
     const { initData } = req.body || {};
     const user = validateInitData(initData);
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
-    if (await isAccountDeleted(user.id)) return accountDeletedResponse(res);
+    if (await isResetPending(user.id)) return accountResetResponse(res);
 
     if (!SERVER_AUTHORITATIVE || !gameCore) {
       return res.json({ ok: true, authoritative: false });
@@ -1217,9 +1253,10 @@ app.post('/admin/api/player/:id/set', adminGuard, async (req, res) => {
 });
 
 // POST /admin/api/player/:id/delete
-// Полное удаление игрока: облачный сейв + серверный кошелёк.
-// Платные права (entitlement:*) не трогаем — они восстановятся, если игрок
-// когда-нибудь вернётся с тем же Telegram ID.
+// Простое удаление: стирает облачный сейв и серверный кошелёк.
+// Дальше ставится метка reset:{id}. Клиент при следующем входе увидит пустое
+// облако с reset:true, сотрёт локальный прогресс, подтвердит сброс и начнёт
+// новую игру. Без метки старый локальный сейв «воскресил» бы аккаунт.
 app.post('/admin/api/player/:id/delete', adminGuard, async (req, res) => {
   const { id } = req.params;
   console.log(`[admin] POST /admin/api/player/${id}/delete — ip=${req.ip}`);
@@ -1231,17 +1268,17 @@ app.post('/admin/api/player/:id/delete', adminGuard, async (req, res) => {
   try {
     const saveKey = `cloudsave:${id}`;
     const walletKey = `wallet:${id}`;
+    const resetKey = RESET_PREFIX + id;
 
-    const tombKey = DELETED_PREFIX + id;
-    const [saveRaw, walletRaw, tombRaw] = await Promise.all([
+    const [saveRaw, walletRaw, resetRaw] = await Promise.all([
       redisGet(saveKey),
       redisGet(walletKey),
-      redisGet(tombKey),
+      redisGet(resetKey),
     ]);
     if (saveRaw == null && walletRaw == null) {
-      // Повторное удаление не ошибка: показываем, что аккаунт уже удалён.
-      if (tombRaw != null) {
-        return res.json({ ok: true, id, deleted: [], alreadyDeleted: true });
+      // Повторное удаление: игрок уже сброшен, но ещё не заходил в игру.
+      if (resetRaw != null) {
+        return res.json({ ok: true, id, deleted: [], alreadyReset: true });
       }
       return res.status(404).json({ error: 'У игрока нет облачного сейва' });
     }
@@ -1256,51 +1293,30 @@ app.post('/admin/api/player/:id/delete', adminGuard, async (req, res) => {
     }
 
     // Проверяем, что сейв действительно исчез: без этого админка покажет
-    // «Аккаунт удален», а игрок останется в списке.
+    // «Аккаунт удалён», а игрок останется в списке.
     const stillThere = await redisGet(saveKey);
     if (stillThere != null) {
       console.error(`[admin] игрок ${id} не удалён: ключ ${saveKey} остался`);
       return res.status(500).json({ error: 'Не удалось удалить сейв игрока', results });
     }
-    // ★ Ставим «надгробие»: иначе клиент при пустом облаке зальёт свой
-    // локальный сейв и аккаунт вернётся при следующем запуске игры.
-    const tombstone = await redisSet(tombKey, JSON.stringify({ at: Date.now(), by: 'admin' }));
-    if (!tombstone) {
-      console.error(`[admin] игрок ${id} удалён, но tombstone ${tombKey} не записан`);
-      return res.status(500).json({ error: 'Сейв удалён, но отметка удаления не записана', results });
+    // ★ Метка сброса: клиент закроет её сам (POST /api/reset-ack), когда
+    // сотрёт локальный прогресс. До этого сервер не принимает сейв.
+    const marker = await redisSet(resetKey, JSON.stringify({ at: Date.now(), by: 'admin' }));
+    if (!marker) {
+      console.error(`[admin] игрок ${id} удалён, но метка ${resetKey} не записана`);
+      return res.status(500).json({ error: 'Сейв удалён, но метка сброса не записана', results });
     }
+    // Старая схема (deleted:*): убираем, чтобы не мешала.
+    await redisDel(LEGACY_DELETED_PREFIX + id);
 
-    console.log(`[admin] игрок ${id} удалён: ${deleted.join(', ') || '—'}, tombstone=${tombKey}`);
-    res.json({ ok: true, id, deleted, tombstone: tombKey, results });
+    console.log(`[admin] игрок ${id} удалён: ${deleted.join(', ') || '—'}, reset=${resetKey}`);
+    res.json({ ok: true, id, deleted, reset: resetKey, results });
   } catch (e) {
     console.error('[admin] /admin/api/player/delete', e);
     res.status(500).json({ error: e.message });
   }
 });
 
-// POST /admin/api/player/:id/restore
-// Снимает «надгробие»: игрок снова сможет создавать сейв (но старый уже удалён).
-// Нужен на случай ошибочного удаления — в списке игроков таких записей нет.
-app.post('/admin/api/player/:id/restore', adminGuard, async (req, res) => {
-  const { id } = req.params;
-  console.log(`[admin] POST /admin/api/player/${id}/restore — ip=${req.ip}`);
-  if (!id || !String(id).trim()) {
-    return res.status(400).json({ error: 'Не указан id игрока' });
-  }
-  try {
-    const tombKey = DELETED_PREFIX + id;
-    const existed = (await redisGet(tombKey)) != null;
-    const cleared = await redisDel(tombKey);
-    if (!cleared) {
-      return res.status(500).json({ error: 'Не удалось снять отметку удаления' });
-    }
-    console.log(`[admin] игрок ${id}: доступ восстановлен (был удалён: ${existed ? 'да' : 'нет'})`);
-    res.json({ ok: true, id, wasDeleted: existed });
-  } catch (e) {
-    console.error('[admin] /admin/api/player/restore', e);
-    res.status(500).json({ error: e.message });
-  }
-});
 
 // POST /admin/api/player/:id/invasion  { tier? }
 // Запускает вторжение руками админа. Объект строим ровно в той структуре,

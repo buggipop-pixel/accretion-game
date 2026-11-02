@@ -53,16 +53,6 @@
       <h1>🛠 Управление игроками</h1>
       <button onclick="loadPlayers()">🔄 Обновить</button>
     </div>
-
-    <!-- Удалённые игроки исчезают из списка (у них нет сейва), поэтому
-         доступ возвращается по ID — см. /admin/api/player/:id/restore -->
-    <div style="display: flex; gap: 10px; align-items: center; margin-top: 14px; flex-wrap: wrap;">
-      <input type="text" id="restoreId" placeholder="ID удалённого игрока"
-             style="flex: 1; min-width: 180px; padding: 10px; border-radius: 8px;
-                    border: 1px solid rgba(139,127,212,0.5); background: rgba(0,0,0,0.4); color: #fff;">
-      <button class="btn-warning" onclick="restorePlayer()">♻️ Восстановить доступ</button>
-    </div>
-
     <table id="playersTable">
       <thead>
         <tr>
@@ -585,30 +575,9 @@
       document.getElementById('edit-storage-lvl').value = Number(levels[res]) || 1;
     }
 
-    async function restorePlayer() {
-      const id = (document.getElementById('restoreId').value || '').trim();
-      if (!id) { alert('Введите Telegram ID игрока'); return; }
-      if (!confirm('Снять блокировку с игрока ' + id + '? Старый прогресс не вернётся — игрок начнёт с нуля.')) return;
-      try {
-        const res = await fetch(API_BASE + `/admin/api/player/${id}/restore`, {
-          method: 'POST',
-          headers: { 'X-Admin-Token': currentToken }
-        });
-        const json = await res.json().catch(function() { return {}; });
-        if (res.ok && json.ok) {
-          alert(json.wasDeleted ? 'Доступ восстановлен. Игрок начнёт с нуля.' : 'Этот игрок не был удалён.');
-          document.getElementById('restoreId').value = '';
-          loadPlayers();
-        } else {
-          alert('Ошибка: ' + (json.error || ('HTTP ' + res.status)));
-        }
-      } catch (e) { alert(e.message); }
-    }
-
     async function deletePlayer() {
       if (!currentPlayerId) { alert('Сначала открой игрока'); return; }
-      if (!confirm('ВЫ УВЕРЕНЫ? Аккаунт игрока будет удалён НАВСЕГДА!\n\nСейв и кошелёк удаляются, вход блокируется.')) return;
-      if (!confirm('Точно удалить? Вернуть можно только кнопкой «Восстановить доступ» — прогресс будет потерян.')) return;
+      if (!confirm('Сбросить аккаунт игрока? Сейв и кошелёк будут удалены, при следующем входе игрок начнёт с нуля.')) return;
       try {
         const res = await fetch(API_BASE + `/admin/api/player/${currentPlayerId}/delete`, {
           method: 'POST',
@@ -616,7 +585,7 @@
         });
         const json = await res.json().catch(function() { return {}; });
         if (res.ok && json.ok) {
-          alert('Аккаунт удалён безвозвратно. Игрок больше не сможет сохранять прогресс.');
+          alert('Аккаунт сброшен. При следующем входе игрок начнёт новую игру.');
           closePlayerModal();
           loadPlayers();
         } else {
