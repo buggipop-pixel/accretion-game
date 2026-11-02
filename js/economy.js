@@ -466,13 +466,40 @@ function activeDefenseLevel(now) {
   return Math.min(5, Math.max(0, lvl));
 }
 
-// Бонус к шансу отбить офлайн-атаку (доля, не проценты): 6 × lvl^0.8 / 100.
-function calcDefenseBonus(now) {
+// Стоимость текущего флота в металлах — «вложения» для бонуса отбития.
+function fleetMetalValue() {
+  let total = 0;
+  if (!S.fleet) return 0;
+  for (const key in FLEET_CFG.ships) {
+    const cfg = FLEET_CFG.ships[key];
+    total += Math.max(0, Number(S.fleet[key]) || 0) * (Number(cfg.costMetals) || 0);
+  }
+  return total;
+}
+
+// Вклад уровней обороны: 10% за уровень (0..50%).
+function defenseRepelChance(now) {
   const lvl = activeDefenseLevel(now);
-  if (lvl <= 0) return 0;
-  const base = Number(INVASION_CFG.defenseBonusBase) || 6;
-  const exp = Number(INVASION_CFG.defenseBonusExp) || 0.8;
-  return base * Math.pow(lvl, exp) / 100;
+  return lvl * (Number(INVASION_CFG.repelDefensePerLevel) || 0.10);
+}
+
+// Вклад флота: +1 п.п. за каждые 500 ⚙ стоимости флота, не более +30 п.п.
+// Считается только когда флот активирован (для этого нужна оборона ур.5).
+function fleetRepelChance(now) {
+  if (typeof isFleetActive !== 'function' || !isFleetActive(now)) return 0;
+  const perPct = Number(INVASION_CFG.repelFleetMetalsPerPercent) || 500;
+  const cap = Number(INVASION_CFG.repelFleetCap) || 0.30;
+  return Math.min(cap, fleetMetalValue() / perPct / 100);
+}
+
+// Итоговый шанс отбить вторжение (доля 0..1).
+// Уровни + флот не более 80%; премиум-щит даёт гарантированные 100%.
+function invasionRepelChance(now) {
+  now = now || Date.now();
+  if (S.shieldUntil && S.shieldUntil > now) return 1;
+  const totalCap = Number(INVASION_CFG.repelTotalCap) || 0.80;
+  const base = Math.min(totalCap, defenseRepelChance(now) + fleetRepelChance(now));
+  return Math.max(0, Math.min(1, base - calcExpeditionPenalty()));
 }
 
 // Штраф к обороне от ночной экспедиции (доля).
@@ -483,13 +510,14 @@ function calcExpeditionPenalty() {
 }
 
 window.activeDefenseLevel = activeDefenseLevel;
-window.calcDefenseBonus = calcDefenseBonus;
+window.fleetMetalValue = fleetMetalValue;
+window.defenseRepelChance = defenseRepelChance;
+window.fleetRepelChance = fleetRepelChance;
+window.invasionRepelChance = invasionRepelChance;
 window.calcExpeditionPenalty = calcExpeditionPenalty;
 
 function simulateOfflineInvasions(elapsedSec, out) {
   const cfg = INVASION_CFG;
-  const nightCfg = NIGHT_CFG;
-  const nightMode = (S.nightConfig && S.nightConfig.mode) || 'balanced';
   const hours = elapsedSec / 3600;
 
   if (S.shieldUntil && S.shieldUntil > Date.now() - elapsedSec * 1000) {
@@ -497,33 +525,22 @@ function simulateOfflineInvasions(elapsedSec, out) {
     return;
   }
 
-  // ★ Реже, но тяжелее: 1 атака на offlineAttackInterval, не более offlineAttackMax
+  // ★ 1 атака на offlineAttackInterval, не более offlineAttackMax
   const perHours = (cfg.offlineAttackInterval || 5 * 3600 * 1000) / 3600000;
   let attacks = Math.min(cfg.offlineAttackMax || 4, Math.floor(hours / perHours));
   if (attacks <= 0) return;
 
-  const def = activeDefenseLevel();
-  const k = Math.max(0, 1 - def * (cfg.defenseLossReduction || 0.2));
   const capShare = cfg.nightLossCapShare || 0.4;
   const caps = { dust: (S.dust || 0) * capShare, energy: (S.energy || 0) * capShare, civ: (S.civLevel || 0) * capShare };
-
-  const defenseBonus = calcDefenseBonus();
-  const expPenalty = calcExpeditionPenalty();
-  const capE = Math.max(1, getResourceCap('energy'));
-  const capC = Math.max(1, getResourceCap('civ'));
+  const repel = invasionRepelChance();
 
   let defended = 0, lostDust = 0, lostE = 0, lostC = 0, disabled = 0;
 
   for (let i = 0; i < attacks; i++) {
     const tierKey = rollInvasionTier();
-    const tier = cfg.tiers[tierKey] || cfg.tiers.raid;
-    const eF = Math.min(1, Math.max(0, (S.energy || 0) - lostE) / (cfg.resourceThresholdShare * capE));
-    const cF = Math.min(1, Math.max(0, (S.civLevel || 0) - lostC) / (cfg.resourceThresholdShare * capC));
-    let chance = tier.baseChance * Math.min(eF, cF) + defenseBonus - expPenalty;
-    chance = Math.max(0, Math.min(tier.chanceCap, chance));
-    if (Math.random() < chance) { defended++; continue; }
+    if (Math.random() < repel) { defended++; continue; }
 
-    const hit = applyInvasionHit(tierKey, caps, k);
+    const hit = applyInvasionHit(tierKey, caps);
     lostDust += hit.dust; lostE += hit.energy; lostC += hit.civ; disabled += hit.disabled;
     caps.dust -= hit.dust; caps.energy -= hit.energy; caps.civ -= hit.civ;
   }
@@ -540,18 +557,15 @@ function simulateOfflineInvasions(elapsedSec, out) {
 }
 
 // ★ Наносит урон одного удачного вторжения. Возвращает фактический урон.
-function applyInvasionHit(tierKey, caps, kOverride) {
+function applyInvasionHit(tierKey, caps) {
   const cfg = INVASION_CFG;
   const tier = cfg.tiers[tierKey] || cfg.tiers.raid;
-  const def = activeDefenseLevel();
-  const k = (kOverride != null) ? kOverride : Math.max(0, 1 - def * (cfg.defenseLossReduction || 0.2));
   const out = { dust: 0, energy: 0, civ: 0, disabled: 0 };
   // ★ Прайм-система неприкосновенна: никакого урона от вторжений
   if (S.primeSystem || (typeof isPrimeSystemAt === 'function' && isPrimeSystemAt(S.activeSystemIdx))) return out;
-  if (k <= 0) return out;                       // оборона ур.5 — иммунитет
 
   const now = Date.now();
-  const minutes = (tier.theftMin || 0) * k;
+  const minutes = tier.theftMin || 0;
   const capD = caps ? Math.max(0, caps.dust) : Infinity;
   const capEn = caps ? Math.max(0, caps.energy) : Infinity;
   const capCi = caps ? Math.max(0, caps.civ) : Infinity;
@@ -571,8 +585,8 @@ function applyInvasionHit(tierKey, caps, kOverride) {
   }
 
   // 2) «оккупация»: штраф к доходу на N часов (стек до debuffStackCap)
-  const pct = (tier.debuffPct || 0) * k;
-  const durH = (tier.debuffHours || 0) * k;
+  const pct = tier.debuffPct || 0;
+  const durH = tier.debuffHours || 0;
   if (pct > 0 && durH > 0) {
     const cur = (S.invasionDebuff && S.invasionDebuff.until > now) ? Number(S.invasionDebuff.pct) || 0 : 0;
     S.invasionDebuff = {
@@ -587,7 +601,7 @@ function applyInvasionHit(tierKey, caps, kOverride) {
   for (let i = 0; i < canDisable && alive.length > 0; i++) {
     const idx = Math.floor(Math.random() * alive.length);
     const victim = alive.splice(idx, 1)[0];
-    victim.disabledUntil = now + (tier.disableHours || 2) * k * 3600 * 1000;
+    victim.disabledUntil = now + (tier.disableHours || 2) * 3600 * 1000;
     out.disabled++;
   }
   return out;

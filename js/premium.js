@@ -551,6 +551,9 @@ function openShipyard() {
   // ★ Статус флота: активировать его можно только при активной Автобороне ур.5.
   const totalShips = (typeof fleetShipTotal === 'function') ? fleetShipTotal() : 0;
   const dps = (typeof fleetDps === 'function') ? fleetDps() : 0;
+  const fleetValue = (typeof fleetMetalValue === 'function') ? fleetMetalValue() : 0;
+  const fleetBonusPct = (typeof fleetRepelChance === 'function') ? fleetRepelChance() * 100 : 0;
+  const fleetPotentialPct = Math.min(30, Math.round(fleetValue / 500));
   const reqLvl = (typeof fleetDefenseLevelReq === 'function') ? fleetDefenseLevelReq() : 5;
   const fleetReady = (typeof fleetDefenseReady === 'function') ? fleetDefenseReady() : false;
   const fleetActive = (typeof isFleetActive === 'function') ? isFleetActive() : false;
@@ -581,6 +584,10 @@ function openShipyard() {
     <div class="row-stat" style="font-size:11px;opacity:0.85;">
       <span>Кораблей: ${totalShips}</span>
       <span>Урон: ${dps.toFixed(1)}/с</span>
+    </div>
+    <div class="row-stat" style="font-size:10px;color:#8b7fd4;">
+      <span>Вложения: ${fmt(fleetValue)} ⚙</span>
+      <span>${fleetActive ? '+' + Math.round(fleetBonusPct) : '+' + fleetPotentialPct}% к отбитию (макс +30%)</span>
     </div>
     <div class="row-stat" style="font-size:10px;color:#8b7fd4;">
       <span>Автоборона: ${defActive ? (defLvl > paidLvl ? 'ур.' + defLvl + ' · трофей' : 'ур.' + defLvl + ' · ' + defLeftH + ' ч') : 'выключена'}</span>

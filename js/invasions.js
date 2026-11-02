@@ -55,11 +55,6 @@ function isFleetActive(now) {
   return S.fleetActive === true && fleetShipTotal() > 0 && fleetDefenseReady(now);
 }
 
-// Снижение слива энергии/цив во время живого вторжения (доля).
-function defenseDrainReduction(now) {
-  const lvl = activeDefenseLevel(now);
-  return Math.min(0.25, (INVASION_CFG.defenseDrainReduction || 0.05) * lvl);
-}
 
 // Наносит накопленный урон флота кораблям вторжения. HP врагов хранится
 // в сейве вместе с кораблями; для старых сейвов HP проставляется лениво.
@@ -81,7 +76,7 @@ function applyFleetAutoDefense(inv, dt) {
   if (!inv.fleetEngaged) {
     inv.fleetEngaged = true;
     if (inv.notified && typeof toast === 'function') {
-      toast('🚀 Флот в бой', 'Автоборона ур.' + (S.nightDefenseLevel || 0));
+      toast('🚀 Флот в бой', 'Автоборона ур.' + activeDefenseLevel());
     }
   }
   return destroyed;
@@ -92,7 +87,6 @@ window.fleetDps = fleetDps;
 window.fleetDefenseLevelReq = fleetDefenseLevelReq;
 window.fleetDefenseReady = fleetDefenseReady;
 window.isFleetActive = isFleetActive;
-window.defenseDrainReduction = defenseDrainReduction;
 
 // ─── Выбор сложности ────────────────────────────────────────────
 function rollInvasionTier() {
@@ -126,6 +120,8 @@ function makeShips(count) {
 // ─── Запуск вторжения ───────────────────────────────────────────
 function spawnInvasion() {
   const now = Date.now();
+  // Премиум-щит: пока активен, вторжения не создаются вообще.
+  if (S.shieldUntil && S.shieldUntil > now) return;
   const tierKey = rollInvasionTier();
   const tier = INVASION_CFG.tiers[tierKey];
 
@@ -218,24 +214,18 @@ function spawnInvasion() {
 }
 
 // ─── Урон второго порядка: оккупация и простой планет ───────────
-function invasionDefK() {
-  const def = activeDefenseLevel();
-  return Math.max(0, 1 - def * (INVASION_CFG.defenseLossReduction || 0.2));
-}
 
 function applyInvasionAftermath(inv, victim) {
   // ★ Прайм-система не получает урона от вторжений
   if (inv && typeof inv.systemIdx === 'number' && typeof isPrimeSystemAt === 'function' && isPrimeSystemAt(inv.systemIdx)) return;
   const tier = INVASION_CFG.tiers[inv.tierKey] || INVASION_CFG.tiers.raid;
-  const k = invasionDefK();
-  if (k <= 0) return;
   const now = Date.now();
 
   // 1) штраф к доходу — один раз на волну
   if (!inv.waveId || S.invasionWaveApplied !== inv.waveId) {
     S.invasionWaveApplied = inv.waveId || ('solo' + now);
-    const pct = (tier.debuffPct || 0) * k;
-    const durH = (tier.debuffHours || 0) * k;
+    const pct = tier.debuffPct || 0;
+    const durH = tier.debuffHours || 0;
     if (pct > 0 && durH > 0) {
       const cur = (S.invasionDebuff && S.invasionDebuff.until > now) ? (Number(S.invasionDebuff.pct) || 0) : 0;
       S.invasionDebuff = {
@@ -265,7 +255,7 @@ function applyInvasionAftermath(inv, victim) {
       victims.push(pool.splice(idx, 1)[0]);
     }
   }
-  const dur = (tier.disableHours || 2) * k * 3600 * 1000;
+  const dur = (tier.disableHours || 2) * 3600 * 1000;
   for (const p of victims) {
     if (!p) continue;
     if (targetPlanets.length <= 1) break;  // последнюю планету не выключаем
@@ -301,7 +291,17 @@ function tickInvasions(dt) {
     const interval = INVASION_CFG.intervalMin + Math.random() * (INVASION_CFG.intervalMax - INVASION_CFG.intervalMin);
     if (since >= interval) {
       S.lastInvasionCheck = now;
-      if (Math.random() < INVASION_CFG.chance) spawnInvasion();
+      // ★ Сначала проверяем шанс отбития (уровни + флот, кап 80%, щит 100%).
+      const repel = (typeof invasionRepelChance === 'function') ? invasionRepelChance(now) : 0;
+      if (Math.random() < repel) {
+        const repelPct = Math.round(repel * 100);
+        if (repel < 1 && typeof toast === 'function') {
+          toast('🛡 Вторжение отбито', 'Шанс отбития ' + repelPct + '%');
+        }
+        if (typeof addEvent === 'function') addEvent('invasion_repelled', 'Атака отбита (шанс ' + repelPct + '%)');
+      } else if (Math.random() < INVASION_CFG.chance) {
+        spawnInvasion();
+      }
     }
   }
 
@@ -376,9 +376,8 @@ function tickInvasions(dt) {
         const civPlanets = civPlanetCount();
         if (civPlanets > 0) {
           const hours = dt / 3600;
-          const reduction = defenseDrainReduction(now);
-          const eDrain = capE * tier.energyDrain * (1 + 0.3 * civPlanets) * hours * (1 - reduction);
-          const cDrain = capC * tier.civDrain * (1 + 0.3 * civPlanets) * hours * (1 - reduction);
+          const eDrain = capE * tier.energyDrain * (1 + 0.3 * civPlanets) * hours;
+          const cDrain = capC * tier.civDrain * (1 + 0.3 * civPlanets) * hours;
           
           const actualE = Math.min(S.energy, eDrain);
           const actualC = Math.min(S.civLevel, cDrain);
@@ -391,7 +390,7 @@ function tickInvasions(dt) {
       }
 
       if (now < inv.robberyEndsAt && S.dust > 0) {
-        const theftTotal = dustPerSec() * (tier.theftMin / Math.max(1, tier.targets || 1)) * 60 * invasionDefK();
+        const theftTotal = dustPerSec() * (tier.theftMin / Math.max(1, tier.targets || 1)) * 60;
         const rate = theftTotal / (INVASION_CFG.robberyDuration / 1000);
         const take = Math.min(S.dust, rate * dt);
         S.dust -= take; inv.stolen = (inv.stolen || 0) + take;
@@ -435,7 +434,7 @@ function tickInvasions(dt) {
     }
 
     if (now < inv.robberyEndsAt && S.dust > 0) {
-      const theftTotal = dustPerSec() * (tier.theftMin / Math.max(1, tier.targets || 1)) * 60 * invasionDefK();
+      const theftTotal = dustPerSec() * (tier.theftMin / Math.max(1, tier.targets || 1)) * 60;
       const rate = theftTotal / (INVASION_CFG.robberyDuration / 1000);
       const take = Math.min(S.dust, rate * dt);
       S.dust -= take; inv.stolen = (inv.stolen || 0) + take;

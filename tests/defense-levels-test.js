@@ -1,7 +1,8 @@
 // ═══════════════════════════════════════════════════════════════
-//  DEFENSE LEVELS TEST — уровни Автобороны 1–5 реально работают.
-//  Проверяем эффективный уровень, бонус к отбитию, снижение урона
-//  и слива ресурсов, а также отсутствие ReferenceError в офлайне.
+//  DEFENSE / FLEET REPEL TEST
+//  Уровни 1–5 дают +10% к шансу отбития (макс 50%), флот — до +30%
+//  от вложенных металлов, общий кап 80%, премиум-щит — 100%.
+//  Уровни больше НЕ снижают урон: провалил бросок — получил полный урон.
 //  Запуск: node tests/defense-levels-test.js
 // ═══════════════════════════════════════════════════════════════
 const fs = require('fs');
@@ -93,6 +94,13 @@ function assert(name, condition) {
 
 const close = (a, b, eps) => Math.abs(a - b) <= (eps == null ? 1e-9 : eps);
 
+function planet(seed) {
+  return {
+    type: 'superEarth', baseOrbitR: 100, orbitR: 100, mass: 1, diameter: 1,
+    forming: false, seed: seed || 1, civLevel: 0,
+  };
+}
+
 function prepare(g) {
   const S = g.S;
   S.nightConfig = { mode: 'balanced', defenseEnabled: true, cometHours: 0, expeditionPercent: 0 };
@@ -107,14 +115,15 @@ function prepare(g) {
   S.shieldUntil = 0;
   S.starType = 'G';
   S.systemType = 'single';
-  S.planets = [{
-    type: 'superEarth', baseOrbitR: 100, orbitR: 100, mass: 1, diameter: 1,
-    forming: false, seed: 1, civLevel: 0,
-  }];
+  S.planets = [planet(1), planet(2)];
   S.dust = 1e9; S.energy = 1e9; S.civLevel = 1e9;
   S.dustTotal = 1e9;
   S.invasionDebuff = { pct: 0, until: 0 };
   S.invasionWaveApplied = null;
+  S.fleet = { interceptor: 0, cruiser: 0, dreadnought: 0 };
+  S.fleetActive = false;
+  S.invasions = [];
+  S.lastInvasionCheck = Date.now();
   return S;
 }
 
@@ -125,87 +134,9 @@ function setDefense(S, lvl, opts) {
   S.nightConfig.defenseEnabled = opts.enabled !== false;
 }
 
-function testFreshState() {
-  const g = createGame();
-  const S = prepare(g);
-  assert('Свежий сейв: эффективный уровень 0', g.activeDefenseLevel() === 0);
-  assert('Свежий сейв: бонус отбития 0', g.calcDefenseBonus() === 0);
-  assert('Свежий сейв: урон без обороны не снижен', g.invasionDefK() === 1);
-}
-
-function testLevelsActuallyWork() {
-  const g = createGame();
-  const S = prepare(g);
-
-  for (let lvl = 1; lvl <= 5; lvl++) {
-    setDefense(S, lvl);
-    assert('Ур.' + lvl + ': эффективный уровень совпадает', g.activeDefenseLevel() === lvl);
-  }
-
-  setDefense(S, 1);
-  assert('Ур.1: урон снижен на 20%', close(g.invasionDefK(), 0.8));
-  setDefense(S, 3);
-  assert('Ур.3: урон снижен на 60%', close(g.invasionDefK(), 0.4));
-  setDefense(S, 5);
-  assert('Ур.5: полный иммунитет к урону', g.invasionDefK() === 0);
-
-  setDefense(S, 1);
-  assert('Ур.1: слив ⚡/🧬 снижен на 5%', close(g.defenseDrainReduction(), 0.05));
-  setDefense(S, 2);
-  assert('Ур.2: слив снижен на 10%', close(g.defenseDrainReduction(), 0.10));
-  setDefense(S, 5);
-  assert('Ур.5: слив снижен на 25% (кап)', close(g.defenseDrainReduction(), 0.25));
-
-  setDefense(S, 1);
-  assert('Ур.1: бонус к отбитию +6.0 п.п.', close(g.calcDefenseBonus(), 0.06));
-  setDefense(S, 5);
-  assert('Ур.5: бонус к отбитию +21.7 п.п.', close(g.calcDefenseBonus(), 0.2174, 0.001));
-}
-
-function testInactiveDefense() {
-  const g = createGame();
-  const S = prepare(g);
-
-  setDefense(S, 5, { expired: true });
-  assert('Истекла: бонусы пропадают', g.activeDefenseLevel() === 0 && g.calcDefenseBonus() === 0);
-
-  setDefense(S, 5, { enabled: false });
-  assert('Тумблер ВЫКЛ: бонусы пропадают', g.activeDefenseLevel() === 0);
-
-  // Регресс: старые сейвы/код могли писать S.defenseLevel — он не должен влиять.
-  prepare(g);
-  S.defenseLevel = 5;
-  assert('Чужое поле S.defenseLevel игнорируется', g.activeDefenseLevel() === 0);
-}
-
-function testTrophyLevels() {
-  const g = createGame();
-  const S = prepare(g);
-
-  // Трофей даёт уровень 5 без платной активации на 24 ч.
-  S.activeTrophyEffects = [{ type: 'defense_level', value: 5, expiresAt: Date.now() + 3600 * 1000 }];
-  assert('Трофей ур.5: считается эффективным уровнем', g.activeDefenseLevel() === 5);
-  assert('Трофей ур.5: открывает активацию флота', g.fleetDefenseReady() === true);
-  assert('Трофей ур.5: даёт иммунитет к урону', g.invasionDefK() === 0);
-
-  S.nightConfig.defenseEnabled = false;
-  assert('Трофей при выключенной Автобороне не работает', g.activeDefenseLevel() === 0);
-
-  prepare(g);
-  S.activeTrophyEffects = [{ type: 'defense_level', value: 5, expiresAt: Date.now() - 1000 }];
-  assert('Просроченный трофей не работает', g.activeDefenseLevel() === 0);
-}
-
-function testExpeditionPenalty() {
-  const g = createGame();
-  const S = prepare(g);
-  setDefense(S, 5);
-  S.nightConfig.expeditionPercent = 30;
-  assert('Экспедиция 30%: штраф 9%', close(g.calcExpeditionPenalty(), 0.09));
-  S.nightConfig.expeditionPercent = 100;
-  assert('Экспедиция 100%: штраф 30%', close(g.calcExpeditionPenalty(), 0.30));
-  S.nightConfig.expeditionPercent = 0;
-  assert('Экспедиция 0%: штрафа нет', g.calcExpeditionPenalty() === 0);
+function activateFleet(S, interceptorCount) {
+  S.fleet = { interceptor: interceptorCount || 30, cruiser: 0, dreadnought: 0 };
+  S.fleetActive = true;
 }
 
 function makeOut() {
@@ -217,46 +148,200 @@ function makeOut() {
   };
 }
 
-function testOfflineNoCrashAndImmunity() {
+function withRandom(g, value, fn) {
+  const original = g.Math.random;
+  g.Math.random = () => value;
+  try { fn(); } finally { g.Math.random = original; }
+}
+
+function testFreshState() {
   const g = createGame();
   const S = prepare(g);
-  setDefense(S, 5);
+  assert('Свежий сейв: уровни не дают шанс', g.defenseRepelChance() === 0);
+  assert('Свежий сейв: флот не даёт шанс', g.fleetRepelChance() === 0);
+  assert('Свежий сейв: итоговый шанс 0', g.invasionRepelChance() === 0);
+}
 
-  const out = makeOut();
-  let crashed = false;
-  try {
-    g.simulateOfflineInvasions(4 * 3600, out);
-  } catch (e) {
-    crashed = true;
+function testDefenseLevels() {
+  const g = createGame();
+  const S = prepare(g);
+  const expected = [0, 0.10, 0.20, 0.30, 0.40, 0.50];
+
+  for (let lvl = 1; lvl <= 5; lvl++) {
+    setDefense(S, lvl);
+    assert('Ур.' + lvl + ': +' + (lvl * 10) + '% к отбитию', close(g.defenseRepelChance(), expected[lvl]));
+    assert('Ур.' + lvl + ': итоговый шанс без флота', close(g.invasionRepelChance(), expected[lvl]));
   }
-  assert('Офлайн: simulateOfflineInvasions не падает с ReferenceError', crashed === false);
-  assert('Офлайн: атаки посчитаны', out.invasionAttacks >= 1);
-  assert('Офлайн: ур.5 не теряет пыль', out.invasionLostDust === 0);
 
-  // Без обороны не должно быть исключения и урон может проходить.
+  setDefense(S, 5, { expired: true });
+  assert('Истекла: шанс 0', g.defenseRepelChance() === 0);
+
+  setDefense(S, 5, { enabled: false });
+  assert('Тумблер ВЫКЛ: шанс 0', g.defenseRepelChance() === 0);
+
+  // Регресс: старое поле S.defenseLevel больше не влияет.
   prepare(g);
+  S.defenseLevel = 5;
+  assert('Чужое поле S.defenseLevel игнорируется', g.invasionRepelChance() === 0);
+}
+
+function testFleetInvestment() {
+  const g = createGame();
+  const S = prepare(g);
+
+  S.fleet = { interceptor: 1, cruiser: 0, dreadnought: 0 };
+  assert('Стоимость флота: 1 перехватчик = 500 ⚙', g.fleetMetalValue() === 500);
+  S.fleet = { interceptor: 3, cruiser: 1, dreadnought: 1 };
+  assert('Стоимость флота: сумма по всем кораблям', g.fleetMetalValue() === 3 * 500 + 2000 + 8000);
+
+  setDefense(S, 5);
+  S.fleet = { interceptor: 10, cruiser: 0, dreadnought: 0 };
+  S.fleetActive = false;
+  assert('Флот в резерве: бонуса нет', g.fleetRepelChance() === 0);
+
+  S.fleetActive = true;
+  assert('10 перехватчиков (5000 ⚙): +10%', close(g.fleetRepelChance(), 0.10));
+
+  S.fleet = { interceptor: 60, cruiser: 0, dreadnought: 0 };
+  assert('Флот за 30 000 ⚙: кап +30%', close(g.fleetRepelChance(), 0.30));
+
+  setDefense(S, 4);
+  assert('Флот не активен без обороны ур.5', g.fleetRepelChance() === 0);
+}
+
+function testTotalAndCap() {
+  const g = createGame();
+  const S = prepare(g);
+
+  setDefense(S, 5);
+  S.fleet = { interceptor: 60, cruiser: 0, dreadnought: 0 };
+  S.fleetActive = true;
+  assert('Ур.5 + флот: общий кап 80%', close(g.invasionRepelChance(), 0.80));
+
+  setDefense(S, 3);
+  S.fleet = { interceptor: 10, cruiser: 0, dreadnought: 0 };
+  S.fleetActive = true;
+  assert('Ур.3 без флота: 30%', close(g.invasionRepelChance(), 0.30));
+}
+
+function testShieldAndExpedition() {
+  const g = createGame();
+  const S = prepare(g);
+
+  S.shieldUntil = Date.now() + 3600 * 1000;
+  assert('Премиум-щит: 100% отбития без обороны', g.invasionRepelChance() === 1);
+  S.shieldUntil = 0;
+
+  setDefense(S, 5);
+  S.nightConfig.expeditionPercent = 30;
+  assert('Экспедиция 30%: −9 п.п. к шансу', close(g.invasionRepelChance(), 0.41));
+  S.nightConfig.expeditionPercent = 100;
+  assert('Экспедиция 100%: −30 п.п. к шансу', close(g.invasionRepelChance(), 0.20));
+}
+
+function testTrophyLevel() {
+  const g = createGame();
+  const S = prepare(g);
+
+  S.activeTrophyEffects = [{ type: 'defense_level', value: 5, expiresAt: Date.now() + 3600 * 1000 }];
+  assert('Трофей ур.5: +50% к отбитию', close(g.defenseRepelChance(), 0.50));
+
+  S.fleet = { interceptor: 30, cruiser: 0, dreadnought: 0 };
+  S.fleetActive = true;
+  assert('Трофей ур.5 + флот: 80%', close(g.invasionRepelChance(), 0.80));
+
   S.nightConfig.defenseEnabled = false;
-  const out2 = makeOut();
-  let crashed2 = false;
-  try {
-    g.simulateOfflineInvasions(4 * 3600, out2);
-  } catch (e) {
-    crashed2 = true;
-  }
-  assert('Офлайн: без обороны тоже без исключений', crashed2 === false);
+  assert('Трофей при выключенной Автобороне не работает', g.invasionRepelChance() === 0);
+}
+
+function testNoDamageReduction() {
+  const g = createGame();
+  const S = prepare(g);
+
+  setDefense(S, 5);
+  const caps = { dust: S.dust * 0.4, energy: S.energy * 0.4, civ: S.civLevel * 0.4 };
+  const before = S.dust;
+  const hit = g.applyInvasionHit('scout', caps);
+  assert('Ур.5 не снижает урон: провал броса = полная кража', hit.dust > 0 && S.dust < before);
+  assert('Ур.5 не отменяет простой планет', hit.disabled === 1);
+}
+
+function testOfflineRepel() {
+  const g = createGame();
+  const S = prepare(g);
+
+  setDefense(S, 5);
+  activateFleet(S, 60); // 30 000 ⚙ → +30%, итого 80%
+
+  withRandom(g, 0.79, () => {
+    const out = makeOut();
+    const before = S.dust;
+    g.simulateOfflineInvasions(4 * 3600, out);
+    assert('Офлайн 80%: все атаки отбиты (0.79 < 0.80)', out.invasionDefended === out.invasionAttacks && out.invasionAttacks > 0);
+    assert('Офлайн 80%: пыль не украдена', out.invasionLostDust === 0 && S.dust === before);
+  });
+
+  withRandom(g, 0.99, () => {
+    const out = makeOut();
+    const before = S.dust;
+    g.simulateOfflineInvasions(4 * 3600, out);
+    assert('Офлайн 80%: при провале броса урон проходит', out.invasionLostDust > 0 && S.dust < before);
+  });
+}
+
+function testOfflineShield() {
+  const g = createGame();
+  const S = prepare(g);
+  S.shieldUntil = Date.now() + 3600 * 1000;
+  const out = makeOut();
+  g.simulateOfflineInvasions(4 * 3600, out);
+  assert('Офлайн: щит помечает защиту', out.shieldProtected === true && out.invasionAttacks === 0);
+}
+
+function testLiveSpawnRepel() {
+  const g = createGame();
+  const S = prepare(g);
+
+  setDefense(S, 5);
+  activateFleet(S, 60);
+  S.lastInvasionCheck = Date.now() - 10 * 3600 * 1000;
+
+  withRandom(g, 0.0, () => {
+    g.tickInvasions(1);
+    assert('Живой спавн: 80% отбивает атаку (random 0)', S.invasions.length === 0);
+  });
+
+  S.lastInvasionCheck = Date.now() - 10 * 3600 * 1000;
+  withRandom(g, 0.99, () => {
+    g.tickInvasions(1);
+    assert('Живой спавн: провал броса создаёт вторжение', S.invasions.length > 0);
+  });
+}
+
+function testShieldBlocksSpawn() {
+  const g = createGame();
+  const S = prepare(g);
+  S.shieldUntil = Date.now() + 3600 * 1000;
+  g.spawnInvasion();
+  assert('Живой спавн: премиум-щит не создаёт вторжение', S.invasions.length === 0);
 }
 
 (function run() {
   console.log('========================================');
-  console.log('🧪 ТЕСТЫ УРОВНЕЙ АВТООБОРОНЫ');
+  console.log('🧪 ТЕСТЫ ОТБИТИЯ: УРОВНИ + ФЛОТ');
   console.log('========================================');
   try {
     testFreshState();
-    testLevelsActuallyWork();
-    testInactiveDefense();
-    testTrophyLevels();
-    testExpeditionPenalty();
-    testOfflineNoCrashAndImmunity();
+    testDefenseLevels();
+    testFleetInvestment();
+    testTotalAndCap();
+    testShieldAndExpedition();
+    testTrophyLevel();
+    testNoDamageReduction();
+    testOfflineRepel();
+    testOfflineShield();
+    testLiveSpawnRepel();
+    testShieldBlocksSpawn();
   } catch (e) {
     console.error('❌ Исключение в тестах: ' + (e && e.stack || e));
     failed++;

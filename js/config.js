@@ -183,9 +183,9 @@ function getAllowedOrbitsForType(starType, planetType) {
 
 // ─── ВТОРЖЕНИЯ ───
 const INVASION_CFG = {
-  intervalMin: 3 * 60 * 60 * 1000,  // 3 часа — вторжения редкие, но тяжёлые
-  intervalMax: 8 * 60 * 60 * 1000,  // 8 часов
-  chance: 0.7,
+  intervalMin: 2 * 60 * 60 * 1000,  // 2 часа — попытки вторжений чаще, но шанс отбития решает
+  intervalMax: 5 * 60 * 60 * 1000,  // 5 часов
+  chance: 1.0,                      // попытка всегда; отбитие считает invasionRepelChance()
 
   shipsBase: 3,   // Базовое число кораблей вторжения
   shipsMax: 5,    // Максимум кораблей
@@ -195,19 +195,21 @@ const INVASION_CFG = {
   // theftMin — сколько минут дохода уносит; debuffPct/debuffHours — штраф к доходу;
   // targets — сколько планет атакуется одновременно; disablePlanets/disableHours — простой.
   tiers: {
-    scout:  { weight: 0.55, baseChance: 0.70, planets: 1, targets: 1, theftMin: 25, debuffPct: 0.15, debuffHours: 2, disablePlanets: 1, disableHours: 1.5, energyDrain: 0.03, civDrain: 0.05, lootMult: 1.0, chanceCap: 0.90, label: 'Разведка' },
-    raid:   { weight: 0.30, baseChance: 0.50, planets: 2, targets: 2, theftMin: 50, debuffPct: 0.25, debuffHours: 3, disablePlanets: 2, disableHours: 2, energyDrain: 0.06, civDrain: 0.10, lootMult: 1.5, chanceCap: 0.80, label: 'Рейд' },
-    siege:  { weight: 0.15, baseChance: 0.25, planets: 3, targets: 3, theftMin: 90, debuffPct: 0.35, debuffHours: 5, disablePlanets: 3, disableHours: 3, energyDrain: 0.10, civDrain: 0.15, lootMult: 2.5, chanceCap: 0.65, label: 'Осада' },
+    scout:  { weight: 0.55, targets: 1, theftMin: 25, debuffPct: 0.15, debuffHours: 2, disablePlanets: 1, disableHours: 1.5, energyDrain: 0.03, civDrain: 0.05, label: 'Разведка' },
+    raid:   { weight: 0.30, targets: 2, theftMin: 50, debuffPct: 0.25, debuffHours: 3, disablePlanets: 2, disableHours: 2, energyDrain: 0.06, civDrain: 0.10, label: 'Рейд' },
+    siege:  { weight: 0.15, targets: 3, theftMin: 90, debuffPct: 0.35, debuffHours: 5, disablePlanets: 3, disableHours: 3, energyDrain: 0.10, civDrain: 0.15, label: 'Осада' },
   },
-  defenseLossReduction: 0.20,      // -20% урона за уровень обороны (ур.5 = иммунитет)
+  // ★ Шанс отбить вторжение: уровни обороны + вклад флота, общий кап 80%.
+  repelDefensePerLevel: 0.10,      // 10% за уровень, ур.5 = 50%
+  repelFleetMetalsPerPercent: 500, // +1 п.п. за каждые 500 ⚙ стоимости флота
+  repelFleetCap: 0.30,             // флот добавляет не более +30 п.п.
+  repelTotalCap: 0.80,             // потолок, чтобы щит за Stars оставался смыслом
   debuffStackCap: 0.60,            // суммарный штраф к доходу не более -60%
   nightLossCapShare: 0.40,         // за офлайн-сессию не более 40% каждой валюты
   nightCapHours: 4,                // и не более 4 часов прогресса
   planetDisabledHours: 2,          // сколько планета простаивает после повреждения
   repairCostShare: 0.15,           // ремонт планеты стоит 15% её цены в пыли
   offlineAttackMax: 4,
-  resourceThresholdShare: 0.25,
-  defenseBonusBase: 6, defenseBonusExp: 0.8, defenseDrainReduction: 0.05,
   defenseCost: [0, 150, 350, 750, 1500, 3000],
   defenseCostMultiplierPerSystem: 0.15, // +15% к цене за каждую систему свыше 1
   expeditionDefensePenalty: 0.15,

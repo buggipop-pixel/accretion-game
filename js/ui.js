@@ -814,80 +814,29 @@ function openNightMode() {
     </button>`;
   }).join('');
 
-  // Предпросмотр шансов
-  function calcPreviewChance(tierKey) {
-    const tier = INVASION_CFG.tiers[tierKey];
-    if (!tier) return 0;
-    if (S.shieldUntil && S.shieldUntil > Date.now()) return 1.0;
-    
-    const capE = Math.max(1, getResourceCap('energy'));
-    const capC = Math.max(1, getResourceCap('civ'));
-    const thresh = INVASION_CFG.resourceThresholdShare || 0.25;
-    const eF = Math.min(1, S.energy / (thresh * capE));
-    const cF = Math.min(1, S.civLevel / (thresh * capC));
-    const resFactor = Math.min(eF, cF);
-    let chance = tier.baseChance * resFactor;
-    
-    const isDefActive = S.nightDefenseExpiresAt && S.nightDefenseExpiresAt > Date.now();
-    const activeLvl = isDefActive ? (S.nightDefenseLevel || 0) : 0;
-    let bonus = 0;
-    if (activeLvl > 0 && nc.defenseEnabled) {
-      bonus = (INVASION_CFG.defenseBonusBase || 6) * Math.pow(activeLvl, INVASION_CFG.defenseBonusExp || 0.8) / 100;
-    }
-    if (S.activeTrophyEffects) {
-      for (let i = 0; i < S.activeTrophyEffects.length; i++) {
-        const e = S.activeTrophyEffects[i];
-        if (e.type === 'defense_level' && e.expiresAt > Date.now() && nc.defenseEnabled) {
-          const tmp = (INVASION_CFG.defenseBonusBase || 6) * Math.pow(e.value, INVASION_CFG.defenseBonusExp || 0.8) / 100;
-          bonus = Math.max(bonus, tmp);
-        }
-      }
-    }
-    chance += bonus;
-    
-    const pct = nc.expeditionPercent || 0;
-    const expPenalty = (pct / 100) * (NIGHT_CFG.expeditionDefensePenaltyMax || 0.30);
-    chance -= expPenalty;
-    
-    return Math.max(0, Math.min(tier.chanceCap, chance));
-  }
-
+  // Предпросмотр защиты: шанс отбития = уровни (до 50%) + флот (до 30%), общий кап 80%.
   const isDefActive = S.nightDefenseExpiresAt && S.nightDefenseExpiresAt > Date.now();
   const activeLvl = isDefActive ? (S.nightDefenseLevel || 0) : 0;
-  
-  function getDefBonus() {
-    if (!nc.defenseEnabled) return 0;
-    const lvl = isDefActive ? (S.nightDefenseLevel || 0) : 0;
-    let b = 0;
-    if (lvl > 0) b = (INVASION_CFG.defenseBonusBase || 6) * Math.pow(lvl, INVASION_CFG.defenseBonusExp || 0.8);
-    if (S.activeTrophyEffects) {
-      for (let i = 0; i < S.activeTrophyEffects.length; i++) {
-        const e = S.activeTrophyEffects[i];
-        if (e.type === 'defense_level' && e.expiresAt > Date.now()) {
-          const tmp = (INVASION_CFG.defenseBonusBase || 6) * Math.pow(e.value, INVASION_CFG.defenseBonusExp || 0.8);
-          b = Math.max(b, tmp);
-        }
-      }
-    }
-    return b;
-  }
-  
-  const rawBonus = getDefBonus();
+  const effDefLvl = (typeof activeDefenseLevel === 'function')
+    ? activeDefenseLevel()
+    : (isDefActive ? activeLvl : 0);
+  const defChancePct = (typeof defenseRepelChance === 'function') ? defenseRepelChance() * 100 : effDefLvl * 10;
+  const fleetChancePct = (typeof fleetRepelChance === 'function') ? fleetRepelChance() * 100 : 0;
   const expPenalty = (nc.expeditionPercent / 100) * (NIGHT_CFG.expeditionDefensePenaltyMax || 0.30) * 100;
-  
-  const scoutChance = calcPreviewChance('scout') * 100;
-  const raidChance = calcPreviewChance('raid') * 100;
-  const siegeChance = calcPreviewChance('siege') * 100;
+  const totalChancePct = (typeof invasionRepelChance === 'function')
+    ? invasionRepelChance() * 100
+    : Math.max(0, Math.min(80, defChancePct + fleetChancePct - expPenalty));
+  const shieldActive = !!(S.shieldUntil && S.shieldUntil > Date.now());
+  const chanceColor = totalChancePct > 60 ? '#7ee0a8' : totalChancePct > 30 ? '#ffb347' : '#ff5e5e';
 
   const lossCap = NIGHT_CFG.lossCaps[curMode] || 0.25;
   const objCount = S.stage === 'galaxy' ? S.systems : S.planets.length;
   const maxLoss = Math.floor(objCount * lossCap);
-
   // Кнопки уровней обороны
   const defenseButtons = [1, 2, 3, 4, 5].map(lvl => {
     const systemsExtra = Math.max(0, (S.systems || 1) - 1);
     const cost = Math.floor(INVASION_CFG.defenseCost[lvl] * (1 + systemsExtra * INVASION_CFG.defenseCostMultiplierPerSystem));
-    const bonus = (INVASION_CFG.defenseBonusBase * Math.pow(lvl, INVASION_CFG.defenseBonusExp)).toFixed(1);
+    const bonus = Math.round(lvl * (INVASION_CFG.repelDefensePerLevel || 0.10) * 100);
     const isCurrent = isDefActive && activeLvl === lvl;
     return `<button class="pour-btn" style="flex-direction:column;padding:6px 2px;font-size:9px; line-height:1.2; ${isCurrent ? 'background:rgba(46,170,119,0.4);border-color:#2eaa77;' : ''}"
       onclick="activateNightDefense(${lvl})" ${ (S.metalAmount || 0) >= cost ? '' : 'disabled' }>
@@ -895,14 +844,13 @@ function openNightMode() {
     </button>`;
   }).join('');
 
-  const effDefLvl = (typeof activeDefenseLevel === 'function')
-    ? activeDefenseLevel()
-    : (isDefActive ? activeLvl : 0);
-  const defenseLabel = isDefActive
-    ? (effDefLvl > activeLvl
-      ? `Ур.${effDefLvl} · +${rawBonus.toFixed(1)}% (трофей)`
-      : `Ур.${effDefLvl} · +${rawBonus.toFixed(1)}% (до ${new Date(S.nightDefenseExpiresAt).getHours()}:00)`)
-    : (effDefLvl > 0 ? `Ур.${effDefLvl} · +${rawBonus.toFixed(1)}% (трофей)` : 'Выключена');
+  let defenseLabel = 'Выключена';
+  if (effDefLvl > 0) {
+    const timeTag = (isDefActive && effDefLvl <= activeLvl)
+      ? `до ${new Date(S.nightDefenseExpiresAt).getHours()}:00`
+      : 'трофей';
+    defenseLabel = `Ур.${effDefLvl} · +${Math.round(defChancePct)}% (${timeTag})`;
+  }
 
   // ★ Флот: активация возможна только при активной Автобороне ур.5.
   const fleetActiveNow = (typeof isFleetActive === 'function') ? isFleetActive() : false;
@@ -927,14 +875,14 @@ function openNightMode() {
     <div class="info-box">
       <div class="row-stat">
         <span>🛡 Автооборона (на 24ч)</span>
-        <span style="color:${isDefActive ? '#7ee0a8' : '#ff8a8a'}">${defenseLabel}</span>
+        <span style="color:${effDefLvl > 0 ? '#7ee0a8' : '#ff8a8a'}">${defenseLabel}</span>
       </div>
       <div class="pour-btn-group" style="flex-wrap:wrap;gap:4px;margin-top:8px;">
         ${defenseButtons}
       </div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;margin-top:4px;">
         <span>🚀 Флот: <span style="color:${fleetColor}">${fleetLabel}</span></span>
-        <span>активация с ур.${fleetReqLvl}</span>
+        <span>${fleetChancePct > 0 ? '+' + Math.round(fleetChancePct) + '% к отбитию' : 'активация с ур.' + fleetReqLvl}</span>
       </div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;margin-top:4px;">
         <span>Металлы: ${fmt(S.metalAmount || 0)} / ${fmt(typeof metalsCap === 'function' ? metalsCap() : 0)} ⚙</span>
@@ -978,9 +926,10 @@ function openNightMode() {
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;margin-top:4px;">
         <span>Офлайн-атаки:</span><span>только при отсутствии >1 часа</span>
       </div>
-      <div class="row-stat"><span>Разведка:</span><span style="color:${scoutChance > 60 ? '#7ee0a8' : scoutChance > 30 ? '#ffb347' : '#ff5e5e'}">${Math.round(scoutChance)}%</span></div>
-      <div class="row-stat"><span>Рейд:</span><span style="color:${raidChance > 60 ? '#7ee0a8' : raidChance > 30 ? '#ffb347' : '#ff5e5e'}">${Math.round(raidChance)}%</span></div>
-      <div class="row-stat"><span>Осада:</span><span style="color:${siegeChance > 60 ? '#7ee0a8' : siegeChance > 30 ? '#ffb347' : '#ff5e5e'}">${Math.round(siegeChance)}%</span></div>
+      <div class="row-stat"><span>Шанс отбития:</span><span style="color:${chanceColor}">${Math.round(totalChancePct)}%</span></div>
+      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Оборона +${Math.round(defChancePct)}% · Флот +${Math.round(fleetChancePct)}%</span></div>
+      ${expPenalty > 0 ? `<div class="row-stat" style="font-size:10px;color:#ffb347;"><span>Экспедиция:</span><span>−${expPenalty.toFixed(1)}%</span></div>` : ''}
+      ${shieldActive ? `<div class="row-stat"><span>⭐ Премиум-щит:</span><span style="color:#7ee0a8">100%</span></div>` : ''}
       <div class="row-stat"><span>Макс. потерь:</span><span style="color:#ff5e5e">${maxLoss} ${S.stage === 'galaxy' ? 'систем' : 'планет'}</span></div>
     </div>
 
