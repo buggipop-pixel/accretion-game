@@ -9,7 +9,10 @@ import {
   detectSaveAnomalies,
 } from './lib/save-validation.js';
 import { createGameCore } from './lib/game-core.js';
-import { nextShieldEntitlement, overlayShieldEntitlement, isShieldSuspicious } from './lib/economy-actions.js';
+import {
+  nextShieldEntitlement, overlayShieldEntitlement, isShieldSuspicious,
+  nextBoosterUntil, overlayBoosterEntitlement, clampBooster,
+} from './lib/economy-actions.js';
 import {
   walletFromSave,
   walletToSavePatch,
@@ -440,6 +443,22 @@ app.post('/api/save', async (req, res) => {
       console.warn('[save] проверка щита не удалась:', e.message);
     }
 
+    // ★ Бустер: единственный источник — серверное право (покупка за металлы).
+    // Всё, что клиент выставил сверх права, обрезаем.
+    try {
+      const boosterRight = Number(await redisGet(`entitlement:booster:${user.id}`)) || 0;
+      const before = Number(safeSave.boosters && safeSave.boosters.incomeUntil) || 0;
+      safeSave = clampBooster(safeSave, boosterRight);
+      const after = Number(safeSave.boosters && safeSave.boosters.incomeUntil) || 0;
+      if (after < before) {
+        console.warn(`[save] user=${user.id} обрезан бустер: ${before} → ${after}`);
+        redisSet(`save_flag:${user.id}`, JSON.stringify({ flags: ['booster_forged'], at: Date.now() }))
+          .catch(function() { /* некритично */ });
+      }
+    } catch (e) {
+      console.warn('[save] проверка бустера не удалась:', e.message);
+    }
+
     // ★ СЕРВЕР — ЕДИНСТВЕННЫЙ ИСТОЧНИК ПРАВДЫ.
     // Писать можно только поверх той версии, которую клиент реально видел.
     // Клиент без версии (0/undefined) не имеет права затирать чужой прогресс → 409.
@@ -616,8 +635,9 @@ app.post('/api/load', async (req, res) => {
       }
     }
 
-    // ★ Платное право на щит берём из Redis, а не из сейва: клиент мог его
-    // нарисовать. Накладываем только «вверх» и никогда не отбираем.
+    // ★ Платное право на щит/бустер берём из Redis, а не из сейва: клиент
+    // мог их нарисовать. Щит накладываем только «вверх»; бустер — строго
+    // по праву (он покупается только за металлы).
     let entitlement = null;
     try {
       const shieldUntil = Number(await redisGet(`entitlement:shield:${user.id}`)) || 0;
@@ -625,6 +645,10 @@ app.post('/api/load', async (req, res) => {
         data = overlayShieldEntitlement(data, shieldUntil);
         entitlement = { shieldUntil };
       }
+
+      const boosterUntil = Number(await redisGet(`entitlement:booster:${user.id}`)) || 0;
+      data = overlayBoosterEntitlement(data, boosterUntil, Date.now());
+      entitlement = Object.assign({}, entitlement || {}, { boosterUntil: boosterUntil > Date.now() ? boosterUntil : 0 });
     } catch (e) {
       console.warn('[load] entitlement не прочитан:', e.message);
     }
@@ -751,6 +775,64 @@ app.post('/api/reward', async (req, res) => {
     });
   } catch (e) {
     console.error('[reward]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── 3г. Покупка бустера дохода (за металлы) ─────────────────
+// Металлы списываются из серверного сейва, метку ставит сервер.
+app.post('/api/buy-booster', async (req, res) => {
+  try {
+    const { initData } = req.body || {};
+    const user = validateInitData(initData);
+    if (!user) return res.status(401).json({ error: 'Invalid initData' });
+
+    if (!SERVER_AUTHORITATIVE || !gameCore) {
+      return res.json({ ok: true, authoritative: false });
+    }
+
+    const now = Date.now();
+    const hourKey = `buy_q:${user.id}:${Math.floor(now / 3600000)}`;
+    if (await bumpCounter(hourKey, 3600) > 60) {
+      return res.status(429).json({ error: 'Too frequent' });
+    }
+
+    const payload = parseRedisJson(await redisGet(`cloudsave:${user.id}`));
+    if (!payload || !payload.data || typeof payload.data !== 'object') {
+      return res.status(404).json({ error: 'No cloud save' });
+    }
+
+    const cfg = gameCore.boosterConfig();
+    if (!(cfg.costMetals > 0) || !(cfg.hours > 0)) {
+      return res.status(503).json({ error: 'Booster is not configured' });
+    }
+
+    const metals = Number(payload.data.metalAmount) || 0;
+    if (metals < cfg.costMetals) {
+      return res.status(400).json({ error: 'Not enough metals', required: cfg.costMetals });
+    }
+
+    const entKey = `entitlement:booster:${user.id}`;
+    const prevUntil = Number(await redisGet(entKey)) || 0;
+    const incomeUntil = nextBoosterUntil(prevUntil, now, cfg.hours * 3600 * 1000);
+    await redisSet(entKey, String(incomeUntil));
+
+    const data = Object.assign({}, payload.data);
+    data.metalAmount = metals - cfg.costMetals;
+    data.boosters = Object.assign({}, payload.data.boosters || {}, { incomeUntil });
+
+    payload.data = data;
+    payload.saved_at = now;
+    payload.version = (Number(payload.version) || 0) + 1;
+    await redisSet(`cloudsave:${user.id}`, JSON.stringify(payload));
+
+    res.json({
+      ok: true, authoritative: true,
+      incomeUntil, cost: cfg.costMetals, hours: cfg.hours,
+      version: payload.version, data,
+    });
+  } catch (e) {
+    console.error('[buy-booster]', e);
     res.status(500).json({ error: e.message });
   }
 });

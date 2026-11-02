@@ -84,7 +84,7 @@ function makeClientContext() {
     vm.runInContext(code, context, { filename: file });
   }
 
-  vm.runInContext('globalThis.__bridge = { S: S, dustPerSec, energyPerSec, civPerSec, getResourceCap, STORAGE_CFG, CFG, planetCost, systemCost };', context);
+  vm.runInContext('globalThis.__bridge = { S: S, dustPerSec, energyPerSec, civPerSec, getResourceCap, STORAGE_CFG, CFG, planetCost, systemCost, CFG_PREMIUM: PREMIUM_CFG };', context);
   return vm.runInContext('__bridge', context);
 }
 
@@ -196,6 +196,13 @@ function makeClientContext() {
   assert('Повторный расчёт идемпотентен',
     again.earned.dust === res.earned.dust && again.data.dust === res.data.dust);
 
+  // ── Параметры платного бустера ───────────────────────────
+  const booster = core.boosterConfig();
+  assert('Конфиг бустера совпадает с клиентом',
+    booster.costMetals === client.CFG_PREMIUM.booster.costMetals &&
+    booster.hours === client.CFG_PREMIUM.booster.hours &&
+    booster.incomeMult === client.CFG_PREMIUM.booster.incomeMult,
+    `server=${JSON.stringify(booster)}`);
   console.log('========================================');
   console.log(`ИТОГО: Пройдено ${passed}, Провалено ${failed}`);
   if (failed > 0) process.exitCode = 1;

@@ -17,13 +17,15 @@ function assert(name, cond, extra) {
     nextShieldEntitlement,
     overlayShieldEntitlement,
     isShieldSuspicious,
+    nextBoosterUntil,
+    overlayBoosterEntitlement,
+    clampBooster,
     SHIELD_PRODUCT_MS,
     HOUR_MS,
   } = await import('../lib/economy-actions.js');
 
   console.log('========================================');
-  console.log('🧪 ТЕСТЫ СЕРВЕРНЫХ ПОКУПОК (щит)');
-  console.log('========================================');
+  console.log('🧪 ТЕСТЫ СЕРВЕРНЫХ ПОКУПОК (щит и бустер)');
 
   const now = 1700000000000;
 
@@ -59,6 +61,36 @@ function assert(name, cond, extra) {
     isShieldSuspicious({ shieldUntil: now - 5 * HOUR_MS }, now, 0) === false);
   assert('Без shieldUntil не подозрителен',
     isShieldSuspicious({ stage: 'system' }, now, 0) === false);
+
+  // ── Бустер дохода ──────────────────────────────────────────
+  const BOOST_MS = 2 * HOUR_MS;
+
+  assert('Бустер отсчитывается от «сейчас»',
+    nextBoosterUntil(0, now, BOOST_MS) === now + BOOST_MS);
+  assert('Повторная покупка продлевает бустер',
+    nextBoosterUntil(now + BOOST_MS, now, BOOST_MS) === now + 2 * BOOST_MS);
+  assert('Просроченный бустер не даёт меньше двух часов',
+    nextBoosterUntil(now - 5 * HOUR_MS, now, BOOST_MS) === now + BOOST_MS);
+
+  const forgedBooster = { stage: 'system', boosters: { incomeUntil: now + 30 * 24 * HOUR_MS } };
+  const overlaid = overlayBoosterEntitlement(forgedBooster, now + BOOST_MS, now);
+  assert('На загрузке бустер = серверное право',
+    overlaid.boosters.incomeUntil === now + BOOST_MS);
+  assert('Исходный сейв не мутирован',
+    forgedBooster.boosters.incomeUntil === now + 30 * 24 * HOUR_MS);
+
+  const expired = overlayBoosterEntitlement({ boosters: { incomeUntil: now + HOUR_MS } }, now - HOUR_MS, now);
+  assert('Истёкшее право обнуляет бустер', expired.boosters.incomeUntil === 0);
+
+  const clamped = clampBooster({ boosters: { incomeUntil: now + 30 * 24 * HOUR_MS } }, now + BOOST_MS);
+  assert('На сохранении подделённый бустер обрезается',
+    clamped.boosters.incomeUntil === now + BOOST_MS);
+
+  const legitBooster = { boosters: { incomeUntil: now + HOUR_MS } };
+  assert('Легальный бустер не меняется',
+    clampBooster(legitBooster, now + BOOST_MS) === legitBooster);
+  assert('Без права бустер обнуляется',
+    clampBooster({ boosters: { incomeUntil: now + HOUR_MS } }, 0).boosters.incomeUntil === 0);
 
   console.log('========================================');
   console.log(`ИТОГО: Пройдено ${passed}, Провалено ${failed}`);

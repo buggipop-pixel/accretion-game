@@ -467,9 +467,52 @@ function showChestResult(prime) {
   if (typeof playSFX === 'function') playSFX('ui_levelup');
 }
 
-function buyIncomeBooster() {
-  if ((S.metalAmount || 0) < PREMIUM_CFG.booster.costMetals) return;
-  S.metalAmount -= PREMIUM_CFG.booster.costMetals;
+async function buyIncomeBooster() {
+  const cost = PREMIUM_CFG.booster.costMetals;
+  if ((S.metalAmount || 0) < cost) return;
+
+  // ★ В режиме серверного кошелька покупку оформляет сервер:
+  // металлы списываются из облачного сейва, метку бустера ставит он же.
+  if (window.__serverWallet) {
+    const initData = (typeof getPremiumInitData === 'function') ? getPremiumInitData() : null;
+    if (!initData) {
+      if (typeof toast === 'function') toast('Нет связи', 'Покупка доступна только из Telegram');
+      return;
+    }
+    try {
+      if (typeof cloudSaveGame === 'function') await cloudSaveGame();
+      const r = await premiumApiPost('/api/buy-booster', { initData: initData });
+
+      if (r && r.authoritative && r.data) {
+        S.metalAmount = Number(r.data.metalAmount) || 0;
+        S.boosters = Object.assign({}, S.boosters || {}, { incomeUntil: Number(r.incomeUntil) || 0 });
+        if (typeof saveGame === 'function') saveGame();
+        if (typeof updateUI === 'function') updateUI();
+        if (typeof toast === 'function') {
+          toast('🚀 Бустер активирован', 'Доход ×' + PREMIUM_CFG.booster.incomeMult + ' на ' + PREMIUM_CFG.booster.hours + ' ч');
+        }
+        openPremiumShop();
+        return;
+      }
+      if (r && r.error === 'Not enough metals') {
+        if (typeof toast === 'function') toast('Недостаточно металлов', '');
+        return;
+      }
+      if (!r || r.authoritative !== false) {
+        if (typeof toast === 'function') toast('Ошибка покупки', (r && r.error) || 'Попробуйте позже');
+        return;
+      }
+      // authoritative === false — сервер не в режиме кошелька, ниже локальная покупка
+    } catch (e) {
+      console.warn('[premium] buy-booster failed:', e.message);
+      if (typeof toast === 'function') toast('Нет связи', 'Покупка недоступна офлайн');
+      return;
+    }
+  }
+
+  // Локальная покупка (флаг выключен)
+  if ((S.metalAmount || 0) < cost) return;
+  S.metalAmount -= cost;
   if (!S.boosters) S.boosters = {};
   S.boosters.incomeUntil = Math.max(S.boosters.incomeUntil || 0, Date.now()) + PREMIUM_CFG.booster.hours * 3600 * 1000;
   toast('🚀 Бустер активирован', 'Доход ×' + PREMIUM_CFG.booster.incomeMult + ' на ' + PREMIUM_CFG.booster.hours + ' ч');
