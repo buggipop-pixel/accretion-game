@@ -315,6 +315,19 @@ try {
   assert('Престиж: при 6 системах открывается окно Вспышки', false);
 }
 
+// Тест 8: кнопка полного экрана присутствует и подключена
+try {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const uiCode = fs.readFileSync(path.join(__dirname, '..', 'js/ui.js'), 'utf8');
+  const mainCode = fs.readFileSync(path.join(__dirname, '..', 'js/main.js'), 'utf8');
+  assert('Полный экран: кнопка ⛶ есть в верхнем HUD', /id="fullscreenBtn"/.test(html));
+  assert('Полный экран: кнопка подключена в ui.js', /getElementById\('fullscreenBtn'\)/.test(uiCode));
+  assert('Полный экран: в main.js есть нативный Fullscreen API', /_nativeFullscreen/.test(mainCode) && /requestFullscreen\(/.test(mainCode));
+} catch (e) {
+  console.error('   fullscreen: ' + e.message);
+  assert('Полный экран: кнопка ⛶ есть в верхнем HUD', false);
+}
+
 console.log('========================================');
 console.log(`ИТОГО: Пройдено ${passed}, Провалено ${failed}`);
 if (failed > 0) process.exit(1); // Возвращаем ошибку, если есть провалы

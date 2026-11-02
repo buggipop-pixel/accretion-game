@@ -1309,6 +1309,15 @@ body.mg-active .toasts {
 /* В полноэкранном режиме Telegram сверху висят системные кнопки —
    опускаем весь верхний HUD примерно на 1 см. */
 body.tg-fullscreen { --hud-top-extra: 40px; }
+/* В полноэкранном режиме игра занимает весь дисплей, а не колонку 520px */
+body.fs-active #app,
+body.tg-fullscreen #app { max-width: none; }
+/* Кнопка полного экрана в верхнем HUD */
+.system-buttons .event-btn.fs-on {
+  color: #ffd76a;
+  border-color: rgba(255, 215, 106, 0.65);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4), 0 0 12px rgba(255, 215, 106, 0.28);
+}
 
 /* ── Верхняя строка ── */
 .hud-top {

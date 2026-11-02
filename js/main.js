@@ -18,9 +18,8 @@ let cachedBgGradient = null; // Оптимизация: кэш градиент�
 // Раньше стоял латч-флаг: первый неудачный вызов (например, iframe без
 // allowfullscreen или Telegram < 8.0) навсегда блокировал повтор — поэтому
 // режим «перестал работать». Теперь флаг ставится только по факту успеха,
-// а при неудаче следующее касание пробует снова.
+// а вход/выход выполняет явная кнопка ⛶ в HUD (и Telegram при старте).
 let fullscreenRequested = false;
-let fullscreenAttempts = 0;
 
 function _fsActive() {
   return !!(document.fullscreenElement || document.webkitFullscreenElement);
@@ -42,7 +41,7 @@ function _tgFullscreenAvailable(tg) {
 }
 
 // Нативный Fullscreen API + webkit-фолбэк. Вызывать только по жесту.
-function _nativeFullscreen(tg) {
+function _nativeFullscreen(tg, manual) {
   const el = document.documentElement;
   const done = function() { _afterFullscreenEnter(); };
   const fail = function() {
@@ -53,7 +52,7 @@ function _nativeFullscreen(tg) {
     // 4) хотя бы развернуть вьюпорт Telegram
     try { if (tg && tg.expand) tg.expand(); } catch (e3) { /* ignore */ }
     // 5) один раз объясняем, почему полного экрана нет
-    if (!window._fsWarned) {
+    if (manual && !window._fsWarned) {
       window._fsWarned = true;
       if (typeof toast === 'function') {
         toast('Полный экран недоступен', 'Откройте игру в Telegram 8.0+ или разрешите fullscreen в браузере');
@@ -78,9 +77,8 @@ function _nativeFullscreen(tg) {
   return false;
 }
 
-function requestFullscreen() {
+function requestFullscreen(manual) {
   if (fullscreenRequested || _fsActive()) return;
-  fullscreenAttempts++;
 
   const tg = window.Telegram && window.Telegram.WebApp;
 
@@ -94,14 +92,14 @@ function requestFullscreen() {
         if (fullscreenRequested || _fsActive()) return;
         if (tg && tg.isFullscreen === true) { _afterFullscreenEnter(); return; }
         // Telegram не переключил — пробуем нативный API (жест ещё активен).
-        _nativeFullscreen(tg);
+        _nativeFullscreen(tg, manual);
       }, 350);
       return;
     }
   }
 
-  // 2) Нативный Fullscreen API (жест пользователя уже есть — pointerdown)
-  _nativeFullscreen(tg);
+  // 2) Нативный Fullscreen API (вызов из клика по кнопке — жест есть)
+  _nativeFullscreen(tg, manual);
 }
 
 // Ручной тумблер из окна настроек: вход/выход из полного экрана.
@@ -120,7 +118,7 @@ function toggleFullscreen() {
   }
   // Сбрасываем возможный залипший флаг, чтобы попытка точно произошла.
   fullscreenRequested = false;
-  requestFullscreen();
+  requestFullscreen(true);
 }
 
 // События входа/выхода: синхронизируем состояние и размеры канваса
@@ -140,14 +138,9 @@ function toggleFullscreen() {
     });
     document.addEventListener('fullscreenerror', function() { fullscreenRequested = false; });
 
-    // Автовход по первому касанию в ЛЮБОМ месте: HUD перекрывает canvas,
-    // поэтому одного canvas pointerdown недостаточно. После 3 отказов
-    // оставляем только ручной тумблер из настроек.
-    document.addEventListener('pointerdown', function() {
-      if (fullscreenRequested || _fsActive()) return;
-      if (fullscreenAttempts >= 3) return;
-      requestFullscreen();
-    }, true);
+    // ★ Автовход по касанию убран: он перехватывал первый клик и мешал
+    // кнопке полного экрана (pointerdown входил, click сразу выходил).
+    // Теперь режимом управляет только кнопка ⛶ в HUD (и Telegram при старте).
   }
 })();
 
@@ -277,7 +270,7 @@ canvas.addEventListener('pointerdown', function(e) {
     S.activeMinigame = null;
   }
 
-  if (!fullscreenRequested && fullscreenAttempts < 3) requestFullscreen();
+  // Полный экран — только по явной кнопке ⛶, без автовхода по тапу.
   if (typeof unlockAudio === 'function') unlockAudio();
   if (typeof trackDaily === 'function') trackDaily('d_click', 1);
   if (!S.stats) S.stats = {};
@@ -854,6 +847,7 @@ function syncTelegramLayout() {
       document.body.classList.remove('fs-active');
       if (typeof resize === 'function') setTimeout(resize, 120);
     }
+    if (typeof window.updateFullscreenButton === 'function') window.updateFullscreenButton();
   } catch (e) { /* ignore */ }
 }
 // ─── Старт ──────────────────────────────────────────────────────

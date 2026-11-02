@@ -726,6 +726,32 @@ function initUI() {
     });
   }
 
+  // Полный экран: заметная кнопка в верхнем HUD.
+  const fullscreenBtn = document.getElementById('fullscreenBtn');
+  const updateFullscreenButton = () => {
+    if (!fullscreenBtn) return;
+    const tg = window.Telegram && window.Telegram.WebApp;
+    const active = !!(document.fullscreenElement || document.webkitFullscreenElement ||
+      (tg && tg.isFullscreen === true));
+    fullscreenBtn.textContent = active ? '⤡' : '⛶';
+    fullscreenBtn.title = active ? 'Выйти из полного экрана' : 'Полный экран';
+    fullscreenBtn.setAttribute('aria-label', fullscreenBtn.title);
+    fullscreenBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    fullscreenBtn.classList.toggle('fs-on', active);
+  };
+  window.updateFullscreenButton = updateFullscreenButton;
+  if (fullscreenBtn) {
+    fullscreenBtn.addEventListener('click', () => {
+      if (typeof playSFX === 'function') playSFX('ui_click');
+      if (typeof toggleFullscreen === 'function') toggleFullscreen();
+      setTimeout(updateFullscreenButton, 400);
+      setTimeout(updateFullscreenButton, 1200);
+    });
+  }
+  document.addEventListener('fullscreenchange', updateFullscreenButton);
+  document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
+  updateFullscreenButton();
+
   // Настройки
   const settingsBtn = document.getElementById('settingsBtn');
   const settingsModal = document.getElementById('settingsModal');
