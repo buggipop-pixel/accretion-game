@@ -905,7 +905,11 @@ app.post('/webhook', async (req, res) => {
 });
 
 // ─── 5. Health-check ───────────────────────────────────────────
-app.get('/', (req, res) => res.json({ ok: true, service: 'accretion-server' }));
+app.get('/', (req, res) => res.json({
+  ok: true,
+  service: 'accretion-server',
+  commit: process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || null,
+}));
 
 // ─── 6. Админ-панель ───────────────────────────────────────────
 // Токен задаётся в env ADMIN_TOKEN и приходит заголовком X-Admin-Token
