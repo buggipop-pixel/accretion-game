@@ -24,6 +24,10 @@ const CLOUD_BACKUP_KEY = 'accretion_local_backup';
 // ★ После «Сброса» облако нельзя восстанавливать, пока чистый сейв не уйдёт
 // на сервер. Флаг живёт в sessionStorage и переживает location.reload().
 const CLOUD_RESET_SKIP_KEY = 'accretion_reset_skip_cloud';
+// ★ Есть локальные изменения, которые ещё не подтверждены сервером.
+// Если save вернул 400/500/сеть, при следующем старте НЕ перетираем
+// этот прогресс старым облаком, а сначала пробуем отправить его.
+const CLOUD_DIRTY_KEY = 'accretion_cloud_dirty';
 // Сколько запросов сохранения сейчас в полёте (чтобы опрос не принял
 // свой же сейв за чужой и чтобы saveGame() не ушёл в рекурсию).
 let _cloudSaveInFlight = 0;
@@ -32,9 +36,24 @@ let _cloudSaveInFlight = 0;
 function getCloudVersion() {
   try { return Number(localStorage.getItem(CLOUD_VER_KEY)) || 0; } catch (e) { return 0; }
 }
-
 function setCloudVersion(v) {
   try { localStorage.setItem(CLOUD_VER_KEY, String(Number(v) || 0)); } catch (e) { /* ignore */ }
+}
+
+function markCloudDirty() {
+  try {
+    // В обычном браузере облака нет — не создаём «грязный» флаг.
+    if (!hasTelegramLaunchContext()) return;
+    localStorage.setItem(CLOUD_DIRTY_KEY, '1');
+  } catch (e) { /* ignore */ }
+}
+
+function clearCloudDirty() {
+  try { localStorage.removeItem(CLOUD_DIRTY_KEY); } catch (e) { /* ignore */ }
+}
+
+function isCloudDirty() {
+  try { return localStorage.getItem(CLOUD_DIRTY_KEY) === '1'; } catch (e) { return false; }
 }
 
 // ─── Вспомогательные функции ────────────────────────────────────
@@ -183,6 +202,42 @@ function isValidCloudSave(data) {
   return !!data && typeof data === 'object' && !!data.stage && !!data.lastTick;
 }
 
+// ★ Порядок фаз нужен только для одной защиты: если серверная версия
+// не выросла, а локальный прогресс заметно выше облачного, значит локальный
+// сейв не успел уйти на сервер (например, save падал с 400). Не откатываем его.
+const CLOUD_STAGE_ORDER = ['cloud', 'condense', 'protostar', 'firstPlanet', 'system', 'galaxy'];
+
+function cloudStageRank(stage) {
+  const idx = CLOUD_STAGE_ORDER.indexOf(String(stage || ''));
+  return idx < 0 ? 0 : idx;
+}
+
+function localProgressIsAhead(local, cloud) {
+  if (!local || !cloud) return false;
+
+  const localStage = cloudStageRank(local.stage);
+  const cloudStage = cloudStageRank(cloud.stage);
+  if (localStage !== cloudStage) return localStage > cloudStage;
+
+  const localPrestige = Number(local.prestigeLevel) || 0;
+  const cloudPrestige = Number(cloud.prestigeLevel) || 0;
+  if (localPrestige !== cloudPrestige) return localPrestige > cloudPrestige;
+
+  const localGalaxies = Number(local.galaxies) || 0;
+  const cloudGalaxies = Number(cloud.galaxies) || 0;
+  if (localGalaxies !== cloudGalaxies) return localGalaxies > cloudGalaxies;
+
+  const localSystems = Number(local.totalSystemsCreated) || 0;
+  const cloudSystems = Number(cloud.totalSystemsCreated) || 0;
+  if (localSystems !== cloudSystems) return localSystems > cloudSystems;
+
+  // dustTotal — накопленная пыль, её нельзя «потратить», поэтому она хорошо
+  // показывает, что прогресс не откатился.
+  const localTotal = Number(local.dustTotal) || 0;
+  const cloudTotal = Number(cloud.dustTotal) || 0;
+  return localTotal > cloudTotal * 2 + 1000000;
+}
+
 // Страховка: перед заменой локального сейва облачным сохраняем предыдущий
 function backupLocalSave() {
   try {
@@ -291,6 +346,7 @@ async function cloudSaveGame(options) {
 
       // Сервер главнее: принимаем его сейв и не перезаписываем чужой прогресс.
       if (isValidCloudSave(cloud)) {
+        clearCloudDirty(); // приняли серверную версию — локальные изменения больше не висят
         applyCloudSaveAuthoritative(cloud);
         if (typeof toast === 'function') toast('☁️ Прогресс обновлён', 'Сейв новее с другого устройства');
         return { ok: false, conflict: 'cloud-newer', saved_at: conflict.saved_at, version: serverVersion };
@@ -304,6 +360,16 @@ async function cloudSaveGame(options) {
       return { ok: false, error: 'unauthorized', status: 401 };
     }
 
+    // ★ Любой не-2xx — это НЕ успешное сохранение. Раньше 400/500
+    // попадали в ветку success и клиент думал, что сейв ушёл.
+    if (!response.ok) {
+      let errData = null;
+      try { errData = await response.json(); } catch (e) { errData = null; }
+      const errMsg = (errData && errData.error) ? errData.error : ('HTTP ' + response.status);
+      console.warn('[CloudSave] save rejected:', response.status, errMsg);
+      return { ok: false, error: errMsg, status: response.status };
+    }
+
     const r = await response.json();
     if (r && r.authoritative) window.__serverWallet = true;
 
@@ -314,6 +380,7 @@ async function cloudSaveGame(options) {
     }
 
     if (r && typeof r.version === 'number') setCloudVersion(r.version);
+    clearCloudDirty(); // сервер подтвердил локальный прогресс
     // Чистый сейв после сброса успешно записан — снова разрешаем синхронизацию.
     try { sessionStorage.removeItem(CLOUD_RESET_SKIP_KEY); } catch (e) { /* ignore */ }
     return { ok: true, saved_at: r && r.saved_at, clamped: r && r.clamped };
@@ -482,6 +549,26 @@ async function syncCloudOnStart() {
       return false;
     }
 
+    // ★ Защита от потери прогресса: если предыдущий save не дошёл до сервера
+    // (400/500/сеть), сначала отправляем локальный сейв, а не грузим старое облако.
+    if (isCloudDirty()) {
+      if (!readLocalSave()) {
+        clearCloudDirty();
+      } else {
+        console.log('[Sync] Есть несохранённый локальный прогресс — сначала отправляем его в облако.');
+        const pushed = await cloudSaveGame();
+        if (pushed && pushed.ok) {
+          if (typeof toast === 'function') toast('💾 Сохранено', 'Локальный прогресс отправлен в облако');
+          return true;
+        }
+        if (pushed && pushed.conflict === 'cloud-newer') return true;
+        console.warn('[Sync] Локальный прогресс отправить не удалось — облако не применяем, чтобы не потерять данные.');
+        showCloudNotice('__cloudPushErrorShown', '⚠️ Синхронизация',
+          'Не удалось сохранить прогресс. Проверьте сеть и попробуйте ещё раз.');
+        return false;
+      }
+    }
+
     console.log('[Sync] initData получен, длина:', initData.length);
     console.log('[Sync] Запрос облачного сейва...');
     const res = await fetch(CLOUD_API + '/api/load', {
@@ -515,6 +602,25 @@ async function syncCloudOnStart() {
     const cloudTime = json.saved_at || 0;
     console.log('[Sync] Облачный сейв получен. Время сервера:', cloudTime);
     console.log('[Sync] Данные в облаке:', cloudData.stage, cloudData.playerName);
+
+    const localData = readLocalSave();
+    const knownVersion = getCloudVersion();
+    const serverVersion = cloudVersionFrom(json);
+
+    // ★ Миграционная защита: save долго падал с 400, локальный прогресс ушёл
+    // вперёд, но версия сервера та же. Не откатываем игрока — отправляем локальный.
+    if (serverVersion > 0 && serverVersion === knownVersion &&
+        localData && localProgressIsAhead(localData, cloudData)) {
+      console.log('[Sync] Локальный прогресс выше облачного при той же версии — сохраняем локальный.');
+      const pushed = await cloudSaveGame();
+      if (pushed && pushed.ok) {
+        if (typeof toast === 'function') toast('💾 Сохранено', 'Локальный прогресс выше облачного и записан на сервер');
+        return true;
+      }
+      if (pushed && pushed.conflict === 'cloud-newer') return true;
+      console.warn('[Sync] Локальный прогресс отправить не удалось — облако не применяем.');
+      return false;
+    }
 
     if (json.authoritative === true) window.__serverWallet = true;
     if (typeof json.version === 'number') setCloudVersion(json.version);
@@ -679,6 +785,44 @@ async function reportRewards() {
 }
 window.reportRewards = reportRewards;
 window.resetRewardBaseline = resetRewardBaseline;
+
+// ★ Аварийное восстановление: перед применением облака мы сохраняли
+// предыдущий локальный сейв. Если облако оказалось старым — вернуть его.
+function getLocalBackupInfo() {
+  try {
+    const raw = localStorage.getItem(CLOUD_BACKUP_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    return d && typeof d === 'object'
+      ? { stage: d.stage, playerName: d.playerName, dust: d.dust, lastTick: d.lastTick }
+      : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function restoreLocalBackup() {
+  let data = null;
+  try {
+    const raw = localStorage.getItem(CLOUD_BACKUP_KEY);
+    if (!raw) return false;
+    data = JSON.parse(raw);
+  } catch (e) {
+    return false;
+  }
+  if (!data || typeof data !== 'object') return false;
+
+  console.log('[CloudSave] Восстанавливаем локальный бэкап:', data.stage, data.playerName);
+  if (typeof applyCloudSaveToRuntime === 'function') applyCloudSaveToRuntime(data);
+  else writeLocalSave(data);
+
+  markCloudDirty();
+  if (typeof autoSaveToCloud === 'function') autoSaveToCloud(true);
+  return true;
+}
+
+window.getLocalBackupInfo = getLocalBackupInfo;
+window.restoreLocalBackup = restoreLocalBackup;
 
 // ─── Экспорт ────────────────────────────────────────────────────
 window.CLOUD_API = CLOUD_API;

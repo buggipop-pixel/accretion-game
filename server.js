@@ -187,6 +187,21 @@ const CAPABILITY_ENFORCE = process.env.CAPABILITY_ENFORCE === '1';
 const ENERGY_TO_DUST = Number(process.env.ENERGY_TO_DUST || 1e6);
 const CIV_TO_DUST = Number(process.env.CIV_TO_DUST || 1e9);
 
+// ★ Выполнить функцию на игровом состоянии из сейва.
+// game-core — один общий vm-контекст, поэтому перед каждым вызовом
+// выставляем нужный сейв. При ошибке возвращаем null, чтобы вызывающий
+// код мог безопасно продолжить без серверных формул.
+function withCoreState(save, fn) {
+  if (!gameCore || !save || typeof save !== 'object') return null;
+  try {
+    gameCore.setState(save);
+    return fn();
+  } catch (e) {
+    console.warn('[game-core] withCoreState:', e.message);
+    return null;
+  }
+}
+
 // Кошелёк со всеми служебными метками
 function ensureWallet(wallet, save, now) {
   const w = wallet || walletFromSave(save, now);

@@ -69,6 +69,8 @@ function makeInitData(token, user, authDate) {
     systems: 3,
     prestigeLevel: 0,
     galaxies: 1,
+    // ★ Реальный клиент присылает объект, а не число — это не должно давать 400.
+    phaseProgress: { cloud: 0, condense: 0, protostar: 0 },
     storageProgress: { dust: 0, energy: 0, civ: 0 },
     systemShopProgress: { dust: 0, energy: 0, civ: 0 },
     storageLevels: { dust: 2, energy: 1, civ: 0 },

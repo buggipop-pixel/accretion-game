@@ -298,6 +298,9 @@ function saveGame() {
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
   } catch (e) { console.warn('save error', e); }
 
+  // ★ Локальные изменения ещё не подтверждены сервером. Если save упадёт,
+  // при следующем старте не позволим старому облаку их перетереть.
+  if (typeof markCloudDirty === 'function') markCloudDirty();
   // ★ Любое действие, вызвавшее saveGame(), сразу уходит и в облако.
   // autoSaveToCloud() сам проверяет Telegram и защищён от рекурсии.
   if (typeof autoSaveToCloud === 'function') autoSaveToCloud(true);

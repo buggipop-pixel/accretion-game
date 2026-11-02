@@ -310,6 +310,91 @@ function settle() {
   assert('Сброс: защита снята после успешной записи',
     R.context.sessionStorage.getItem('accretion_reset_skip_cloud') === null);
 
+  // 6е. ★ save вернул 400: это ошибка, а не успех; dirty-флаг остаётся
+  const rejectServer = makeServer();
+  rejectServer.handle = function(url, body, init) {
+    this.requests.push({ url, body, init });
+    if (url.endsWith('/api/save')) {
+      return { __status: 400, ok: false, error: 'field "phaseProgress" must be a number' };
+    }
+    return { ok: true, data: null, saved_at: 0, version: 0 };
+  };
+  const Reject = makeDevice(rejectServer, {
+    initialSave: { stage: 'star', lastTick: 1, dust: 10 },
+  });
+  Reject.localStorage.setItem('accretion_cloud_dirty', '1');
+  const rejSave = await Reject.context.window.cloudSaveGame();
+  assert('save 400: клиент видит ошибку',
+    rejSave.ok === false && rejSave.status === 400 && /phaseProgress/.test(rejSave.error));
+  assert('save 400: dirty-флаг не сброшен',
+    Reject.localStorage.getItem('accretion_cloud_dirty') === '1');
+
+  // 6ж. ★ Есть несохранённый локальный прогресс — старое облако не применяем
+  const dirtyServer = makeServer();
+  dirtyServer.data = { stage: 'system', lastTick: 9, dust: 100 };
+  dirtyServer.saved_at = 1700000000000;
+  dirtyServer.version = 2;
+  const Dirty = makeDevice(dirtyServer, {
+    knownVersion: 2,
+    initialSave: { stage: 'system', lastTick: 1, dust: 9999 },
+  });
+  Dirty.S.dust = 9999;
+  Dirty.localStorage.setItem('accretion_cloud_dirty', '1');
+  const dirtySync = await Dirty.context.window.syncCloudOnStart();
+  assert('Dirty: локальный прогресс не перетёрт старым облаком',
+    dirtySync === true && Dirty.S.dust === 9999);
+  assert('Dirty: локальный прогресс отправлен на сервер',
+    dirtyServer.data.dust === 9999 && dirtyServer.version === 3);
+  assert('Dirty: флаг снят после успешного save',
+    Dirty.localStorage.getItem('accretion_cloud_dirty') === null);
+
+  // 6з. ★ Dirty + облако реально новее — сервер побеждает, прогресс не теряется молча
+  const conflictServer = makeServer();
+  conflictServer.data = { stage: 'system', lastTick: 9, dust: 100 };
+  conflictServer.saved_at = 1700000000000;
+  conflictServer.version = 3;
+  const Conf = makeDevice(conflictServer, {
+    knownVersion: 2,
+    initialSave: { stage: 'system', lastTick: 1, dust: 9999 },
+  });
+  Conf.S.dust = 9999;
+  Conf.localStorage.setItem('accretion_cloud_dirty', '1');
+  const confSync = await Conf.context.window.syncCloudOnStart();
+  assert('Dirty + новая версия: принято облако',
+    confSync === true && Conf.S.dust === 100 && conflictServer.version === 3);
+  assert('Dirty + новая версия: флаг снят',
+    Conf.localStorage.getItem('accretion_cloud_dirty') === null);
+
+  // 6и. ★ Аварийное восстановление локального бэкапа
+  const backupServer = makeServer();
+  const Backup = makeDevice(backupServer, {
+    initialSave: { stage: 'star', lastTick: 1, dust: 5 },
+  });
+  Backup.localStorage.setItem('accretion_local_backup', JSON.stringify({
+    stage: 'galaxy', lastTick: 2, dust: 12345, playerName: 'BackupPlayer',
+  }));
+  const restored = Backup.context.window.restoreLocalBackup();
+  await settle();
+  assert('Бэкап: локальный сейв восстановлен',
+    restored === true && Backup.S.stage === 'galaxy' && Backup.S.dust === 12345);
+  assert('Бэкап: восстановленный прогресс ушёл в облако',
+    backupServer.data && backupServer.data.dust === 12345);
+
+  // 6к. ★ Миграция: save падал, версия та же, локальный прогресс выше облака
+  const aheadServer = makeServer();
+  aheadServer.data = { stage: 'system', lastTick: 9, dust: 100, dustTotal: 100 };
+  aheadServer.saved_at = 1700000000000;
+  aheadServer.version = 2;
+  const Ahead = makeDevice(aheadServer, {
+    knownVersion: 2,
+    initialSave: { stage: 'galaxy', lastTick: 1, dust: 5000, dustTotal: 5000 },
+  });
+  const aheadSync = await Ahead.context.window.syncCloudOnStart();
+  assert('Миграция: локальный прогресс выше облака сохранён',
+    aheadSync === true && Ahead.S.stage === 'galaxy');
+  assert('Миграция: локальный прогресс записан на сервер',
+    aheadServer.data.stage === 'galaxy' && aheadServer.data.dust === 5000 && aheadServer.version === 3);
+
   // 7. saveGame() сам отправляет сейв в облако (без ручного вызова)
   const liveServer = makeServer();
   const L = makeDevice(liveServer, { initialSave: { stage: 'star', lastTick: 1, dust: 5 } });
