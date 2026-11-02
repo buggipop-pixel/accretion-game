@@ -444,19 +444,22 @@ app.post('/api/save', async (req, res) => {
     }
 
     // ★ Бустер: единственный источник — серверное право (покупка за металлы).
-    // Всё, что клиент выставил сверх права, обрезаем.
-    try {
-      const boosterRight = Number(await redisGet(`entitlement:booster:${user.id}`)) || 0;
-      const before = Number(safeSave.boosters && safeSave.boosters.incomeUntil) || 0;
-      safeSave = clampBooster(safeSave, boosterRight);
-      const after = Number(safeSave.boosters && safeSave.boosters.incomeUntil) || 0;
-      if (after < before) {
-        console.warn(`[save] user=${user.id} обрезан бустер: ${before} → ${after}`);
-        redisSet(`save_flag:${user.id}`, JSON.stringify({ flags: ['booster_forged'], at: Date.now() }))
-          .catch(function() { /* некритично */ });
+    // Работает только в режиме кошелька: при выключенном флаге бустеры,
+    // купленные локально, не трогаем.
+    if (SERVER_AUTHORITATIVE) {
+      try {
+        const boosterRight = Number(await redisGet(`entitlement:booster:${user.id}`)) || 0;
+        const before = Number(safeSave.boosters && safeSave.boosters.incomeUntil) || 0;
+        safeSave = clampBooster(safeSave, boosterRight);
+        const after = Number(safeSave.boosters && safeSave.boosters.incomeUntil) || 0;
+        if (after < before) {
+          console.warn(`[save] user=${user.id} обрезан бустер: ${before} → ${after}`);
+          redisSet(`save_flag:${user.id}`, JSON.stringify({ flags: ['booster_forged'], at: Date.now() }))
+            .catch(function() { /* некритично */ });
+        }
+      } catch (e) {
+        console.warn('[save] проверка бустера не удалась:', e.message);
       }
-    } catch (e) {
-      console.warn('[save] проверка бустера не удалась:', e.message);
     }
 
     // ★ СЕРВЕР — ЕДИНСТВЕННЫЙ ИСТОЧНИК ПРАВДЫ.
@@ -646,9 +649,15 @@ app.post('/api/load', async (req, res) => {
         entitlement = { shieldUntil };
       }
 
-      const boosterUntil = Number(await redisGet(`entitlement:booster:${user.id}`)) || 0;
-      data = overlayBoosterEntitlement(data, boosterUntil, Date.now());
-      entitlement = Object.assign({}, entitlement || {}, { boosterUntil: boosterUntil > Date.now() ? boosterUntil : 0 });
+      // Бустер имеет смысл только в режиме кошелька (покупка на сервере);
+      // иначе у игрока могут быть локально купленные бустеры.
+      if (SERVER_AUTHORITATIVE) {
+        const boosterUntil = Number(await redisGet(`entitlement:booster:${user.id}`)) || 0;
+        data = overlayBoosterEntitlement(data, boosterUntil, Date.now());
+        entitlement = Object.assign({}, entitlement || {}, {
+          boosterUntil: boosterUntil > Date.now() ? boosterUntil : 0,
+        });
+      }
     } catch (e) {
       console.warn('[load] entitlement не прочитан:', e.message);
     }
