@@ -33,7 +33,7 @@ function makeCtx() {
     getImageData: (x, y, w, h) => ({ data: new Uint8ClampedArray(Math.max(1, w * h * 4)), width: w, height: h }),
     createRadialGradient: () => ({ addColorStop: noop }),
     createLinearGradient: () => ({ addColorStop: noop }),
-    putImageData: noop, drawImage: noop, fillRect: noop, clearRect: noop,
+    putImageData: noop, drawImage: noop, fillRect: noop, clearRect: noop, strokeRect: noop,
     beginPath: noop, closePath: noop, arc: noop, ellipse: noop, fill: noop, stroke: noop,
     moveTo: noop, lineTo: noop, save: noop, restore: noop, translate: noop, rotate: noop,
     scale: noop, setTransform: noop, fillText: noop, strokeText: noop,
@@ -287,12 +287,37 @@ function testDefenseSurvivesReturn() {
   assert('Оборона не обнуляется при возврате игрока', S.nightDefenseExpiresAt === until);
 }
 
+function testFleetShotVisuals() {
+  const g = createGame();
+  const S = prepare(g);
+  setDefense(S, 5);
+  S.fleet = { interceptor: 1, cruiser: 0, dreadnought: 0 };
+  S.fleetActive = true;
+  S.invasions = [makeInvasion(g, 3)];
+  g.FLEET_VIS.phase = 'fight';
+  g.FLEET_VIS.targetId = S.invasions[0].id;
+
+  const inv = S.invasions[0];
+  g.tickInvasions(0.1);
+  assert('Бой: флот оставляет трассеры выстрелов', Array.isArray(inv.fleetShots) && inv.fleetShots.length > 0);
+  assert('Бой: выстрелы нацелены на вражеский корабль', inv.fleetShots.every(function (sh) { return sh.targetIdx >= 0 && sh.targetIdx < inv.ships.length; }));
+
+  const ctx = makeCtx();
+  g.drawInvasions(ctx, 1);
+  assert('Отрисовка: лазеры флота не падают', true);
+
+  inv.fleetShots = [{ startAt: Date.now() - 5000, targetIdx: 0 }];
+  g.tickInvasions(0.001);
+  assert('Бой: устаревшие трассеры чистятся', inv.fleetShots.length === 0);
+}
+
 (function run() {
   console.log('========================================');
   console.log('🧪 ТЕСТЫ ФЛОТА: ВИЗУАЛ, ЦЕНЫ, КРАЖА');
   console.log('========================================');
   try {
     testFleetTravelAndCombat();
+    testFleetShotVisuals();
     testFleetDeactivatesWithDefense();
     testShipCosts();
     testAllResourceTheft();

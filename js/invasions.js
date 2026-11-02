@@ -62,6 +62,7 @@ function applyFleetAutoDefense(inv, dt) {
   let destroyed = 0;
   const dps = fleetDps();
   if (!(dps > 0) || !Array.isArray(inv.ships)) return 0;
+  if (!Array.isArray(inv.fleetShots)) inv.fleetShots = [];
   const maxHp = Math.max(1, Number(FLEET_CFG.invaderShipHp) || 100);
   inv.fleetDmgAcc = (Number(inv.fleetDmgAcc) || 0) + dps * dt;
   for (let s = 0; s < inv.ships.length && inv.fleetDmgAcc > 0; s++) {
@@ -72,6 +73,18 @@ function applyFleetAutoDefense(inv, dt) {
     ship.hp -= hit;
     inv.fleetDmgAcc -= hit;
     if (ship.hp <= 0) { ship.hp = 0; ship.destroyed = true; destroyed++; }
+  }
+
+  // Визуализация: ~12 трассеров в секунду, пока флот ведёт огонь.
+  inv.fleetShotAcc = (Number(inv.fleetShotAcc) || 0) + dt;
+  if (inv.fleetShotAcc >= 0.08) {
+    inv.fleetShotAcc -= 0.08;
+    const aliveIdx = [];
+    for (let s = 0; s < inv.ships.length; s++) if (!inv.ships[s].destroyed) aliveIdx.push(s);
+    if (aliveIdx.length > 0) {
+      const targetIdx = aliveIdx[Math.floor(Math.random() * aliveIdx.length)];
+      inv.fleetShots.push({ startAt: Date.now(), targetIdx: targetIdx });
+    }
   }
   if (!inv.fleetEngaged) {
     inv.fleetEngaged = true;
@@ -149,6 +162,7 @@ function spawnInvasion() {
       targetType: 'system',
       systemIdx: targetIdx,
       ships: makeShips(shipCount),
+      fleetShots: [],
       spawnedAt: now,
       robberyEndsAt: now + INVASION_CFG.robberyDuration,
       destructionEndsAt: now + INVASION_CFG.totalDuration,
@@ -194,6 +208,7 @@ function spawnInvasion() {
       systemIdx: S.activeSystemIdx,
       planetSeed: victim.seed,
       ships: makeShips(Math.min(INVASION_CFG.shipsMax, INVASION_CFG.shipsBase + 1)),
+      fleetShots: [],
       spawnedAt: now,
       robberyEndsAt: now + INVASION_CFG.robberyDuration,
       destructionEndsAt: now + INVASION_CFG.totalDuration,
@@ -378,6 +393,11 @@ function tickInvasions(dt) {
         continue;
       }
     }
+    // ─── Очистка устаревших трассеров флота ───
+    if (Array.isArray(inv.fleetShots) && inv.fleetShots.length > 0) {
+      const shotLife = Math.max(1, Number(FLEET_CFG.shotLifetimeMs) || 350);
+      inv.fleetShots = inv.fleetShots.filter(function (sh) { return now - sh.startAt < shotLife; });
+    }
 
     // ─── Вторжение на СИСТЕМУ ───
     if (inv.targetType === 'system') {
@@ -523,6 +543,27 @@ function tryHitInvasionShip(screenX, screenY) {
 }
 
 // ─── Отрисовка ──────────────────────────────────────────────────
+// Трассеры флота: короткие зелёные лазеры по вражеским кораблям.
+function drawFleetShots(ctx, inv, z, shipScreenPos) {
+  if (!inv.fleetShots || inv.fleetShots.length === 0) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.strokeStyle = '#7ee0a8';
+  ctx.lineWidth = Math.max(1, 2 * z);
+  for (let i = 0; i < inv.fleetShots.length; i++) {
+    const shot = inv.fleetShots[i];
+    const ship = inv.ships && inv.ships[shot.targetIdx];
+    if (!ship || ship.destroyed) continue;
+    const p = shipScreenPos(ship);
+    if (!p) continue;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y + 30 * z);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function drawInvasions(ctx, time) {
   if (!S.invasions || S.invasions.length === 0) return;
   const now = Date.now();
@@ -570,6 +611,13 @@ function drawInvasions(ctx, time) {
         ctx.moveTo(6 * z, 0); ctx.lineTo(-4 * z, -5 * z); ctx.lineTo(-2 * z, 0); ctx.lineTo(-4 * z, 5 * z); ctx.closePath(); ctx.fill();
         ctx.restore();
       }
+
+      drawFleetShots(ctx, inv, z, function (ship) {
+        return {
+          x: cxPos + Math.cos(ship.angle) * shipOrbitWorld * ship.dist,
+          y: cyPos + Math.sin(ship.angle) * shipOrbitWorld * ship.dist * 0.5,
+        };
+      });
 
       const elapsed = now - inv.spawnedAt, total = INVASION_CFG.totalDuration;
       const remainMs = Math.max(0, total - elapsed);
@@ -621,6 +669,13 @@ function drawInvasions(ctx, time) {
         ctx.moveTo(6 * z, 0); ctx.lineTo(-4 * z, -5 * z); ctx.lineTo(-2 * z, 0); ctx.lineTo(-4 * z, 5 * z); ctx.closePath(); ctx.fill();
         ctx.restore();
       }
+
+      drawFleetShots(ctx, inv, z, function (ship) {
+        return worldToScreen(
+          pos.x + Math.cos(ship.angle) * shipOrbitWorld * ship.dist,
+          pos.y + Math.sin(ship.angle) * shipOrbitWorld * ship.dist * 0.5
+        );
+      });
 
       const elapsed = now - inv.spawnedAt, total = INVASION_CFG.totalDuration;
       const remainMs = Math.max(0, total - elapsed);
