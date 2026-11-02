@@ -576,6 +576,13 @@ function initUI() {
       if (typeof openAchievements === 'function') openAchievements();
     });
   }
+  const helpBtn = document.getElementById('helpBtn');
+  if (helpBtn) {
+    helpBtn.addEventListener('click', () => {
+      if (typeof playSFX === 'function') playSFX('ui_click');
+      if (typeof showGameGuide === 'function') showGameGuide();
+    });
+  }
 
   // Настройки
   const settingsBtn = document.getElementById('settingsBtn');
@@ -701,6 +708,10 @@ function updateQuestPanel() {
         '<div class="quest-bar"><div style="width:' + pct + '%"></div></div>' +
       '</div>';
     }
+    html += '<div class="quests-actions">' +
+      '<button class="quests-help-btn" type="button" onclick="openGameGuide && openGameGuide()">📖 Гид по игре</button>' +
+      '<button class="quests-help-btn" type="button" onclick="openCurrentPhaseHelp && openCurrentPhaseHelp()">💡 Подсказка фазы</button>' +
+    '</div>';
     panel.innerHTML = html;
   } else {
     const items = panel.querySelectorAll('.quest-item');
@@ -1288,6 +1299,7 @@ function saveNickname() {
   if (typeof saveGame === 'function') saveGame();
   if (typeof autoSaveToCloud === 'function') autoSaveToCloud();
   toast('Ник сохранён', 'Играем как: ' + name);
+  if (typeof maybeShowGameGuide === 'function') setTimeout(maybeShowGameGuide, 500);
 }
 // ═══════════════════════════════════════════════════════════════
 //  ЭКСПОРТ

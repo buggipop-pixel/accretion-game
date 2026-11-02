@@ -97,7 +97,7 @@ function requestFullscreen() {
 // ─── Защита от жестов (скролл страницы и т.д.) ───────────────────
 document.addEventListener('touchmove', function(e) {
   const target = e.target;
-  if (target && target.closest && target.closest('.modal-card')) return;
+  if (target && target.closest && target.closest('.modal-card, .lore-content, .guide-panel, .quests-panel')) return;
   if (e.touches.length > 1) { e.preventDefault(); return; }
   e.preventDefault();
 }, { passive: false });
@@ -837,11 +837,15 @@ checkFirstNightShield(offline.seconds);
 if (typeof updateUI === 'function') updateUI();
 if (typeof updateSystemSwitcher === 'function') updateSystemSwitcher();
 function bootLoop() { requestAnimationFrame(loop); }
+function afterBootLore() {
+  bootLoop();
+  if (typeof maybeShowGameGuide === 'function') setTimeout(maybeShowGameGuide, 400);
+}
 const stage = S.stage;
 if (typeof showLoreCard === 'function' && typeof LORE !== 'undefined' && LORE[stage]) {
-showLoreCard(stage, bootLoop);
+showLoreCard(stage, afterBootLore);
 } else {
-bootLoop();
+afterBootLore();
 }
 if (typeof initCloudSave === 'function') {
     initCloudSave(); // Включит автосохранение при закрытии

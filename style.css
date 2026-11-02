@@ -608,11 +608,19 @@ html, body {
 .lore-content {
   position: relative;
   z-index: 2;
+  width: 100%;
   max-width: 360px;
-  padding: 24px;
+  max-height: 92vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+  padding: 24px 24px 32px;
   text-align: center;
   color: #e8e2ff;
 }
+.lore-content::-webkit-scrollbar,
+.guide-body::-webkit-scrollbar { width: 0; }
 .lore-title {
   font-size: 22px;
   font-weight: 800;
@@ -658,6 +666,217 @@ html, body {
 .lore-btn:active {
   transform: scale(0.96);
 }
+
+/* ─── Расширенная карточка фазы ─── */
+.lore-tag {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 2.5px;
+  color: #8f7fe0;
+  margin-bottom: 10px;
+}
+.lore-goal {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #7ee0a8;
+  background: rgba(126, 224, 168, 0.08);
+  border: 1px solid rgba(126, 224, 168, 0.28);
+  border-radius: 12px;
+  padding: 9px 12px;
+  margin-bottom: 16px;
+}
+.lore-goal b { color: #a6f3c8; }
+.lore-steps-title {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #b9a8ff;
+  margin: 0 0 8px;
+  text-align: left;
+}
+.lore-steps {
+  margin: 0 0 16px;
+  padding-left: 20px;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #c8bde8;
+}
+.lore-steps li { margin-bottom: 6px; padding-left: 2px; }
+.lore-steps li::marker { color: #8b5cf6; font-weight: 700; }
+
+/* ─── ГИД ПО ИГРЕ (js/lore.js) ─── */
+.guide-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  box-sizing: border-box;
+  background: rgba(2, 1, 10, 0.9);
+  backdrop-filter: blur(8px);
+  animation: loreFadeIn 0.3s ease;
+}
+.guide-panel {
+  width: 100%;
+  max-width: 520px;
+  max-height: 94vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 20px;
+  border: 1px solid rgba(139, 127, 212, 0.35);
+  background: linear-gradient(160deg, rgba(26, 18, 52, 0.98), rgba(8, 5, 22, 0.99));
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.65);
+}
+.guide-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid rgba(139, 127, 212, 0.2);
+}
+.guide-title {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  background: linear-gradient(90deg, #fff, #b9a8ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.guide-x {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid rgba(139, 127, 212, 0.35);
+  background: rgba(139, 127, 212, 0.15);
+  color: #c8bde8;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  font-family: inherit;
+}
+.guide-x:active { transform: scale(0.92); }
+.guide-body {
+  padding: 14px 18px 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.guide-lead {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #c8bde8;
+  background: rgba(139, 127, 212, 0.1);
+  border: 1px solid rgba(139, 127, 212, 0.25);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+}
+.guide-section { margin-bottom: 18px; }
+.guide-h {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: #b9a8ff;
+  margin-bottom: 8px;
+}
+.guide-sub {
+  font-size: 11px;
+  line-height: 1.5;
+  color: #8f84b8;
+  margin: -2px 0 10px;
+}
+.guide-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #c8bde8;
+}
+.guide-list b { color: #fff; }
+.guide-phase {
+  border: 1px solid rgba(139, 127, 212, 0.22);
+  border-radius: 14px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: rgba(255, 255, 255, 0.025);
+}
+.guide-phase--now {
+  border-color: rgba(255, 179, 71, 0.6);
+  background: rgba(255, 179, 71, 0.07);
+  box-shadow: 0 0 24px rgba(255, 179, 71, 0.12);
+}
+.guide-phase--done { opacity: 0.72; }
+.guide-phase-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+.guide-phase-name { font-size: 12px; font-weight: 800; color: #fff; }
+.guide-phase-state {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #b9a8ff;
+  white-space: nowrap;
+}
+.guide-phase--now .guide-phase-state { color: #ffb347; }
+.guide-phase-goal {
+  font-size: 11px;
+  line-height: 1.45;
+  color: #7ee0a8;
+  margin-bottom: 6px;
+}
+.guide-steps { margin: 0 0 8px; font-size: 11.5px; }
+.guide-phase-btn {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(139, 127, 212, 0.35);
+  background: rgba(139, 127, 212, 0.16);
+  color: #e8e2ff;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.guide-phase-btn:active { transform: scale(0.98); }
+.guide-foot {
+  padding: 12px 18px calc(14px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid rgba(139, 127, 212, 0.2);
+  background: rgba(8, 5, 22, 0.6);
+}
+.guide-ok { width: 100%; }
+
+/* ─── Кнопки гида в панели квестов ─── */
+.quests-actions { display: flex; gap: 8px; margin-top: 10px; }
+.quests-help-btn {
+  flex: 1;
+  padding: 9px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(139, 127, 212, 0.4);
+  background: rgba(139, 127, 212, 0.16);
+  color: #e8e2ff;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.quests-help-btn:active { transform: scale(0.98); }
 @keyframes loreFadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -1561,6 +1780,9 @@ body.tg-fullscreen { --hud-top-extra: 40px; }
   width: 250px;
   max-width: calc(100vw - 20px);
   z-index: 20;
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .quests-panel.open { display: block; animation: questPanelIn 0.18s ease; }
 @keyframes questPanelIn {

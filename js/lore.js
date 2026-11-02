@@ -5,50 +5,96 @@
 
 const LORE = {
   cloud: {
+    tag: 'ФАЗА I · ОБЛАКО',
     title: 'Молекулярное облако',
     text: 'Холодный водород дрейфует в пустоте миллиарды лет. Каждая пылинка — будущее светило.',
-    hint: 'Удерживай палец — гравитация стянет пыль к центру',
+    goal: 'собрать 2 000 ✦ пыли',
+    steps: [
+      'Зажми палец и веди по экрану — пыль потянется за ним.',
+      'Отпусти палец: пылинки упадут в ядро и превратятся в ✦ пыль.',
+      'Заполни кольцо фазы внизу и нажми кнопку «Эволюция».',
+    ],
+    hint: 'Веди палец рядом с пылинками — они ускоряются к ядру и быстрее превращаются в пыль.',
     anim: 'cloud',
   },
   condense: {
+    tag: 'ФАЗА II · ПРОТОПЛАНЕТНЫЙ ДИСК',
     title: 'Протопланетный диск',
     text: 'Облако сжалось. Частицы вращаются вокруг ядра, сталкиваются и слипаются в комки.',
-    hint: 'Крути пальцем вокруг центра — раскрути диск',
+    goal: 'накопить 25 000 ✦ пыли',
+    steps: [
+      'Води пальцем по кругу вокруг центра — раскручивай диск.',
+      'Быстрое вращение ускоряет слияние частиц и падение пыли в ядро.',
+      'Следи за кольцом фазы: когда заполнится — нажми «Эволюция».',
+    ],
+    hint: 'Не отпускай палец: чем дольше и ровнее вращение, тем выше скорость сбора пыли.',
     anim: 'disk',
   },
   protostar: {
+    tag: 'ФАЗА III · ПРОТОЗВЕЗДА',
     title: 'Протозвезда',
     text: 'Ядро раскалилось до миллионов градусов. Вот-вот запустится термоядерный синтез.',
-    hint: 'Быстро тапай по экрану — разогрей ядро',
+    goal: 'удержать жар ядра 30 секунд',
+    steps: [
+      'Быстро тапай по экрану — каждый тап поднимает жар ядра.',
+      'Жар постоянно остывает и со временем всё быстрее — не останавливайся.',
+      'Продержись 30 секунд. Чем горячее ядро в финале, тем лучше звезда.',
+    ],
+    hint: 'Тип звезды (M, K, G, A, B) определяется жаром в момент вспышки.',
     anim: 'ignite',
   },
   firstPlanet: {
+    tag: 'ФАЗА IV · ПЕРВАЯ ПЛАНЕТА',
     title: 'Первая планета',
     text: 'Диск остывает. Обломки слипаются в шар — твоя первая планета рождается из хаоса.',
-    hint: 'Соедини шары одинакового цвета — собери планету',
+    goal: 'собрать первую планету',
+    steps: [
+      'Дождись, пока накопится пыль на планету — доход идёт автоматически.',
+      'Нажми «Эволюция» и выбери «Начать сборку».',
+      'В мини-игре тяни шары: при касании они сливаются и растут.',
+      'Собери шар до массы 4 и уложись в 30 секунд.',
+    ],
+    hint: 'Провал не страшен: пыль вернут, но следующая попытка будет доступна через 30 секунд.',
     anim: 'planet',
-      system: {
+  },
+  system: {
+    tag: 'ФАЗА V · СИСТЕМА',
     title: 'Формирование системы',
     text: 'Твоя звезда обзавелась планетами. Стройте инфраструктуру, добывайте энергию и расширяйтесь!',
-    hint: 'Собери 8 планет, чтобы открыть галактическую карту',
-    anim: 'planet'
+    goal: 'застроить 8 орбит и расшириться до 5 систем',
+    steps: [
+      'Собирай новые планеты через «Эволюция» — у каждой орбиты свой доступный тип.',
+      'Прокачивай хранилища пыли, энергии и цивилизации кнопкой «Улучшить».',
+      'Открывай другие системы через плашку систем вверху и магазин систем.',
+      'Когда систем станет 5, откроется галактическая карта (Фаза VI).',
+    ],
+    hint: 'Планеты дают пассивный доход. Лава-планеты добывают металлы для флота.',
+    anim: 'planet',
   },
   galaxy: {
-    title: 'Экспансия',
+    tag: 'ФАЗА VI · ГАЛАКТИКА',
+    title: 'Межзвёздная экспансия',
     text: 'Ты вышел за пределы родной системы. Покупай новые системы, развивай флот и готовься к Вспышке Сверхновой!',
-    hint: 'Престиж доступен при наличии 5 систем',
-    anim: 'disk'
-  },
+    goal: 'накопить системы и выполнить престиж',
+    steps: [
+      'Покупай новые системы на галактической карте — они повышают общий доход.',
+      'Строй флот на Верфи и защищай системы от вторжений.',
+      'Запускай кометы и экспедиции ради наград и новых территорий.',
+      'Накопи нужное число систем и активируй «Вспышку Сверхновой» — престиж.',
+    ],
+    hint: 'Первый престиж доступен при 5 системах. Он навсегда повышает множитель дохода.',
+    anim: 'disk',
   },
 };
 
 let loreActive = false;
 let loreAnimId = null;
+let guideActive = false;
 
-function showLoreCard(stageId, onComplete) {
+function showLoreCard(stageId, onComplete, force) {
   if (loreActive) { if (onComplete) onComplete(); return; }
   if (!S.seenLore) S.seenLore = [];
-  if (S.seenLore.indexOf(stageId) !== -1) { if (onComplete) onComplete(); return; }
+  if (!force && S.seenLore.indexOf(stageId) !== -1) { if (onComplete) onComplete(); return; }
 
   const data = LORE[stageId];
   if (!data) { if (onComplete) onComplete(); return; }
@@ -56,13 +102,17 @@ function showLoreCard(stageId, onComplete) {
 
   const overlay = document.createElement('div');
   overlay.className = 'lore-overlay';
+  const stepsHtml = (data.steps && data.steps.length) ? _loreStepsHtml(data.steps) : '';
   overlay.innerHTML =
     '<canvas class="lore-canvas"></canvas>' +
     '<div class="lore-content">' +
+      '<div class="lore-tag">' + (data.tag || '') + '</div>' +
       '<div class="lore-title">' + data.title + '</div>' +
       '<div class="lore-text">' + data.text + '</div>' +
-      '<div class="lore-hint">' + data.hint + '</div>' +
-      '<button class="lore-btn">Продолжить</button>' +
+      (data.goal ? '<div class="lore-goal"><b>Цель фазы:</b> ' + data.goal + '</div>' : '') +
+      (stepsHtml ? '<div class="lore-steps-title">Что делать</div><ol class="lore-steps">' + stepsHtml + '</ol>' : '') +
+      (data.hint ? '<div class="lore-hint">💡 ' + data.hint + '</div>' : '') +
+      '<button class="lore-btn" type="button">Понятно, продолжить</button>' +
     '</div>';
   document.body.appendChild(overlay);
 
@@ -264,7 +314,133 @@ function showLoreCard(stageId, onComplete) {
   }
 
   overlay.querySelector('.lore-btn').addEventListener('click', closeLore);
-  setTimeout(closeLore, 8000);
 }
 
 window.showLoreCard = showLoreCard;
+
+// ═══════════════════════════════════════════════════════════════
+//  ОБЩИЙ ГИД ПО ИГРЕ И ФАЗАМ
+// ═══════════════════════════════════════════════════════════════
+const STAGE_ORDER = ['cloud', 'condense', 'protostar', 'firstPlanet', 'system', 'galaxy'];
+
+function _loreStepsHtml(steps) {
+  let html = '';
+  for (let i = 0; i < steps.length; i++) html += '<li>' + steps[i] + '</li>';
+  return html;
+}
+
+function openCurrentPhaseHelp() {
+  if (typeof S === 'undefined' || !S.stage) return;
+  if (loreActive || guideActive) return;
+  showLoreCard(S.stage, null, true);
+}
+window.openCurrentPhaseHelp = openCurrentPhaseHelp;
+
+function showGameGuide() {
+  if (guideActive || loreActive) return;
+  guideActive = true;
+  if (!S.seenLore) S.seenLore = [];
+
+  const curIdx = STAGE_ORDER.indexOf(S.stage);
+  let phasesHtml = '';
+  for (let i = 0; i < STAGE_ORDER.length; i++) {
+    const id = STAGE_ORDER[i];
+    const d = LORE[id];
+    if (!d) continue;
+    const isNow = i === curIdx;
+    const isDone = i < curIdx;
+    phasesHtml +=
+      '<div class="guide-phase' + (isNow ? ' guide-phase--now' : '') + (isDone ? ' guide-phase--done' : '') + '">' +
+        '<div class="guide-phase-head">' +
+          '<span class="guide-phase-name">' + d.tag + ' · ' + d.title + '</span>' +
+          '<span class="guide-phase-state">' + (isNow ? 'СЕЙЧАС' : (isDone ? 'ПРОЙДЕНА' : 'ВПЕРЕДИ')) + '</span>' +
+        '</div>' +
+        '<div class="guide-phase-goal">🎯 ' + d.goal + '</div>' +
+        '<ol class="lore-steps guide-steps">' + _loreStepsHtml(d.steps) + '</ol>' +
+        '<button class="guide-phase-btn" type="button" data-stage="' + id + '">💡 Подсказка фазы</button>' +
+      '</div>';
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'guide-overlay';
+  overlay.innerHTML =
+    '<div class="guide-panel">' +
+      '<div class="guide-head">' +
+        '<div class="guide-title">📖 Как играть</div>' +
+        '<button class="guide-x" type="button" aria-label="Закрыть">×</button>' +
+      '</div>' +
+      '<div class="guide-body">' +
+        '<div class="guide-lead">Аккреция — idle-игра о рождении звёздной системы. ' +
+          'Ты собираешь пыль, зажигаешь звезду, строишь планеты и расширяешься по галактике.</div>' +
+        '<div class="guide-section">' +
+          '<div class="guide-h">🎮 Основы</div>' +
+          '<ul class="guide-list">' +
+            '<li><b>Тяни пальцем по экрану</b> — пыль летит в ядро и превращается в ✦ пыль.</li>' +
+            '<li><b>Кольцо фазы</b> внизу показывает прогресс. Заполнилось — жми «Эволюция».</li>' +
+            '<li><b>Хранилища</b> копят пыль, ⚡ энергию и 🧬 цивилизацию. Кнопка «Улучшить» повышает лимит.</li>' +
+            '<li><b>Прогресс сохраняется</b> автоматически — можно возвращаться в любой момент.</li>' +
+            '<li>Кнопка <b>?</b> вверху и кнопка «Гид» в панели квестов всегда открывают эту подсказку.</li>' +
+          '</ul>' +
+        '</div>' +
+        '<div class="guide-section">' +
+          '<div class="guide-h">🪐 Фазы игры</div>' +
+          '<div class="guide-sub">У каждой фазы своя цель и свой способ добычи пыли.</div>' +
+          phasesHtml +
+        '</div>' +
+        '<div class="guide-section">' +
+          '<div class="guide-h">⚙ Ресурсы и механики</div>' +
+          '<ul class="guide-list">' +
+            '<li><b>⚡ Энергия</b> и <b>🧬 цивилизация</b> нужны для улучшений хранилищ и покупки систем. Их приносят планеты.</li>' +
+            '<li><b>⚙ Металлы</b> добывают лава-планеты. Металлы нужны для кораблей на Верфи.</li>' +
+            '<li><b>🚀 Флот</b> строится на Верфи (Настройки → Верфь) и защищает от вторжений.</li>' +
+            '<li><b>☄️ Кометы</b> и <b>🚀 экспедиции</b> запускаются кнопками миссий справа внизу и приносят награды.</li>' +
+            '<li><b>🛡 Оборона</b> и щиты спасают от атак. Активная оборона открывается в Настройках.</li>' +
+            '<li><b>💥 Вспышка Сверхновой</b> — престиж. Сбрасывает прогресс, но навсегда повышает множитель дохода.</li>' +
+          '</ul>' +
+        '</div>' +
+      '</div>' +
+      '<div class="guide-foot"><button class="lore-btn guide-ok" type="button">Понятно</button></div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+
+  function closeGuide(then) {
+    if (!guideActive) return;
+    guideActive = false;
+    if (S.seenLore.indexOf('gameguide') === -1) {
+      S.seenLore.push('gameguide');
+      if (typeof saveGame === 'function') saveGame();
+    }
+    overlay.style.animation = 'loreFadeOut 0.3s ease forwards';
+    setTimeout(function() {
+      overlay.remove();
+      if (typeof then === 'function') then();
+    }, 300);
+  }
+
+  overlay.querySelector('.guide-x').addEventListener('click', function() { closeGuide(); });
+  overlay.querySelector('.guide-ok').addEventListener('click', function() { closeGuide(); });
+  overlay.querySelectorAll('[data-stage]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      const id = btn.getAttribute('data-stage');
+      closeGuide(function() { showLoreCard(id, null, true); });
+    });
+  });
+}
+window.showGameGuide = showGameGuide;
+window.openGameGuide = showGameGuide;
+
+let _guideRetry = 0;
+function maybeShowGameGuide() {
+  if (typeof S === 'undefined' || !S.stage) return;
+  if (!S.seenLore) S.seenLore = [];
+  if (S.seenLore.indexOf('gameguide') !== -1) return;
+  if ((S.prestigeLevel || 0) > 0) return;
+  if (STAGE_ORDER.indexOf(S.stage) > 2) return;
+  if (loreActive || guideActive || document.querySelector('.modal.show')) {
+    if (_guideRetry++ < 20) setTimeout(maybeShowGameGuide, 1200);
+    return;
+  }
+  _guideRetry = 0;
+  showGameGuide();
+}
+window.maybeShowGameGuide = maybeShowGameGuide;

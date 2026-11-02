@@ -37,6 +37,7 @@
             📜<span class="event-badge" id="eventBadge" style="display:none">0</span>
           </button>
           <button class="event-btn" id="achBtn" title="Достижения">🏆</button>
+          <button class="event-btn" id="helpBtn" title="Как играть">❓</button>
           <button class="settings-btn" id="settingsBtn" title="Настройки">⚙</button>
         </div>
       </div>
@@ -206,6 +207,10 @@
 
       <button class="pour-btn" style="width:100%; margin-top:8px;" onclick="document.getElementById('settingsModal').classList.remove('show'); openShipyard();">
         🚀 Верфь (Флот)
+      </button>
+
+      <button class="pour-btn" style="width:100%; margin-top:8px;" onclick="document.getElementById('settingsModal').classList.remove('show'); openGameGuide && openGameGuide();">
+        📖 Как играть
       </button>
 
       <div class="info-box" style="margin-top: 15px;">
