@@ -195,21 +195,22 @@ const INVASION_CFG = {
   // theftMin — сколько минут дохода уносит; debuffPct/debuffHours — штраф к доходу;
   // targets — сколько планет атакуется одновременно; disablePlanets/disableHours — простой.
   tiers: {
-    scout:  { weight: 0.55, targets: 1, theftMin: 25, debuffPct: 0.15, debuffHours: 2, disablePlanets: 1, disableHours: 1.5, energyDrain: 0.03, civDrain: 0.05, label: 'Разведка' },
-    raid:   { weight: 0.30, targets: 2, theftMin: 50, debuffPct: 0.25, debuffHours: 3, disablePlanets: 2, disableHours: 2, energyDrain: 0.06, civDrain: 0.10, label: 'Рейд' },
-    siege:  { weight: 0.15, targets: 3, theftMin: 90, debuffPct: 0.35, debuffHours: 5, disablePlanets: 3, disableHours: 3, energyDrain: 0.10, civDrain: 0.15, label: 'Осада' },
+    scout:  { weight: 0.55, targets: 1, theftMin: 25, debuffPct: 0.15, debuffHours: 2, disablePlanets: 1, disableHours: 1.5, label: 'Разведка' },
+    raid:   { weight: 0.30, targets: 2, theftMin: 50, debuffPct: 0.25, debuffHours: 3, disablePlanets: 2, disableHours: 2, label: 'Рейд' },
+    siege:  { weight: 0.15, targets: 3, theftMin: 90, debuffPct: 0.35, debuffHours: 5, disablePlanets: 3, disableHours: 3, label: 'Осада' },
   },
   // ★ Шанс отбить вторжение: уровни обороны + вклад флота, общий кап 80%.
   repelDefensePerLevel: 0.10,      // 10% за уровень, ур.5 = 50%
   repelFleetMetalsPerPercent: 500, // +1 п.п. за каждые 500 ⚙ стоимости флота
   repelFleetCap: 0.30,             // флот добавляет не более +30 п.п.
   repelTotalCap: 0.80,             // потолок, чтобы щит за Stars оставался смыслом
-  debuffStackCap: 0.60,            // суммарный штраф к доходу не более -60%
+  debuffStackCap: 0.80,            // суммарный штраф к доходу не более -80%
   nightLossCapShare: 0.40,         // за офлайн-сессию не более 40% каждой валюты
   nightCapHours: 4,                // и не более 4 часов прогресса
   planetDisabledHours: 2,          // сколько планета простаивает после повреждения
   repairCostShare: 0.15,           // ремонт планеты стоит 15% её цены в пыли
   offlineAttackMax: 4,
+  defenseHours: 10,                // ★ активная Автоборона живёт 10 ч (щит за Stars — отдельно, 24 ч)
   defenseCost: [0, 150, 350, 750, 1500, 3000],
   defenseCostMultiplierPerSystem: 0.15, // +15% к цене за каждую систему свыше 1
   expeditionDefensePenalty: 0.15,
@@ -280,15 +281,22 @@ const METALS_CFG = { expeditionCostMetals: 200, cometBoostCostMetals: 100, comet
 // ─── ФЛОТ (Верфь) ───
 const FLEET_CFG = {
   ships: {
-    interceptor: { name: 'Перехватчик', costMetals: 500,  damage: 4,  fireRate: 1.2, hp: 20 },
-    cruiser:     { name: 'Крейсер',     costMetals: 2000, damage: 12, fireRate: 0.7, hp: 60 },
-    dreadnought: { name: 'Дредноут',    costMetals: 8000, damage: 40, fireRate: 0.4, hp: 200 },
+    interceptor: { name: 'Перехватчик', costMetals: 500,  costEnergy: 1000,  costCiv: 5,  damage: 4,  fireRate: 1.2, hp: 20 },
+    cruiser:     { name: 'Крейсер',     costMetals: 2000, costEnergy: 4000,  costCiv: 20, damage: 12, fireRate: 0.7, hp: 60 },
+    dreadnought: { name: 'Дредноут',    costMetals: 8000, costEnergy: 16000, costCiv: 80, damage: 40, fireRate: 0.4, hp: 200 },
   },
   shotLifetimeMs: 350,
   // ★ Флот активируется только при активной Автобороне этого уровня.
   activationDefenseLevel: 5,
   // HP одного корабля вторжения (автооборона флотом тратит урон в HP).
   invaderShipHp: 100,
+  // ★ Визуал флагмана и перелёты к атакованной цели.
+  flagshipBaseRadius: 10,
+  flagshipRadiusPerShip: 0.15,
+  flagshipMaxRadius: 22,
+  travelSpeedPxPerSec: 45,
+  travelMinSec: 4,
+  travelMaxSec: 20,
 };
 const STAR_WEIGHTS = { M: 60, K: 15, G: 10, A: 10, B: 5 };
 

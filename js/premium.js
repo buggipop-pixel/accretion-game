@@ -603,10 +603,10 @@ function openShipyard() {
   for (const key in FLEET_CFG.ships) {
     const ship = FLEET_CFG.ships[key];
     const count = shipCount(key);
-    const canAfford = (S.metalAmount || 0) >= ship.costMetals;
-    const canAffordFive = (S.metalAmount || 0) >= ship.costMetals * 5;
+    const canAfford = (S.metalAmount || 0) >= ship.costMetals && (S.energy || 0) >= ship.costEnergy && (S.civLevel || 0) >= ship.costCiv;
+    const canAffordFive = (S.metalAmount || 0) >= ship.costMetals * 5 && (S.energy || 0) >= ship.costEnergy * 5 && (S.civLevel || 0) >= ship.costCiv * 5;
     html += `<div class="info-box">
-      <div class="row-stat"><span>${ship.name} (есть: ${count})</span><span>${fmt(ship.costMetals)} ⚙</span></div>
+      <div class="row-stat"><span>${ship.name} (есть: ${count})</span><span>${fmt(ship.costMetals)} ⚙ · ${fmt(ship.costEnergy)} ⚡ · ${ship.costCiv} 🧬</span></div>
       <div class="row-stat" style="opacity:0.7;font-size:11px;">
         <span>Урон ${ship.damage} · HP ${ship.hp} · ${ship.fireRate} выстр./с</span>
       </div>
@@ -628,10 +628,19 @@ function buyShip(key, amount) {
   const ship = FLEET_CFG.ships[key];
   if (!ship) return;
   const count = Math.max(1, Math.floor(Number(amount) || 1));
-  const total = ship.costMetals * count;
-  if ((S.metalAmount || 0) < total) return;
+  const costMetals = ship.costMetals * count;
+  const costEnergy = ship.costEnergy * count;
+  const costCiv = ship.costCiv * count;
+  if ((S.metalAmount || 0) < costMetals || (S.energy || 0) < costEnergy || (S.civLevel || 0) < costCiv) {
+    if (typeof toast === 'function') {
+      toast('Не хватает ресурсов', `Нужно ${fmt(costMetals)} ⚙ · ${fmt(costEnergy)} ⚡ · ${costCiv} 🧬`);
+    }
+    return;
+  }
 
-  S.metalAmount -= total;
+  S.metalAmount -= costMetals;
+  S.energy -= costEnergy;
+  S.civLevel -= costCiv;
   if (!S.fleet) S.fleet = { interceptor: 0, cruiser: 0, dreadnought: 0 };
   S.fleet[key] = shipCount(key) + count;
 

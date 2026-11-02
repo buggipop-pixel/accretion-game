@@ -531,18 +531,17 @@ function simulateOfflineInvasions(elapsedSec, out) {
   if (attacks <= 0) return;
 
   const capShare = cfg.nightLossCapShare || 0.4;
-  const caps = { dust: (S.dust || 0) * capShare, energy: (S.energy || 0) * capShare, civ: (S.civLevel || 0) * capShare };
+  const caps = { dust: (S.dust || 0) * capShare, energy: (S.energy || 0) * capShare, civ: (S.civLevel || 0) * capShare, metals: (S.metalAmount || 0) * capShare };
   const repel = invasionRepelChance();
-
-  let defended = 0, lostDust = 0, lostE = 0, lostC = 0, disabled = 0;
+  let defended = 0, lostDust = 0, lostE = 0, lostC = 0, lostM = 0, disabled = 0;
 
   for (let i = 0; i < attacks; i++) {
     const tierKey = rollInvasionTier();
     if (Math.random() < repel) { defended++; continue; }
 
     const hit = applyInvasionHit(tierKey, caps);
-    lostDust += hit.dust; lostE += hit.energy; lostC += hit.civ; disabled += hit.disabled;
-    caps.dust -= hit.dust; caps.energy -= hit.energy; caps.civ -= hit.civ;
+    lostDust += hit.dust; lostE += hit.energy; lostC += hit.civ; lostM += hit.metals; disabled += hit.disabled;
+    caps.dust -= hit.dust; caps.energy -= hit.energy; caps.civ -= hit.civ; caps.metals -= hit.metals;
   }
 
   out.invasionAttacks = attacks;
@@ -551,6 +550,7 @@ function simulateOfflineInvasions(elapsedSec, out) {
   out.invasionDrainE = Math.floor(lostE);
   out.invasionDrainC = Math.floor(lostC);
   out.invasionLostDust = Math.floor(lostDust);
+  out.invasionLostMetals = Math.floor(lostM);
   if (disabled > 0 && typeof addEvent === 'function') {
     addEvent('invasion_destroy', 'Вторжения повредили ' + disabled + ' планет(ы)');
   }
@@ -560,7 +560,7 @@ function simulateOfflineInvasions(elapsedSec, out) {
 function applyInvasionHit(tierKey, caps) {
   const cfg = INVASION_CFG;
   const tier = cfg.tiers[tierKey] || cfg.tiers.raid;
-  const out = { dust: 0, energy: 0, civ: 0, disabled: 0 };
+  const out = { dust: 0, energy: 0, civ: 0, metals: 0, disabled: 0 };
   // ★ Прайм-система неприкосновенна: никакого урона от вторжений
   if (S.primeSystem || (typeof isPrimeSystemAt === 'function' && isPrimeSystemAt(S.activeSystemIdx))) return out;
 
@@ -569,6 +569,7 @@ function applyInvasionHit(tierKey, caps) {
   const capD = caps ? Math.max(0, caps.dust) : Infinity;
   const capEn = caps ? Math.max(0, caps.energy) : Infinity;
   const capCi = caps ? Math.max(0, caps.civ) : Infinity;
+  const capMe = caps ? Math.max(0, caps.metals) : Infinity;
 
   // 1) кража «минут экономики» из каждого пула
   const stealD = Math.min(S.dust || 0, capD, dustPerSec() * minutes * 60);
@@ -583,6 +584,11 @@ function applyInvasionHit(tierKey, caps) {
     const stealC = Math.min(S.civLevel || 0, capCi, cps * minutes * 60);
     if (stealC > 0) { S.civLevel -= stealC; out.civ = stealC; }
   }
+  const mps = metalsPerSec();
+  if (mps > 0) {
+    const stealM = Math.min(S.metalAmount || 0, capMe, mps * minutes * 60);
+    if (stealM > 0) { S.metalAmount -= stealM; out.metals = stealM; }
+  }
 
   // 2) «оккупация»: штраф к доходу на N часов (стек до debuffStackCap)
   const pct = tier.debuffPct || 0;
@@ -590,7 +596,7 @@ function applyInvasionHit(tierKey, caps) {
   if (pct > 0 && durH > 0) {
     const cur = (S.invasionDebuff && S.invasionDebuff.until > now) ? Number(S.invasionDebuff.pct) || 0 : 0;
     S.invasionDebuff = {
-      pct: Math.min(cfg.debuffStackCap || 0.6, cur + pct),
+      pct: Math.min(cfg.debuffStackCap || 0.8, cur + pct),
       until: Math.max((S.invasionDebuff && S.invasionDebuff.until) || 0, now + durH * 3600 * 1000),
     };
   }

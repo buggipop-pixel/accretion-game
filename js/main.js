@@ -635,6 +635,7 @@ if (typeof tickCiv === 'function') tickCiv(dt);
 if (typeof updateParticles === 'function') updateParticles(dt, time);
 if (typeof updatePlanets === 'function') updatePlanets(dt);
 if (typeof updateMissions === 'function') updateMissions(dt, time);
+if (typeof tickFleet === 'function') tickFleet(dt, time);
 if (typeof tickInvasions === 'function') tickInvasions(dt);
 if (typeof checkEvolution === 'function') checkEvolution();
 if (typeof checkAchievements === 'function') checkAchievements();
@@ -663,6 +664,7 @@ if (typeof drawStar === 'function') drawStar(ctx, time);
 if (typeof drawPlanets === 'function') drawPlanets(ctx, time);
 }
 if (typeof drawInvasions === 'function') drawInvasions(ctx, time);
+if (typeof drawFleet === 'function') drawFleet(ctx, time);
 // Обновление элементов интерфейса
 if (now - lastSave > 4000) {
 if (typeof saveGame === 'function') saveGame();
@@ -804,6 +806,7 @@ const parts = [];
 if (offline.dustEarned > 0 && typeof fmt === 'function') parts.push('+' + fmt(offline.dustEarned) + ' ✦');
 if (offline.energyEarned > 0 && typeof fmt === 'function') parts.push('+' + fmt(offline.energyEarned) + ' ⚡');
 if (offline.civEarned > 0 && typeof fmt === 'function') parts.push('+' + fmt(offline.civEarned) + ' 🧬');
+if (offline.invasionLostMetals > 0 && typeof fmt === 'function') parts.push('⚙ −' + fmt(offline.invasionLostMetals));
 if (offline.cometEarned > 0 && typeof fmt === 'function') parts.push('☄️ +' + fmt(offline.cometEarned) + ' ✦');
 if (offline.expEarned > 0 && typeof fmt === 'function') parts.push('🚀 +' + fmt(offline.expEarned) + ' ✦');
 setTimeout(function() {

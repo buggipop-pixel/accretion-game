@@ -265,6 +265,28 @@ function applyInvasionAftermath(inv, victim) {
 
 window.applyInvasionAftermath = applyInvasionAftermath;
 
+// Живое ограбление: каждое успешное вторжение тянет ВСЕ ресурсы —
+// пыль, ⚡, 🧬 и ⚙ — пропорционально theftMin и длительности грабежа.
+function applyLiveRobbery(inv, tier, dt, divisor) {
+  if (!(dt > 0)) return;
+  const durSec = Math.max(1, (INVASION_CFG.robberyDuration || 45 * 60 * 1000) / 1000);
+  const share = Math.min(1, dt / durSec);
+  const minutes = (tier.theftMin || 0) / Math.max(1, divisor || 1);
+  const steal = (available, ratePerSec) => {
+    const total = Math.max(0, Number(ratePerSec) || 0) * minutes * 60;
+    return Math.min(Math.max(0, Number(available) || 0), total * share);
+  };
+
+  const d = steal(S.dust, dustPerSec());
+  if (d > 0) { S.dust -= d; inv.stolen = (inv.stolen || 0) + d; }
+  const e = steal(S.energy, energyPerSec());
+  if (e > 0) { S.energy -= e; inv.drainedEnergy = (inv.drainedEnergy || 0) + e; }
+  const c = steal(S.civLevel, civPerSec());
+  if (c > 0) { S.civLevel -= c; inv.drainedCiv = (inv.drainedCiv || 0) + c; }
+  const m = steal(S.metalAmount, metalsPerSec());
+  if (m > 0) { S.metalAmount -= m; inv.stolenMetals = (inv.stolenMetals || 0) + m; }
+}
+
 // ─── Тик вторжений ──────────────────────────────────────────────
 function tickInvasions(dt) {
   if (!S.invasions) S.invasions = [];
@@ -344,7 +366,7 @@ function tickInvasions(dt) {
     }
     // ★ Автооборона: её ведёт только активированный флот.
     // Никакого автоматического сбития без кораблей больше нет.
-    if (isFleetActive(now) && inv.ships) {
+    if (isFleetActive(now) && inv.ships && (typeof fleetEngaged !== 'function' || fleetEngaged(inv))) {
       const destroyedByFleet = applyFleetAutoDefense(inv, dt);
       let fleetAlive = 0;
       for (let s = 0; s < inv.ships.length; s++) if (!inv.ships[s].destroyed) fleetAlive++;
@@ -370,33 +392,11 @@ function tickInvasions(dt) {
         continue;
       }
 
-      if (now < inv.robberyEndsAt && !inv.defenseBroken) {
-        const capE = Math.max(1, getResourceCap('energy'));
-        const capC = Math.max(1, getResourceCap('civ'));
-        const civPlanets = civPlanetCount();
-        if (civPlanets > 0) {
-          const hours = dt / 3600;
-          const eDrain = capE * tier.energyDrain * (1 + 0.3 * civPlanets) * hours;
-          const cDrain = capC * tier.civDrain * (1 + 0.3 * civPlanets) * hours;
-          
-          const actualE = Math.min(S.energy, eDrain);
-          const actualC = Math.min(S.civLevel, cDrain);
-          S.energy -= actualE;
-          S.civLevel -= actualC;
-          inv.drainedEnergy += actualE;
-          inv.drainedCiv += actualC;
-          if (actualE < eDrain || actualC < cDrain) inv.defenseBroken = true;
-        }
+      if (now < inv.robberyEndsAt) {
+        applyLiveRobbery(inv, tier, dt, tier.targets);
       }
 
-      if (now < inv.robberyEndsAt && S.dust > 0) {
-        const theftTotal = dustPerSec() * (tier.theftMin / Math.max(1, tier.targets || 1)) * 60;
-        const rate = theftTotal / (INVASION_CFG.robberyDuration / 1000);
-        const take = Math.min(S.dust, rate * dt);
-        S.dust -= take; inv.stolen = (inv.stolen || 0) + take;
-      }
-
-      const robbingDone = now >= inv.robberyEndsAt || S.dust <= 0;
+      const robbingDone = now >= inv.robberyEndsAt || (S.dust <= 0 && S.energy <= 0 && S.civLevel <= 0 && S.metalAmount <= 0);
       
       // ★ ФИКС: Разрушение только если живы корабли
       if (robbingDone && aliveShips > 0) {
@@ -433,14 +433,11 @@ function tickInvasions(dt) {
       continue;
     }
 
-    if (now < inv.robberyEndsAt && S.dust > 0) {
-      const theftTotal = dustPerSec() * (tier.theftMin / Math.max(1, tier.targets || 1)) * 60;
-      const rate = theftTotal / (INVASION_CFG.robberyDuration / 1000);
-      const take = Math.min(S.dust, rate * dt);
-      S.dust -= take; inv.stolen = (inv.stolen || 0) + take;
+    if (now < inv.robberyEndsAt) {
+      applyLiveRobbery(inv, tier, dt, 1);
     }
 
-    const robbingDone = now >= inv.robberyEndsAt || S.dust <= 0;
+    const robbingDone = now >= inv.robberyEndsAt || (S.dust <= 0 && S.energy <= 0 && S.civLevel <= 0 && S.metalAmount <= 0);
     if (robbingDone && aliveShips > 0) {
       if (inv.hp <= 0 || now >= inv.destructionEndsAt) {
         applyInvasionAftermath(inv, victim);

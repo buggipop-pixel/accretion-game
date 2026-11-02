@@ -874,7 +874,7 @@ function openNightMode() {
 
     <div class="info-box">
       <div class="row-stat">
-        <span>🛡 Автооборона (на 24ч)</span>
+        <span>🛡 Автооборона (на ${Number(INVASION_CFG.defenseHours) || 10}ч)</span>
         <span style="color:${effDefLvl > 0 ? '#7ee0a8' : '#ff8a8a'}">${defenseLabel}</span>
       </div>
       <div class="pour-btn-group" style="flex-wrap:wrap;gap:4px;margin-top:8px;">
@@ -1033,11 +1033,12 @@ function activateNightDefense(lvl) {
   }
   S.metalAmount -= cost;
   S.nightDefenseLevel = lvl;
-  S.nightDefenseExpiresAt = Date.now() + 24 * 3600 * 1000;
+  const defenseHours = Number(INVASION_CFG.defenseHours) || 10;
+  S.nightDefenseExpiresAt = Date.now() + defenseHours * 3600 * 1000;
   if (_tempNightConfig) _tempNightConfig.defenseEnabled = true;
   S.nightConfig.defenseEnabled = true;
   
-  toast('🛡 Оборона активирована', 'Ур.' + lvl + ' на 24 ч');
+  toast('🛡 Оборона активирована', 'Ур.' + lvl + ' на ' + defenseHours + ' ч');
   saveGame();
   updateUI();
   openNightMode();
@@ -1135,8 +1136,9 @@ function claimDailyReward() {
   else if (rw.type === 'metal') { S.metalAmount += rw.amount; toast('Награда!', '+' + fmt(rw.amount) + ' ⚙'); }
   else if (rw.type === 'defense') { 
     S.nightDefenseLevel = 3; 
-    S.nightDefenseExpiresAt = Date.now() + 24 * 3600 * 1000; 
-    toast('Награда!', 'Автооборона Ур.3 на 24ч'); 
+    const rewardDefenseHours = Number(INVASION_CFG.defenseHours) || 10;
+    S.nightDefenseExpiresAt = Date.now() + rewardDefenseHours * 3600 * 1000;
+    toast('Награда!', 'Автооборона Ур.3 на ' + rewardDefenseHours + 'ч');
   }
   else if (rw.type === 'shield') { 
     S.shieldUntil = Math.max(S.shieldUntil || 0, Date.now() + 8 * 3600 * 1000); 
