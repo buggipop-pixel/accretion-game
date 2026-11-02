@@ -446,6 +446,55 @@ app.post('/api/claim', async (req, res) => {
 const MAX_SAVE_SIZE = 800 * 1024; // 800 КБ
 const SAVE_RATE_LIMIT_MS = 5000;
 
+// ─── Публичный топ игроков ─────────────────────────────────────
+// Сортировка: престиж → системы → пыль. Кэш на 60 секунд, чтобы не
+// сканировать Redis на каждый запрос.
+let _leaderboardCache = { at: 0, top: [] };
+const LEADERBOARD_CACHE_MS = 60 * 1000;
+const LEADERBOARD_LIMIT = 50;
+
+app.get('/api/leaderboard', async (req, res) => {
+  try {
+    const nowMs = Date.now();
+    if (_leaderboardCache.top.length && nowMs - _leaderboardCache.at < LEADERBOARD_CACHE_MS) {
+      return res.json({ ok: true, top: _leaderboardCache.top, cached: true });
+    }
+
+    const keys = await redisScanAll('cloudsave:*', 500);
+    const players = [];
+    for (const key of keys) {
+      const raw = await redisGet(key);
+      if (raw == null) continue;
+      const payload = parseRedisJson(raw);
+      if (!payload || !payload.data || typeof payload.data !== 'object') continue;
+      const data = payload.data;
+      const rawName = (typeof data.playerName === 'string') ? data.playerName.trim() : '';
+      players.push({
+        id: key.slice('cloudsave:'.length),
+        name: rawName ? rawName.slice(0, 32) : 'Пилот',
+        dustTotal: Math.max(0, Number(data.dustTotal) || 0),
+        systems: Math.max(1, Math.floor(Number(data.systems) || 1)),
+        planets: Array.isArray(data.planets) ? data.planets.length : 0,
+        prestigeLevel: Math.max(0, Math.floor(Number(data.prestigeLevel) || 0)),
+      });
+    }
+
+    // Сортируем: сначала по престижу, потом по системам, потом по пыли
+    players.sort((a, b) => {
+      if (b.prestigeLevel !== a.prestigeLevel) return b.prestigeLevel - a.prestigeLevel;
+      if (b.systems !== a.systems) return b.systems - a.systems;
+      return b.dustTotal - a.dustTotal;
+    });
+
+    const top = players.slice(0, LEADERBOARD_LIMIT);
+    _leaderboardCache = { at: nowMs, top };
+    res.json({ ok: true, count: players.length, top });
+  } catch (e) {
+    console.error('[leaderboard]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/save', async (req, res) => {
   try {
     const { initData, saveData, baseVersion } = req.body || {};

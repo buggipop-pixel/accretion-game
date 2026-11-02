@@ -40,8 +40,146 @@ function updateNameplate() {
   if (sysEl) sysEl.textContent = (S.stage === 'galaxy') ? 'Галактика' : (S.systemName || 'Родная');
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  ОБУЧАЛКА ДЛЯ НОВИЧКОВ
+// ═══════════════════════════════════════════════════════════════
+// Пошаговые подсказки на первых фазах. Шаги переключаются сами,
+// когда игрок выполняет нужное действие, поэтому оверлей не мешает игре.
+function renderTutorial() {
+  const el = document.getElementById('tutorialOverlay');
+  let hintText = '';
+  let hintSub = '';
+  const planets = Array.isArray(S.planets) ? S.planets : [];
+
+  // ─── Шаг 1: молекулярное облако ───
+  if (S.tutorialStep === 1) {
+    if (S.stage === 'cloud') {
+      if (S.dust >= 2000) {
+        S.tutorialStep = 2;
+        hintText = '✨ Жми кнопку «Эволюция»';
+        hintSub = 'Пора переходить на новый этап';
+      } else {
+        hintText = '☝️ Зажми палец на экране';
+        hintSub = 'Гравитация стянет пыль к центру';
+      }
+    } else {
+      // Игрок уже эволюционировал — переходим к следующему шагу
+      S.tutorialStep = 2;
+    }
+
+  // ─── Шаг 2: протопланетный диск ───
+  } else if (S.tutorialStep === 2) {
+    if (S.stage === 'condense') {
+      if (S.dust >= 25000) {
+        S.tutorialStep = 3;
+        hintText = '⭐ Жми «Эволюция» снова';
+        hintSub = 'Облако готово сжаться в звезду';
+      } else {
+        hintText = '🌀 Крути пальцем по экрану';
+        hintSub = 'Раскрути протопланетный диск';
+      }
+    } else if (S.stage === 'protostar' || S.stage === 'firstPlanet' || S.stage === 'system') {
+      S.tutorialStep = 3;
+    }
+
+  // ─── Шаг 3: протозвезда ───
+  } else if (S.tutorialStep === 3) {
+    if (S.stage === 'protostar') {
+      hintText = '🔥 Быстро тапай по экрану!';
+      hintSub = 'Разогрей ядро до максимума';
+    } else if (S.stage === 'firstPlanet' || S.stage === 'system') {
+      S.tutorialStep = 4;
+    }
+
+  // ─── Шаг 4: первая планета ───
+  } else if (S.tutorialStep === 4) {
+    if (planets.length > 0 || S.stage === 'system') {
+      S.tutorialStep = 5;
+    } else if (S.stage === 'firstPlanet') {
+      hintText = '🪐 Собери первую планету';
+      hintSub = 'Тяни шары, чтобы они сливались';
+    }
+
+  // ─── Шаг 5: система — финальная подсказка ───
+  } else if (S.tutorialStep === 5) {
+    if (S.stage === 'system') {
+      hintText = '🌌 Добро пожаловать в систему!';
+      hintSub = 'Строй планеты, развивай доход';
+      // Через 5 секунд выключаем туториал
+      if (!window._tutorialEndTimer) {
+        window._tutorialEndTimer = setTimeout(function() {
+          window._tutorialEndTimer = null;
+          S.tutorialStep = 0;
+          S.tutorialDone = true;
+          if (typeof saveGame === 'function') saveGame();
+          updateTutorialUI(); // обновить, чтобы скрыть оверлей
+        }, 5000);
+      }
+    } else if (S.stage === 'cloud' || S.stage === 'condense' || S.stage === 'protostar') {
+      // Игру перезапустили — начинаем обучение заново
+      S.tutorialStep = 1;
+    }
+  }
+
+  if (!el) return;
+
+  if (hintText) {
+    el.style.display = 'flex';
+    el.innerHTML =
+      '<div class="tutorial-bubble">' +
+        '<div class="tutorial-title">' + hintText + '</div>' +
+        '<div class="tutorial-sub">' + hintSub + '</div>' +
+      '</div>';
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+// Обновить подсказку вручную (вызывается из таймера/кода)
+function updateTutorialUI() {
+  renderTutorial();
+}
+
+// ═══════════════════════════════════════════════════════════════
 //  ОБНОВЛЕНИЕ HUD
 // ═══════════════════════════════════════════════════════════════
+// ─── Живые таймеры активных миссий ──────────────────────────────
+function _fmtMissionTimer(sec) {
+  sec = Math.max(0, Math.floor(sec || 0));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  const mm = String(m).padStart(2, '0');
+  const ss = String(s).padStart(2, '0');
+  if (h > 0) return h + ':' + mm + ':' + ss;
+  return mm + ':' + ss;
+}
+
+function updateActiveMissionsUI() {
+  const panel = document.getElementById('activeMissionsPanel');
+  if (!panel) return;
+
+  const missions = (typeof getActiveMissions === 'function') ? getActiveMissions() : [];
+  if (!Array.isArray(missions) || missions.length === 0) {
+    panel.style.display = 'none';
+    panel.innerHTML = '';
+    return;
+  }
+
+  let html = '';
+  for (let i = 0; i < missions.length; i++) {
+    const m = missions[i];
+    if (!m) continue;
+    const icon = m.icon || (m.type === 'comet' ? '☄️' : '🚀');
+    const label = m.type === 'comet' ? 'Комета' : 'Экспедиция';
+    html += '<div class="mission-timer-row"><span>' + icon + ' ' + label + '</span><span>' +
+      _fmtMissionTimer(m.timeLeft) + '</span></div>';
+  }
+
+  panel.style.display = 'block';
+  panel.innerHTML = html;
+}
+
 function updateUI() {
   const ids = ['dustVal', 'energyVal', 'civVal', 'systemsVal'];
   for (let i = 0; i < ids.length; i++) {
@@ -171,6 +309,10 @@ function updateUI() {
   if (app && S.settings) {
     app.style.filter = `brightness(${S.settings.brightness})`;
   }
+  // Активные миссии: живые таймеры
+  updateActiveMissionsUI();
+  // Обучалка (подсказки для новичков)
+  renderTutorial();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -928,7 +1070,7 @@ function openNightMode() {
         <button class="pour-btn" onclick="toggleFleet('night')"
           style="background:${fleetActiveNow ? 'rgba(46,170,119,0.4)' : 'rgba(139,127,212,0.25)'};border-color:${fleetActiveNow ? '#2eaa77' : 'rgba(139,127,212,0.6)'};"
           ${(fleetActiveNow || (fleetCanActivate && fleetShips > 0)) ? '' : 'disabled'}>
-          ${fleetActiveNow ? '✕ Отключить флот' : '🚀 Активировать флот'}
+          ${fleetActiveNow ? '✓ Флот в системе' : '✕ Флот скрыт'}
         </button>
       </div>
     </div>
@@ -1302,6 +1444,207 @@ function saveNickname() {
   if (typeof maybeShowGameGuide === 'function') setTimeout(maybeShowGameGuide, 500);
 }
 // ═══════════════════════════════════════════════════════════════
+//  СЛУЧАЙНЫЕ СОБЫТИЯ
+// ═══════════════════════════════════════════════════════════════
+function triggerRandomEvent(evt) {
+  if (!evt) return;
+
+  if (evt.type === 'good') {
+    if (evt.rewardMetals) S.metalAmount = (S.metalAmount || 0) + evt.rewardMetals;
+    if (evt.buff) S.activeEvent = { id: evt.buff, endsAt: Date.now() + (evt.duration || 0) };
+    toast('🎲 Событие: ' + evt.title, evt.desc);
+    if (typeof playSFX === 'function') playSFX('ui_levelup');
+    if (typeof saveGame === 'function') saveGame();
+    return;
+  }
+
+  // Не перебиваем уже активное событие
+  if (window.activeRandomEvent) return;
+
+  window.activeRandomEvent = { ...evt, timeLeft: evt.timeLimit || 60, taps: 0, maxHp: evt.hp };
+
+  const card = document.getElementById('modalCard');
+  if (!card) return;
+  let html = `
+    <div class="modal-title" style="color:#ff5e5e;">⚠️ ${evt.title}</div>
+    <div class="modal-sub">${evt.desc}</div>
+    <div style="font-size:12px; text-align:center; color:#ffb347; margin-bottom:10px;" id="evtTimer">Осталось: ${Math.ceil(window.activeRandomEvent.timeLeft)}с</div>
+  `;
+
+  if (evt.type === 'boss') {
+    html += `
+      <div style="font-size:40px; text-align:center; margin:10px 0;" id="evtTarget">👾</div>
+      <div style="background:#333; height:10px; border-radius:5px; overflow:hidden; margin-bottom:5px;">
+         <div id="evtHpBar" style="background:#ff4a4a; height:100%; width:100%; transition:width 0.2s;"></div>
+      </div>
+      <div style="text-align:center; font-size:12px; color:#aaa;" id="evtHpText">HP: ${evt.hp} / ${evt.hp}</div>
+      <button class="stars-btn" style="margin-top:15px;" id="evtTapBtn">ТАПАТЬ (Урон: ${evt.tapDamage})</button>
+    `;
+  } else if (evt.type === 'tap') {
+    html += `
+      <div style="font-size:40px; text-align:center; margin:10px 0;" id="evtTarget">☄️</div>
+      <div style="text-align:center; font-size:18px; font-weight:bold;" id="evtTapText">0 / ${evt.tapsRequired}</div>
+      <button class="stars-btn" style="margin-top:15px;" id="evtTapBtn">ТАПАТЬ!</button>
+    `;
+  }
+
+  card.innerHTML = html;
+  const modalEl = document.getElementById('modal');
+  if (modalEl) modalEl.classList.add('show');
+
+  const tapBtn = document.getElementById('evtTapBtn');
+  if (tapBtn) tapBtn.onclick = () => {
+    if (!window.activeRandomEvent) return;
+    const e = window.activeRandomEvent;
+    e.taps++;
+    if (e.type === 'boss') e.hp = Math.max(0, e.hp - e.tapDamage);
+    const target = document.getElementById('evtTarget');
+    if (target) target.style.transform = 'scale(' + (1 + (e.taps % 2 === 0 ? 0.1 : -0.1)) + ')';
+    if (typeof updateRandomEventUI === 'function') updateRandomEventUI();
+  };
+}
+
+function updateRandomEventUI() {
+  const e = window.activeRandomEvent;
+  if (!e) return;
+  const timerEl = document.getElementById('evtTimer');
+  if (timerEl) timerEl.textContent = 'Осталось: ' + Math.ceil(Math.max(0, e.timeLeft)) + 'с';
+
+  if (e.type === 'boss') {
+    const bar = document.getElementById('evtHpBar');
+    const text = document.getElementById('evtHpText');
+    if (bar && text) {
+      bar.style.width = Math.max(0, (e.hp / e.maxHp) * 100) + '%';
+      text.textContent = 'HP: ' + Math.max(0, Math.floor(e.hp)) + ' / ' + e.maxHp;
+    }
+  } else if (e.type === 'tap') {
+    const text = document.getElementById('evtTapText');
+    if (text) text.textContent = e.taps + ' / ' + e.tapsRequired;
+  }
+}
+
+function _randomEventPickPlanet() {
+  const list = Array.isArray(S.planets) ? S.planets : [];
+  if (!list.length) return null;
+  // По возможности не трогаем Прайм-систему (её защищает проект).
+  const pool = S.primeSystem ? list : list.filter(function(p) { return p && !p.isPrime; });
+  const src = pool.length ? pool : list;
+  return src[Math.floor(Math.random() * src.length)] || null;
+}
+
+function _applyRandomEventPenalty(e) {
+  const planets = Array.isArray(S.planets) ? S.planets : [];
+  const canDestroy = e.penalty === 'destroy_planet' && planets.length > 1 && !S.primeSystem;
+  if (canDestroy) {
+    const lost = planets.pop();
+    const lostName = (typeof PLANET_TYPES !== 'undefined' && PLANET_TYPES[lost.type]) ? PLANET_TYPES[lost.type].name : 'неизвестная';
+    if (typeof addEvent === 'function') addEvent('invasion_destroy', 'Событие "' + e.title + '" уничтожило планету ' + lostName);
+    toast('💀 Планета потеряна', 'Событие "' + e.title + '" уничтожило планету');
+  } else if (e.penalty === 'drain_energy' || e.penalty === 'destroy_planet') {
+    // Прайм-систему и последнюю планету не уничтожаем — штрафуем энергией
+    S.energy = Math.floor((S.energy || 0) * 0.5);
+  } else if (e.penalty === 'damage_planet') {
+    const pl = _randomEventPickPlanet();
+    if (pl) {
+      pl.disabledUntil = Date.now() + 3600 * 1000; // Отключаем на час
+      const plName = (typeof PLANET_TYPES !== 'undefined' && PLANET_TYPES[pl.type]) ? PLANET_TYPES[pl.type].name : 'неизвестная';
+      if (typeof addEvent === 'function') addEvent('invasion_destroy', 'Событие повредило планету ' + plName);
+    }
+  }
+}
+
+function resolveRandomEvent(success) {
+  const e = window.activeRandomEvent;
+  if (!e) return;
+
+  const modalEl = document.getElementById('modal');
+  if (modalEl) modalEl.classList.remove('show');
+  window.activeRandomEvent = null;
+
+  if (success) {
+    if (e.rewardDust) {
+      S.dust = (S.dust || 0) + e.rewardDust;
+      S.dustTotal = (S.dustTotal || 0) + e.rewardDust;
+      toast('🏆 Победа!', '+' + fmt(e.rewardDust) + ' ✦');
+    }
+    if (e.rewardEnergy) {
+      S.energy = (S.energy || 0) + e.rewardEnergy;
+      toast('🏆 Победа!', '+' + fmt(e.rewardEnergy) + ' ⚡');
+    }
+    if (e.rewardMetals) {
+      S.metalAmount = (S.metalAmount || 0) + e.rewardMetals;
+      toast('🏆 Победа!', '+' + fmt(e.rewardMetals) + ' ⚙');
+    }
+    if (typeof playSFX === 'function') playSFX('ui_levelup');
+  } else {
+    // ПРОВАЛ (штраф)
+    toast('💀 Событие пропущено', 'Вы понесли потери!');
+    _applyRandomEventPenalty(e);
+    if (typeof playSFX === 'function') playSFX('explosion');
+  }
+  if (typeof saveGame === 'function') saveGame();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  ТОП ИГРОКОВ
+// ═══════════════════════════════════════════════════════════════
+async function openLeaderboard() {
+  const card = document.getElementById('modalCard');
+  if (!card) return;
+  const achModal = document.getElementById('achModal');
+  if (achModal) achModal.classList.remove('show');
+  const modal = document.getElementById('modal');
+  if (modal) modal.classList.add('show');
+
+  card.innerHTML = '<div class="modal-title">🏆 Топ игроков</div><div class="modal-sub">Загрузка рейтинга…</div>';
+
+  try {
+    if (typeof CLOUD_API === 'undefined') throw new Error('Нет адреса сервера');
+    const res = await fetch(CLOUD_API + '/api/leaderboard', { method: 'GET' });
+    let json = null;
+    try { json = await res.json(); } catch (err) { json = null; }
+    if (!res.ok || !json) throw new Error((json && json.error) || ('HTTP ' + res.status));
+
+    const top = Array.isArray(json.top) ? json.top : [];
+    let html = '<div class="modal-title">🏆 Топ игроков</div>' +
+      '<div class="modal-sub">Престиж · системы · пыль</div>';
+
+    if (!top.length) {
+      html += '<div class="info-box" style="text-align:center;font-size:12px;color:#8b7fd4;">Пока нет сохранённых игроков</div>';
+    } else {
+      top.forEach((p, i) => {
+        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + '.';
+        html += `<div class="row-stat" style="padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+          <span>${medal} ${p.name}</span>
+          <span style="text-align:right; font-size:10px; color:#b9a8ff;">
+            👑 ${p.prestigeLevel} | 🌌 ${p.systems} сист.<br>
+            <span style="color:#fff; font-size:12px;">${fmt(p.dustTotal)} ✦</span>
+          </span>
+        </div>`;
+      });
+    }
+
+    html += `<div class="pour-btn-group" style="margin-top:12px; display:flex; gap:8px;">
+      <button class="pour-btn" style="flex:1;" onclick="openLeaderboard()">🔄 Обновить</button>
+      <button class="pour-btn" style="flex:1;" onclick="document.getElementById('modal').classList.remove('show');">Закрыть</button>
+    </div>`;
+    card.innerHTML = html;
+  } catch (err) {
+    card.innerHTML = '<div class="modal-title">🏆 Топ игроков</div>' +
+      '<div class="info-box" style="text-align:center;font-size:12px;color:#ff8a8a;">Не удалось загрузить рейтинг<br>' + (err && err.message ? err.message : 'ошибка сети') + '</div>' +
+      '<div class="pour-btn-group" style="margin-top:12px; display:flex; gap:8px;">' +
+        '<button class="pour-btn" style="flex:1;" onclick="openLeaderboard()">🔄 Повторить</button>' +
+        '<button class="pour-btn" style="flex:1;" onclick="document.getElementById(\'modal\').classList.remove(\'show\');">Закрыть</button>' +
+      '</div>';
+  }
+}
+
+window.triggerRandomEvent = triggerRandomEvent;
+window.updateRandomEventUI = updateRandomEventUI;
+window.resolveRandomEvent = resolveRandomEvent;
+window.openLeaderboard = openLeaderboard;
+
+// ═══════════════════════════════════════════════════════════════
 //  ЭКСПОРТ
 // ═══════════════════════════════════════════════════════════════
 window.saveNickname = saveNickname;
@@ -1313,6 +1656,9 @@ window.fmt = fmt;
 window.fmtTime = fmtTime;
 window.toast = toast;
 window.updateUI = updateUI;
+window.updateActiveMissionsUI = updateActiveMissionsUI;
+window.renderTutorial = renderTutorial;
+window.updateTutorialUI = updateTutorialUI;
 window.updateQuestPanel = updateQuestPanel;
 window.updateSystemSwitcher = updateSystemSwitcher;
 window.initUI = initUI;

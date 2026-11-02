@@ -179,7 +179,7 @@ function spawnInvasion() {
       // Игрок в другой системе — присылаем уведомление
       toast('⚔️ Вторжение!', 'Атакована система «' + sysName + '»');
       if (typeof playSFX === 'function') playSFX('invasion');
-      if (typeof addEvent === 'function') addEvent('invasion_spawn', tier.label + ' на систему «' + sysName + '»', { meta: { systemIdx: targetIdx } });
+      if (typeof addEvent === 'function') addEvent('invasion_spawn', tier.label + ' атакует', { meta: { systemIdx: targetIdx } });
     }
     return;
   }
@@ -193,12 +193,14 @@ function spawnInvasion() {
   const wantTargets = Math.max(1, Math.min(tier.targets || 1, active.length));
   const waveId = 'w' + now.toString(36) + Math.random().toString(36).slice(2, 6);
   const victimNames = [];
+  const victimSeeds = [];
 
   for (let t = 0; t < wantTargets; t++) {
     const idx = Math.floor(Math.random() * active.length);
     const victim = active.splice(idx, 1)[0];
     if (!victim) break;
     victimNames.push(PLANET_TYPES[victim.type].name);
+    victimSeeds.push(victim.seed);
 
     S.invasions.push({
       id: Math.random().toString(36).slice(2),
@@ -225,7 +227,7 @@ function spawnInvasion() {
   if (wantTargets === 0) return;
   toast('⚔️ ' + tier.label + '!', wantTargets > 1 ? ('Атаковано планет: ' + wantTargets) : (victimNames[0] + ' атакована'));
   if (typeof playSFX === 'function') playSFX('invasion');
-  if (typeof addEvent === 'function') addEvent('invasion_spawn', tier.label + ': ' + victimNames.join(', '));
+  if (typeof addEvent === 'function') addEvent('invasion_spawn', tier.label + ': ' + victimNames.join(', '), { meta: { systemIdx: S.activeSystemIdx, planetSeed: victimSeeds[0] } });
 }
 
 // ─── Урон второго порядка: оккупация и простой планет ───────────
@@ -335,7 +337,7 @@ function tickInvasions(dt) {
         if (repel < 1 && typeof toast === 'function') {
           toast('🛡 Вторжение отбито', 'Шанс отбития ' + repelPct + '%');
         }
-        if (typeof addEvent === 'function') addEvent('invasion_repelled', 'Атака отбита (шанс ' + repelPct + '%)');
+        if (typeof addEvent === 'function') addEvent('invasion_repelled', 'Атака отбита (шанс ' + repelPct + '%)', { meta: { systemIdx: S.activeSystemIdx } });
       } else if (Math.random() < INVASION_CFG.chance) {
         spawnInvasion();
       }
@@ -476,7 +478,7 @@ function destroyPlanetByInvasion(victim) {
   if (!victim) return;
   victim.disabledUntil = Date.now() + (INVASION_CFG.planetDisabledHours || 2) * 3600 * 1000;
   toast('⚠️ Планета повреждена', PLANET_TYPES[victim.type].name);
-  if (typeof addEvent === 'function') addEvent('invasion_destroy', PLANET_TYPES[victim.type].name + ' повреждена');
+  if (typeof addEvent === 'function') addEvent('invasion_destroy', PLANET_TYPES[victim.type].name + ' повреждена', { meta: { systemIdx: S.activeSystemIdx, planetSeed: victim.seed } });
 }
 
 // ─── Клик по кораблю ────────────────────────────────────────────

@@ -201,6 +201,7 @@ function fleetScreenPos(time) {
 }
 
 function drawFleet(ctx, time) {
+  if (!S.fleetActive) return; // Тумблер флота выключен — не рисуем флагман
   if (typeof isFleetActive !== 'function' || !isFleetActive()) return;
   if (S.activeMinigame) return;
   const pos = fleetScreenPos(time);

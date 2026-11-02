@@ -36,43 +36,91 @@ function _afterFullscreenEnter() {
   }, 350);
 }
 
-function requestFullscreen() {
-  if (fullscreenRequested || _fsActive()) return;
-  fullscreenAttempts++;
+function _tgFullscreenAvailable(tg) {
+  return !!(tg && typeof tg.requestFullscreen === 'function' &&
+    (!tg.isVersionAtLeast || tg.isVersionAtLeast('8.0')));
+}
 
-  const tg = window.Telegram && window.Telegram.WebApp;
-
-  // 1) Telegram native fullscreen (Bot API 8.0+)
-  try {
-    if (tg && typeof tg.requestFullscreen === 'function' &&
-        (!tg.isVersionAtLeast || tg.isVersionAtLeast('8.0'))) {
-      tg.requestFullscreen();
-      // Telegram пришлёт fullscreenChanged; флаг поставим там же
-      return;
-    }
-  } catch (e) { /* падаем в фолбэк ниже */ }
-
-  // 2) Нативный Fullscreen API (жест пользователя уже есть — pointerdown)
+// Нативный Fullscreen API + webkit-фолбэк. Вызывать только по жесту.
+function _nativeFullscreen(tg) {
   const el = document.documentElement;
   const done = function() { _afterFullscreenEnter(); };
   const fail = function() {
     // 3) webkit-фолбэк
     if (el.webkitRequestFullscreen) {
-      try { el.webkitRequestFullscreen(); return; } catch (e2) {}
+      try { el.webkitRequestFullscreen(); return; } catch (e2) { /* ниже */ }
     }
     // 4) хотя бы развернуть вьюпорт Telegram
-    try { if (tg && tg.expand) tg.expand(); } catch (e3) {}
+    try { if (tg && tg.expand) tg.expand(); } catch (e3) { /* ignore */ }
+    // 5) один раз объясняем, почему полного экрана нет
+    if (!window._fsWarned) {
+      window._fsWarned = true;
+      if (typeof toast === 'function') {
+        toast('Полный экран недоступен', 'Откройте игру в Telegram 8.0+ или разрешите fullscreen в браузере');
+      }
+    }
   };
   try {
     if (el.requestFullscreen) {
       const p = el.requestFullscreen({ navigationUI: 'hide' });
       if (p && typeof p.then === 'function') p.then(done).catch(fail);
       else done();
-      return;
+      return true;
     }
-    if (el.webkitRequestFullscreen) { el.webkitRequestFullscreen(); return; }
+    if (el.webkitRequestFullscreen) {
+      const w = el.webkitRequestFullscreen();
+      if (w && typeof w.then === 'function') w.then(done).catch(fail);
+      else done();
+      return true;
+    }
   } catch (e) { /* ignore */ }
   fail();
+  return false;
+}
+
+function requestFullscreen() {
+  if (fullscreenRequested || _fsActive()) return;
+  fullscreenAttempts++;
+
+  const tg = window.Telegram && window.Telegram.WebApp;
+
+  // 1) Telegram native fullscreen (Bot API 8.0+). Метод может существовать,
+  //    но не переключать клиент (десктоп/старая сборка), поэтому проверяем факт.
+  if (_tgFullscreenAvailable(tg)) {
+    let called = false;
+    try { tg.requestFullscreen(); called = true; } catch (e) { called = false; }
+    if (called) {
+      setTimeout(function() {
+        if (fullscreenRequested || _fsActive()) return;
+        if (tg && tg.isFullscreen === true) { _afterFullscreenEnter(); return; }
+        // Telegram не переключил — пробуем нативный API (жест ещё активен).
+        _nativeFullscreen(tg);
+      }, 350);
+      return;
+    }
+  }
+
+  // 2) Нативный Fullscreen API (жест пользователя уже есть — pointerdown)
+  _nativeFullscreen(tg);
+}
+
+// Ручной тумблер из окна настроек: вход/выход из полного экрана.
+function toggleFullscreen() {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (_fsActive()) {
+    try {
+      if (document.exitFullscreen) document.exitFullscreen();
+      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    } catch (e) { /* ignore */ }
+    return;
+  }
+  if (tg && tg.isFullscreen === true && typeof tg.exitFullscreen === 'function') {
+    try { tg.exitFullscreen(); } catch (e) { /* ignore */ }
+    return;
+  }
+  // Сбрасываем возможный залипший флаг, чтобы попытка точно произошла.
+  fullscreenRequested = false;
+  requestFullscreen();
 }
 
 // События входа/выхода: синхронизируем состояние и размеры канваса
@@ -91,6 +139,15 @@ function requestFullscreen() {
       if (_fsActive()) onEnter(); else onExit();
     });
     document.addEventListener('fullscreenerror', function() { fullscreenRequested = false; });
+
+    // Автовход по первому касанию в ЛЮБОМ месте: HUD перекрывает canvas,
+    // поэтому одного canvas pointerdown недостаточно. После 3 отказов
+    // оставляем только ручной тумблер из настроек.
+    document.addEventListener('pointerdown', function() {
+      if (fullscreenRequested || _fsActive()) return;
+      if (fullscreenAttempts >= 3) return;
+      requestFullscreen();
+    }, true);
   }
 })();
 
@@ -146,6 +203,8 @@ function applyZoom(factor) {
   S.zoom = Math.max(0.4, Math.min(3.0, (S.zoom || 1) * factor));
 }
 window.applyZoom = applyZoom;
+window.requestFullscreen = requestFullscreen;
+window.toggleFullscreen = toggleFullscreen;
 
 function sanitizeView() {
   if (!isFinite(S.zoom) || S.zoom <= 0) S.zoom = 1;
@@ -218,7 +277,7 @@ canvas.addEventListener('pointerdown', function(e) {
     S.activeMinigame = null;
   }
 
-  if (!fullscreenRequested) requestFullscreen();
+  if (!fullscreenRequested && fullscreenAttempts < 3) requestFullscreen();
   if (typeof unlockAudio === 'function') unlockAudio();
   if (typeof trackDaily === 'function') trackDaily('d_click', 1);
   if (!S.stats) S.stats = {};
@@ -641,6 +700,46 @@ if (typeof checkEvolution === 'function') checkEvolution();
 if (typeof checkAchievements === 'function') checkAchievements();
 if (typeof tickProtostar === 'function') tickProtostar(dt);
 if (typeof checkGlobalEvents === 'function') checkGlobalEvents();
+
+// ═══ СЛУЧАЙНЫЕ СОБЫТИЯ: спавн раз в сутки и тик активного события ═══
+if (!window.activeRandomEvent) window.activeRandomEvent = null;
+
+// Спавн (раз в сутки, 40% шанс)
+if (!window.activeRandomEvent && typeof RANDOM_EVENTS !== 'undefined' &&
+    now - (S.lastRandomEvent || 0) > 24 * 3600 * 1000) {
+  if (Math.random() < 0.4) {
+    S.lastRandomEvent = now;
+    const evt = RANDOM_EVENTS[Math.floor(Math.random() * RANDOM_EVENTS.length)];
+    if (typeof triggerRandomEvent === 'function') triggerRandomEvent(evt);
+  }
+}
+
+// Тик активного события
+if (window.activeRandomEvent) {
+  const evt = window.activeRandomEvent;
+  evt.timeLeft -= dt;
+
+  // Урон от флота для боссов
+  if (evt.type === 'boss' && evt.hp > 0 && S.fleetActive && S.fleet) {
+    let fleetDps = 0;
+    for (const key in S.fleet) {
+      const shipCfg = FLEET_CFG.ships[key];
+      if (shipCfg && S.fleet[key] > 0) fleetDps += S.fleet[key] * shipCfg.damage * shipCfg.fireRate;
+    }
+    evt.hp -= fleetDps * dt;
+  }
+
+  if (typeof updateRandomEventUI === 'function') updateRandomEventUI();
+
+  // Проверка на успех/провал
+  if (evt.type === 'boss' && evt.hp <= 0) {
+    if (typeof resolveRandomEvent === 'function') resolveRandomEvent(true);
+  } else if (evt.type === 'tap' && evt.taps >= evt.tapsRequired) {
+    if (typeof resolveRandomEvent === 'function') resolveRandomEvent(true);
+  } else if (evt.timeLeft <= 0) {
+    if (typeof resolveRandomEvent === 'function') resolveRandomEvent(false);
+  }
+}
 // Магазин систем — подсказка
 if (S.stage === 'galaxy' && typeof systemShopCosts === 'function') {
 const shopCostObj = systemShopCosts();
@@ -721,6 +820,11 @@ if (tg.expand) tg.expand();
 if (tg.setHeaderColor) tg.setHeaderColor('#02010a');
 if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
 if (tg.setBackgroundColor) tg.setBackgroundColor('#02010a');
+// Пробуем сразу (в Telegram часто срабатывает без жеста); если клиент
+// требует жест — первое касание повторит попытку через requestFullscreen().
+if (_tgFullscreenAvailable(tg)) {
+  try { tg.requestFullscreen(); } catch (e) { /* ниже сработает жест */ }
+}
 } catch (e) {}
 
 // Полноэкранный Telegram: сверху висят системные кнопки — опускаем HUD
@@ -757,6 +861,10 @@ function start() {
 setupTelegram();
 if (typeof initAudio === 'function') initAudio();
 if (typeof loadGame === 'function') loadGame();
+// ★ Обучалка: включаем только для новой игры (нет прогресса и она не пройдена)
+if (S.dustTotal === 0 && S.tutorialStep === 0 && !S.tutorialDone) {
+  S.tutorialStep = 1; // Включаем туториал
+}
   if (!S.playerName) {
     setTimeout(() => {
       document.getElementById('nicknameModal').classList.add('show');

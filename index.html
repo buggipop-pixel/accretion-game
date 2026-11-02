@@ -151,6 +151,11 @@
       <!-- Тосты -->
       <div class="toasts" id="toasts"></div>
       </div>
+
+      <!-- Активные миссии: живые таймеры -->
+      <div id="activeMissionsPanel" style="display:none; position:absolute; bottom: 120px; right: 12px; z-index: 10; background: rgba(15,10,32,0.9); border: 1px solid #6b4de6; border-radius: 10px; padding: 8px; font-size: 11px; backdrop-filter: blur(5px); width: 160px;">
+        <!-- Сюда будут рендериться таймеры -->
+      </div>
     </div>
   </div>
 
@@ -211,6 +216,10 @@
 
       <button class="pour-btn" style="width:100%; margin-top:8px;" onclick="document.getElementById('settingsModal').classList.remove('show'); openGameGuide && openGameGuide();">
         📖 Как играть
+      </button>
+
+      <button class="pour-btn" style="width:100%; margin-top:8px;" onclick="document.getElementById('settingsModal').classList.remove('show'); toggleFullscreen();">
+        ⛶ Полный экран
       </button>
 
       <div class="info-box" style="margin-top: 15px;">
@@ -295,5 +304,8 @@
       <button class="stars-btn" onclick="saveNickname()">Продолжить</button>
     </div>
   </div>
+
+  <!-- Обучалка: пошаговые подсказки для новичков -->
+  <div id="tutorialOverlay" style="display: none; position: fixed; inset: 0; z-index: 15; pointer-events: none; align-items: center; justify-content: center;"></div>
 </body>
 </html>

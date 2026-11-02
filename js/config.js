@@ -306,6 +306,23 @@ const CHEST_CFG = {
   ]
 };
 
+// ─── СЛУЧАЙНЫЕ СОБЫТИЯ ───
+// Боссы требуют тапов, а активный флот наносит им урон автоматически.
+// Провал (время вышло) даёт штраф; позитивные события срабатывают сразу.
+const RANDOM_EVENTS = [
+  // БОССЫ (требуют тапов + флот помогает)
+  { id: 'leviathan', type: 'boss', title: 'Космический Левиафан', desc: 'Огромный организм атакует систему!', hp: 1000, tapDamage: 5, rewardDust: 50000, penalty: 'destroy_planet', timeLimit: 60 },
+  { id: 'wandering_bh', type: 'boss', title: 'Блуждающая Чёрная Дыра', desc: 'Искажает пространство! Уничтожьте её или потеряете планету.', hp: 2000, tapDamage: 2, rewardDust: 100000, penalty: 'destroy_planet', timeLimit: 90 },
+  { id: 'wandering_magnetar', type: 'boss', title: 'Блуждающий Магнетар', desc: 'Магнитное поле высасывает энергию!', hp: 1500, tapDamage: 3, rewardEnergy: 5000, penalty: 'drain_energy', timeLimit: 60 },
+
+  // АКТИВНЫЕ УГРОЗЫ (только тапы)
+  { id: 'meteor_shower', type: 'tap', title: 'Метеоритный дождь', desc: 'Тапайте, чтобы сбить осколки!', tapsRequired: 50, rewardDust: 5000, penalty: 'damage_planet' },
+
+  // ПОЗИТИВНЫЕ (автоматические)
+  { id: 'derelict_ship', type: 'good', title: 'Заброшенный корабль', desc: 'Найден старый крейсер.', rewardMetals: 500 },
+  { id: 'solar_flare', type: 'good', title: 'Солнечная вспышка', desc: 'Временный буст дохода!', buff: 'income', duration: 3600000 }
+];
+
 // ═══════════════════════════════════════════════════════════════
 //  ГЕНЕРАТОРЫ СИСТЕМ И ЗВЕЗД
 // ═══════════════════════════════════════════════════════════════
@@ -449,6 +466,14 @@ const EVENT_CFG = {
       desc: 'Весь доход увеличен в 5 раз!',
       color: '#b9a8ff',
       globalIncomeMult: 5.0
+    },
+    {
+      id: 'income',
+      name: 'Солнечная вспышка',
+      icon: '☀️',
+      desc: 'Доход увеличен в 2 раза!',
+      color: '#ffcc55',
+      globalIncomeMult: 2.0
     }
   ]
 };
@@ -460,6 +485,7 @@ window.STAGES = STAGES;
 window.STAR_TYPES = STAR_TYPES;
 window.SYSTEM_TYPES = SYSTEM_TYPES;
 window.PLANET_TYPES = PLANET_TYPES;
+window.RANDOM_EVENTS = RANDOM_EVENTS;
 window.PHYS = PHYS;
 window.ORBIT_GEOMETRY = ORBIT_GEOMETRY;
 window.INVASION_CFG = INVASION_CFG;

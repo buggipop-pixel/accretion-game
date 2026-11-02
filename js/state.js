@@ -5,8 +5,11 @@
 const S = {
   // ─── Фазы и прогресс ───
   stage: 'cloud',
+  tutorialStep: 0, // Обучалка: 0 — выключена, 1-5 — шаги
+  tutorialDone: false, // Прошёл ли игрок обучение (не показываем повторно)
   activeEvent: null,
   lastEventAt: 0,
+  lastRandomEvent: 0, // Когда последний раз проверялся спавн случайного события
   phaseProgress: { cloud: 0, condense: 0, protostar: 0 },
   lastIgnitionQuality: 0.5,
   protostarHeat: 0,
@@ -104,6 +107,7 @@ function resetStateValues() {
   S.stage = 'cloud';
   S.activeEvent = null;
   S.lastEventAt = 0;
+  S.lastRandomEvent = 0;
   S.phaseProgress = { cloud: 0, condense: 0, protostar: 0 };
   S.lastIgnitionQuality = 0.5;
   S.protostarHeat = 0;
@@ -297,9 +301,11 @@ function saveGame() {
   if (isResetting) return;
   try {
     S.lastTick = Date.now();
+    if (typeof S.tutorialStep !== 'number') S.tutorialStep = 0;
     const data = {
       // Фаза и прогресс
       stage: S.stage, phaseProgress: S.phaseProgress, playerName: S.playerName || '',
+      tutorialStep: S.tutorialStep, tutorialDone: !!S.tutorialDone,
       lastIgnitionQuality: S.lastIgnitionQuality, assemblyCooldownUntil: S.assemblyCooldownUntil,
       evolutionPopupSuspended: S.evolutionPopupSuspended || false,
       // Ресурсы
@@ -335,6 +341,7 @@ function saveGame() {
       saveVersion: S.saveVersion || 0,
       activeEvent: S.activeEvent,
       lastEventAt: S.lastEventAt,
+      lastRandomEvent: S.lastRandomEvent,
       
       // Престиж и ачивки
       prestigeLevel: S.prestigeLevel, galaxies: S.galaxies,
@@ -376,6 +383,9 @@ function loadGame() {
 
     // ─── 1. Восстановление базовых полей и защита от undefined ───
     if (!S.phaseProgress) S.phaseProgress = { cloud: 0, condense: 0, protostar: 0 };
+    if (typeof S.tutorialStep !== 'number' || !isFinite(S.tutorialStep) || S.tutorialStep < 0 || S.tutorialStep > 5) S.tutorialStep = 0;
+    S.tutorialStep = Math.floor(S.tutorialStep);
+    if (typeof S.tutorialDone !== 'boolean') S.tutorialDone = false;
     S.activeMinigame = null;
     if (typeof S.phaseProgress.cloud !== 'number') S.phaseProgress.cloud = 0;
     if (typeof S.phaseProgress.condense !== 'number') S.phaseProgress.condense = 0;
@@ -412,6 +422,7 @@ function loadGame() {
     // ─── 2. Вторжения ───
     if (!Array.isArray(S.invasions)) S.invasions = [];
     if (typeof S.lastEventAt !== 'number') S.lastEventAt = 0;
+    if (typeof S.lastRandomEvent !== 'number' || !isFinite(S.lastRandomEvent)) S.lastRandomEvent = 0;
     if (!S.activeEvent || typeof S.activeEvent !== 'object') S.activeEvent = null;
     if (typeof S.lastInvasionCheck !== 'number') S.lastInvasionCheck = 0;
 

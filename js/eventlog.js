@@ -16,6 +16,7 @@ const EVENT_ICONS = {
   // Вторжения
   invasion_spawn:     '⚔️',
   invasion_deflect:   '🛡️',
+  invasion_repelled:  '🛡️',
   invasion_destroy:   '💀',
   invasion_robbery:   '💰',
   // Космические события
@@ -42,6 +43,7 @@ const EVENT_ICONS = {
 const EVENT_COLORS = {
   invasion_spawn:    '#ff5e5e',
   invasion_deflect:  '#7ee0a8',
+  invasion_repelled: '#7ee0a8',
   invasion_destroy:  '#ff2a2a',
   invasion_robbery:  '#ff9944',
   comet_spawn:       '#7ec8e3',
@@ -60,7 +62,65 @@ const EVENT_COLORS = {
   milestone:         '#ffcc55',
 };
 
+// Иконки типов планет для строк журнала.
+const EVENT_PLANET_ICONS = {
+  rocky:      '🪨',
+  superEarth: '🌍',
+  iceGiant:   '🧊',
+  gasGiant:   '🪐',
+  lava:       '🌋',
+};
+
 let _eventPanelOpen = false;
+
+// ─── Контекст события: система и планета ──────────────────────
+function _eventSystemName(systemIdx) {
+  if (typeof systemIdx !== 'number' || !isFinite(systemIdx)) return 'Родная';
+  if (S && systemIdx === S.activeSystemIdx && S.systemName) return S.systemName;
+  const sys = (S && Array.isArray(S.otherSystems)) ? S.otherSystems[systemIdx] : null;
+  if (sys && sys.name) return sys.name;
+  return 'Родная';
+}
+
+function _findPlanetTypeBySeed(seed) {
+  if (seed === undefined || seed === null) return null;
+  const lists = [];
+  if (S && Array.isArray(S.planets)) lists.push(S.planets);
+  if (S && Array.isArray(S.otherSystems)) {
+    for (let i = 0; i < S.otherSystems.length; i++) {
+      const sys = S.otherSystems[i];
+      if (sys && Array.isArray(sys.planets)) lists.push(sys.planets);
+    }
+  }
+  for (let l = 0; l < lists.length; l++) {
+    for (let i = 0; i < lists[l].length; i++) {
+      const p = lists[l][i];
+      if (p && p.seed === seed && p.type) return p.type;
+    }
+  }
+  return null;
+}
+
+// Цвет строки: награды — зелёные, потери — красные.
+function _eventDisplayColor(ev) {
+  const meta = ev.meta || {};
+  if (typeof meta.rewardAmount === 'number') {
+    if (meta.rewardAmount > 0) return '#7ee0a8';
+    if (meta.rewardAmount < 0) return '#ff5e5e';
+  }
+  const lossTypes = {
+    comet_lost: 1, planet_destroyed: 1, invasion_destroy: 1,
+    invasion_robbery: 1, planet_collision: 1, comet_destroy_planet: 1, system_lost: 1,
+  };
+  if (lossTypes[ev.type]) return '#ff5e5e';
+  const rewardTypes = {
+    comet_arrive: 1, planet_formed: 1, planet_merge: 1, system_formed: 1,
+    prime_found: 1, offline_income: 1, milestone: 1, prestige_done: 1,
+    invasion_deflect: 1, invasion_repelled: 1,
+  };
+  if (rewardTypes[ev.type]) return '#7ee0a8';
+  return ev.color || '#b9a8ff';
+}
 
 // ─── Добавить событие ──────────────────────────────────────────
 function addEvent(type, text, opts) {
@@ -68,13 +128,21 @@ function addEvent(type, text, opts) {
   if (!S.eventLog) S.eventLog = [];
   if (!S.eventLogUnread) S.eventLogUnread = 0;
 
+  const meta = opts.meta ? Object.assign({}, opts.meta) : null;
+  let eventText = text;
+
+  // Если известно место — добавляем контекст в текст события.
+  if (meta && typeof meta.systemIdx === 'number' && isFinite(meta.systemIdx)) {
+    eventText = 'В системе «' + _eventSystemName(meta.systemIdx) + '»: ' + eventText;
+  }
+
   const ev = {
     ts: Date.now(),
     type: type,
-    text: text,
+    text: eventText,
     icon: EVENT_ICONS[type] || '•',
     color: EVENT_COLORS[type] || '#b9a8ff',
-    meta: opts.meta || null,
+    meta: meta,
   };
 
   S.eventLog.unshift(ev);
@@ -125,13 +193,20 @@ function renderEventLog() {
   let html = '';
   for (let i = 0; i < S.eventLog.length; i++) {
     const ev = S.eventLog[i];
-      const clickAttr = ev.meta && typeof ev.meta.systemIdx !== 'undefined' 
-      ? ' onclick="navigateToEvent(' + i + ')" style="cursor:pointer"' 
-      : '';
-    html += '<div class="event-row" style="border-left-color:' + ev.color + '"' + clickAttr + '>';
-    html += '<div class="event-icon">' + ev.icon + '</div>';
+    const color = _eventDisplayColor(ev);
+    const clickable = ev.meta && typeof ev.meta.systemIdx !== 'undefined';
+    const clickAttr = clickable ? ' onclick="navigateToEvent(' + i + ')"' : '';
+    let planetIcon = '';
+    if (ev.meta && ev.meta.planetSeed !== undefined && ev.meta.planetSeed !== null) {
+      const ptype = _findPlanetTypeBySeed(ev.meta.planetSeed);
+      planetIcon = (ptype && EVENT_PLANET_ICONS[ptype]) ? EVENT_PLANET_ICONS[ptype] : '🪐';
+    }
+    html += '<div class="event-row" style="border-left-color:' + color +
+      (clickable ? ';cursor:pointer' : '') + '"' + clickAttr + '>';
+    html += '<div class="event-icon">' + ev.icon +
+      (planetIcon ? '<span class="event-planet-icon">' + planetIcon + '</span>' : '') + '</div>';
     html += '<div class="event-body">';
-    html += '<div class="event-text" style="color:' + ev.color + '">' + ev.text + '</div>';
+    html += '<div class="event-text" style="color:' + color + '">' + ev.text + '</div>';
     html += '<div class="event-time">' + _fmtEventTime(ev.ts) + '</div>';
     html += '</div></div>';
   }
@@ -224,20 +299,25 @@ function logOfflineIncome(seconds, earned) {
 window.navigateToEvent = function(idx) {
   if (!S.eventLog || !S.eventLog[idx]) return;
   const ev = S.eventLog[idx];
-  if (!ev.meta || typeof ev.meta.systemIdx === 'undefined') return;
+  const meta = ev.meta || {};
 
-  // Закрываем модалку журнала
-  if (typeof toggleEventLog === 'function') toggleEventLog();
+  // Закрываем модалку журнала, если она открыта.
+  if (_eventPanelOpen && typeof toggleEventLog === 'function') toggleEventLog();
 
-  // Переключаемся на нужную систему
-  const targetIdx = ev.meta.systemIdx;
-  if (targetIdx !== S.activeSystemIdx) {
+  const hasSystem = typeof meta.systemIdx === 'number' && isFinite(meta.systemIdx);
+  const targetIdx = hasSystem ? meta.systemIdx : S.activeSystemIdx;
+
+  // Переключаемся на нужную систему (для всех типов событий).
+  if (hasSystem && targetIdx !== S.activeSystemIdx) {
     if (typeof switchToSystem === 'function') switchToSystem(targetIdx);
   }
 
-  // Если событие системное — уходим в галактику. Если планетное — в систему.
-  if (ev.type === 'invasion_spawn' && ev.text.indexOf('систему') !== -1) {
-    S.stage = 'galaxy';
+  // Планетное событие — в систему, системное вторжение — в галактику.
+  const hasPlanet = meta.planetSeed !== undefined && meta.planetSeed !== null;
+  if (hasPlanet) {
+    S.stage = 'system';
+  } else if (ev.type === 'invasion_spawn' || ev.type === 'invasion_repelled' || ev.type === 'invasion_deflect') {
+    S.stage = (hasSystem && S.systems > 1) ? 'galaxy' : 'system';
   } else {
     S.stage = 'system';
   }
@@ -246,6 +326,7 @@ window.navigateToEvent = function(idx) {
   S.panX = 0; S.panY = 0; S.zoom = 1; S.rotation = 0;
   if (typeof updateUI === 'function') updateUI();
   if (typeof updateSystemSwitcher === 'function') updateSystemSwitcher();
+  if (typeof saveGame === 'function') saveGame();
 };
 // ─── Экспорт ───────────────────────────────────────────────────
 window.addEvent            = addEvent;

@@ -214,6 +214,7 @@ function launchComet(sizePct) {
     id: Math.random().toString(36).slice(2),
     startAt: Date.now(), flightTime: flightMs,
     reward: reward, fail: Math.random() < cfg.cometFailChance, size: sizePct,
+    systemIdx: S.activeSystemIdx,
   });
   toast('☄️ Комета запущена',
     'Размер: ' + Math.round(sizePct * 100) + '% · возврат через ' +
@@ -222,7 +223,7 @@ function launchComet(sizePct) {
   if (typeof addEvent === 'function') {
     addEvent('comet_spawn',
       'Запущена комета (' + Math.round(sizePct * 100) + '%) · возврат через ' +
-      fmtTime(flightMs / 1000));
+      fmtTime(flightMs / 1000), { meta: { systemIdx: S.activeSystemIdx } });
   }
   if (typeof trackDaily === 'function') trackDaily('d_dust', 100000); // Условно
   if (!S.stats) S.stats = {};
@@ -304,6 +305,7 @@ function launchExpedition(distanceMultiplier) {
     startAt: Date.now(), flightTime: flightMs,
     reward: reward, fail: Math.random() < cfg.expeditionFailChance,
     hasColony: Math.random() < cfg.colonyChance,
+    systemIdx: S.activeSystemIdx,
   });
     // Трофейный контракт при успешной экспедиции (ролл при возврате)
   MISS.expeditions[MISS.expeditions.length - 1].nightMode = (S.nightConfig && S.nightConfig.mode) || 'balanced';
@@ -313,7 +315,7 @@ function launchExpedition(distanceMultiplier) {
   if (typeof playSFX === 'function') playSFX('sfx_expedition');
   if (typeof addEvent === 'function') {
     addEvent('comet_spawn',
-      'Запущена экспедиция · возврат через ' + fmtTime(flightMs / 1000));
+      'Запущена экспедиция · возврат через ' + fmtTime(flightMs / 1000), { meta: { systemIdx: S.activeSystemIdx } });
   }
   if (!S.stats) S.stats = {};
   S.stats.expeditions = (S.stats.expeditions || 0) + 1;
@@ -382,12 +384,12 @@ function updateMissions() {
     if (now - c.startAt >= c.flightTime) {
       if (c.fail) {
         toast('☄️ Комета потеряна', 'Не вернулась');
-        if (typeof addEvent === 'function') addEvent('comet_lost', 'Комета потеряна в пути');
+        if (typeof addEvent === 'function') addEvent('comet_lost', 'Комета потеряна в пути', { meta: { systemIdx: (typeof c.systemIdx === 'number' ? c.systemIdx : S.activeSystemIdx) } });
       } else {
         S.dust += c.reward; S.dustTotal += c.reward;
         toast('☄️ Комета вернулась', '+' + fmt(c.reward));
         if (typeof playSFX === 'function') playSFX('sfx_comet');
-        if (typeof addEvent === 'function') addEvent('comet_arrive', 'Комета вернулась · +' + fmt(c.reward) + ' ✦');
+        if (typeof addEvent === 'function') addEvent('comet_arrive', 'Комета вернулась · +' + fmt(c.reward) + ' ✦', { meta: { systemIdx: (typeof c.systemIdx === 'number' ? c.systemIdx : S.activeSystemIdx), rewardAmount: c.reward } });
       }
       MISS.comets.splice(i, 1);
     }
@@ -397,12 +399,12 @@ function updateMissions() {
     if (now - e.startAt >= e.flightTime) {
       if (e.fail) {
         toast('🚀 Экспедиция потеряна', 'Корабль не вернулся');
-        if (typeof addEvent === 'function') addEvent('comet_lost', 'Экспедиция потеряна');
+        if (typeof addEvent === 'function') addEvent('comet_lost', 'Экспедиция потеряна', { meta: { systemIdx: (typeof e.systemIdx === 'number' ? e.systemIdx : S.activeSystemIdx) } });
       } else {
         S.dust += e.reward; S.dustTotal += e.reward;
         toast('🚀 Экспедиция вернулась', '+' + fmt(e.reward));
         if (typeof playSFX === 'function') playSFX('sfx_system_form');
-        if (typeof addEvent === 'function') addEvent('comet_arrive', 'Экспедиция вернулась · +' + fmt(e.reward) + ' ✦');
+        if (typeof addEvent === 'function') addEvent('comet_arrive', 'Экспедиция вернулась · +' + fmt(e.reward) + ' ✦', { meta: { systemIdx: (typeof e.systemIdx === 'number' ? e.systemIdx : S.activeSystemIdx), rewardAmount: e.reward } });
         if (e.hasColony) setTimeout(offerColony, 800);
       }
       // Ролл на трофейный контракт
@@ -410,6 +412,39 @@ function updateMissions() {
       MISS.expeditions.splice(i, 1);
     }
   }
+}
+
+// ─── Активные миссии и оставшееся время ──────────────────────────
+function getActiveMissions() {
+  const now = Date.now();
+  const list = [];
+
+  if (typeof MISS !== 'undefined' && MISS) {
+    if (Array.isArray(MISS.comets)) {
+      for (let i = 0; i < MISS.comets.length; i++) {
+        const c = MISS.comets[i];
+        if (!c || !isFinite(c.startAt) || !isFinite(c.flightTime)) continue;
+        list.push({
+          type: 'comet',
+          timeLeft: Math.max(0, Math.ceil((c.startAt + c.flightTime - now) / 1000)),
+          icon: '☄️',
+        });
+      }
+    }
+    if (Array.isArray(MISS.expeditions)) {
+      for (let i = 0; i < MISS.expeditions.length; i++) {
+        const e = MISS.expeditions[i];
+        if (!e || !isFinite(e.startAt) || !isFinite(e.flightTime)) continue;
+        list.push({
+          type: 'expedition',
+          timeLeft: Math.max(0, Math.ceil((e.startAt + e.flightTime - now) / 1000)),
+          icon: '🚀',
+        });
+      }
+    }
+  }
+
+  return list;
 }
 
 // ─── Единый диалог миссий ───────────────────────────────────────
@@ -698,6 +733,7 @@ function consumeDefenseContract() {
 }
 window.consumeDefenseContract = consumeDefenseContract;
 window.updateMissions = updateMissions;
+window.getActiveMissions = getActiveMissions;
 window.renderMissionButtons = renderMissionButtons;
 window.canLaunchComet = canLaunchComet;
 window.canLaunchExpedition = canLaunchExpedition;

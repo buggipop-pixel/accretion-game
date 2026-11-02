@@ -94,6 +94,7 @@ function renderAchievements() {
   if (!body) return;
 
   let html = '<div class="modal-title">🏆 Достижения и Задания</div>';
+  html += '<button class="pour-btn" style="width:100%; margin:8px 0 4px;" onclick="openLeaderboard()">🏆 Топ игроков</button>';
   
   // --- Ежедневные ---
   html += '<div class="ach-section"><div class="ach-sec-title">📅 Ежедневные</div>';
