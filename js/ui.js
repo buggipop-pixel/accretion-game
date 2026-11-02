@@ -895,15 +895,20 @@ function openNightMode() {
     </button>`;
   }).join('');
 
-  const defenseLabel = isDefActive 
-    ? `Ур.${activeLvl} · +${rawBonus.toFixed(1)}% (до ${new Date(S.nightDefenseExpiresAt).getHours()}:00)` 
-    : 'Выключена';
+  const effDefLvl = (typeof activeDefenseLevel === 'function')
+    ? activeDefenseLevel()
+    : (isDefActive ? activeLvl : 0);
+  const defenseLabel = isDefActive
+    ? (effDefLvl > activeLvl
+      ? `Ур.${effDefLvl} · +${rawBonus.toFixed(1)}% (трофей)`
+      : `Ур.${effDefLvl} · +${rawBonus.toFixed(1)}% (до ${new Date(S.nightDefenseExpiresAt).getHours()}:00)`)
+    : (effDefLvl > 0 ? `Ур.${effDefLvl} · +${rawBonus.toFixed(1)}% (трофей)` : 'Выключена');
 
   // ★ Флот: активация возможна только при активной Автобороне ур.5.
   const fleetActiveNow = (typeof isFleetActive === 'function') ? isFleetActive() : false;
   const fleetReqLvl = (typeof fleetDefenseLevelReq === 'function') ? fleetDefenseLevelReq() : 5;
   const fleetShips = (typeof fleetShipTotal === 'function') ? fleetShipTotal() : 0;
-  const fleetCanActivate = isDefActive && activeLvl >= fleetReqLvl;
+  const fleetCanActivate = effDefLvl >= fleetReqLvl;
   let fleetLabel = 'заблокирован';
   if (fleetActiveNow) fleetLabel = 'в бою';
   else if (fleetShips <= 0) fleetLabel = 'нет кораблей';

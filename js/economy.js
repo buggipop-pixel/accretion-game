@@ -443,6 +443,49 @@ function processOfflineMissions(out) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  АВТООБОРОНА: ЭФФЕКТИВНЫЙ УРОВЕНЬ И БОНУСЫ
+//  Учитывает платную активацию (24 ч) и трофейные «бесплатные уровни».
+//  Выключенный тумблер автообороны обнуляет уровень.
+// ═══════════════════════════════════════════════════════════════
+function activeDefenseLevel(now) {
+  now = now || Date.now();
+  if (!S.nightConfig || S.nightConfig.defenseEnabled !== true) return 0;
+  let lvl = 0;
+  if ((S.nightDefenseExpiresAt || 0) > now) {
+    lvl = Math.max(lvl, Math.floor(Number(S.nightDefenseLevel) || 0));
+  }
+  if (Array.isArray(S.activeTrophyEffects)) {
+    for (let i = 0; i < S.activeTrophyEffects.length; i++) {
+      const e = S.activeTrophyEffects[i];
+      if (e && e.type === 'defense_level' && (e.expiresAt || 0) > now) {
+        lvl = Math.max(lvl, Math.floor(Number(e.value) || 0));
+      }
+    }
+  }
+  return Math.min(5, Math.max(0, lvl));
+}
+
+// Бонус к шансу отбить офлайн-атаку (доля, не проценты): 6 × lvl^0.8 / 100.
+function calcDefenseBonus(now) {
+  const lvl = activeDefenseLevel(now);
+  if (lvl <= 0) return 0;
+  const base = Number(INVASION_CFG.defenseBonusBase) || 6;
+  const exp = Number(INVASION_CFG.defenseBonusExp) || 0.8;
+  return base * Math.pow(lvl, exp) / 100;
+}
+
+// Штраф к обороне от ночной экспедиции (доля).
+function calcExpeditionPenalty() {
+  const pct = (S.nightConfig && Number(S.nightConfig.expeditionPercent)) || 0;
+  const max = Number(NIGHT_CFG.expeditionDefensePenaltyMax) || 0.30;
+  return (pct / 100) * max;
+}
+
+window.activeDefenseLevel = activeDefenseLevel;
+window.calcDefenseBonus = calcDefenseBonus;
+window.calcExpeditionPenalty = calcExpeditionPenalty;
+
 function simulateOfflineInvasions(elapsedSec, out) {
   const cfg = INVASION_CFG;
   const nightCfg = NIGHT_CFG;
@@ -459,12 +502,12 @@ function simulateOfflineInvasions(elapsedSec, out) {
   let attacks = Math.min(cfg.offlineAttackMax || 4, Math.floor(hours / perHours));
   if (attacks <= 0) return;
 
-  const def = (S.nightConfig && S.nightConfig.defenseEnabled) ? (S.defenseLevel || 0) : 0;
+  const def = activeDefenseLevel();
   const k = Math.max(0, 1 - def * (cfg.defenseLossReduction || 0.2));
   const capShare = cfg.nightLossCapShare || 0.4;
   const caps = { dust: (S.dust || 0) * capShare, energy: (S.energy || 0) * capShare, civ: (S.civLevel || 0) * capShare };
 
-  const defenseBonus = (S.nightConfig && S.nightConfig.defenseEnabled) ? calcDefenseBonus() : 0;
+  const defenseBonus = calcDefenseBonus();
   const expPenalty = calcExpeditionPenalty();
   const capE = Math.max(1, getResourceCap('energy'));
   const capC = Math.max(1, getResourceCap('civ'));
@@ -500,7 +543,7 @@ function simulateOfflineInvasions(elapsedSec, out) {
 function applyInvasionHit(tierKey, caps, kOverride) {
   const cfg = INVASION_CFG;
   const tier = cfg.tiers[tierKey] || cfg.tiers.raid;
-  const def = (S.nightConfig && S.nightConfig.defenseEnabled) ? (S.defenseLevel || 0) : 0;
+  const def = activeDefenseLevel();
   const k = (kOverride != null) ? kOverride : Math.max(0, 1 - def * (cfg.defenseLossReduction || 0.2));
   const out = { dust: 0, energy: 0, civ: 0, disabled: 0 };
   // ★ Прайм-система неприкосновенна: никакого урона от вторжений

@@ -554,15 +554,22 @@ function openShipyard() {
   const reqLvl = (typeof fleetDefenseLevelReq === 'function') ? fleetDefenseLevelReq() : 5;
   const fleetReady = (typeof fleetDefenseReady === 'function') ? fleetDefenseReady() : false;
   const fleetActive = (typeof isFleetActive === 'function') ? isFleetActive() : false;
-  const defActive = (S.nightDefenseExpiresAt || 0) > Date.now();
-  const defLvl = S.nightDefenseLevel || 0;
-  const defLeftH = defActive ? Math.max(0, Math.ceil((S.nightDefenseExpiresAt - Date.now()) / 3600000)) : 0;
+  const paidActive = (S.nightDefenseExpiresAt || 0) > Date.now();
+  const paidLvl = paidActive ? (S.nightDefenseLevel || 0) : 0;
+  const defLvl = (typeof activeDefenseLevel === 'function') ? activeDefenseLevel() : (paidActive ? (S.nightDefenseLevel || 0) : 0);
+  const defActive = defLvl > 0;
+  const defLeftH = paidActive ? Math.max(0, Math.ceil((S.nightDefenseExpiresAt - Date.now()) / 3600000)) : 0;
 
   let fleetHint = '';
-  if (!defActive) fleetHint = 'Автоборона не активна — включите её в «Ночном режиме».';
-  else if (defLvl < reqLvl) fleetHint = `Нужен уровень Автобороны ${reqLvl} (сейчас ур.${defLvl}).`;
-  else if (!S.nightConfig || S.nightConfig.defenseEnabled !== true) fleetHint = 'Автоборона выключена тумблером в «Ночном режиме».';
-  else if (totalShips <= 0) fleetHint = 'Купите хотя бы один корабль.';
+  if (!defActive) {
+    fleetHint = (S.nightConfig && S.nightConfig.defenseEnabled === false)
+      ? 'Автоборона выключена тумблером в «Ночном режиме».'
+      : 'Автоборона не активна — включите её в «Ночном режиме».';
+  } else if (defLvl < reqLvl) {
+    fleetHint = `Нужен уровень Автобороны ${reqLvl} (сейчас ур.${defLvl}).`;
+  } else if (totalShips <= 0) {
+    fleetHint = 'Купите хотя бы один корабль.';
+  }
 
   const fleetState = fleetActive
     ? '<span style="color:#7ee0a8">В БОЮ</span>'
@@ -576,7 +583,7 @@ function openShipyard() {
       <span>Урон: ${dps.toFixed(1)}/с</span>
     </div>
     <div class="row-stat" style="font-size:10px;color:#8b7fd4;">
-      <span>Автоборона: ${defActive ? 'ур.' + defLvl + ' · ' + defLeftH + ' ч' : 'выключена'}</span>
+      <span>Автоборона: ${defActive ? (defLvl > paidLvl ? 'ур.' + defLvl + ' · трофей' : 'ур.' + defLvl + ' · ' + defLeftH + ' ч') : 'выключена'}</span>
       <span>требуется ур.${reqLvl}</span>
     </div>
     ${fleetHint ? `<div style="font-size:10px;color:#ffb347;margin-top:4px;">${fleetHint}</div>` : ''}

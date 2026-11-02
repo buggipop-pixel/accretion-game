@@ -45,18 +45,20 @@ function fleetDefenseLevelReq() {
   return Math.max(1, Math.floor(Number(FLEET_CFG.activationDefenseLevel) || 5));
 }
 
-// Условие активации: Автоборона включена, её уровень >= 5 и она не истекла.
+// Условие активации: активная Автоборона уровня >= 5. Уровень считает
+// общий хелпер activeDefenseLevel() (платная активация + трофеи).
 function fleetDefenseReady(now) {
-  now = now || Date.now();
-  return !!(
-    S.nightConfig && S.nightConfig.defenseEnabled === true &&
-    (S.nightDefenseLevel || 0) >= fleetDefenseLevelReq() &&
-    (S.nightDefenseExpiresAt || 0) > now
-  );
+  return activeDefenseLevel(now) >= fleetDefenseLevelReq();
 }
 
 function isFleetActive(now) {
   return S.fleetActive === true && fleetShipTotal() > 0 && fleetDefenseReady(now);
+}
+
+// Снижение слива энергии/цив во время живого вторжения (доля).
+function defenseDrainReduction(now) {
+  const lvl = activeDefenseLevel(now);
+  return Math.min(0.25, (INVASION_CFG.defenseDrainReduction || 0.05) * lvl);
 }
 
 // Наносит накопленный урон флота кораблям вторжения. HP врагов хранится
@@ -90,6 +92,7 @@ window.fleetDps = fleetDps;
 window.fleetDefenseLevelReq = fleetDefenseLevelReq;
 window.fleetDefenseReady = fleetDefenseReady;
 window.isFleetActive = isFleetActive;
+window.defenseDrainReduction = defenseDrainReduction;
 
 // ─── Выбор сложности ────────────────────────────────────────────
 function rollInvasionTier() {
@@ -216,7 +219,7 @@ function spawnInvasion() {
 
 // ─── Урон второго порядка: оккупация и простой планет ───────────
 function invasionDefK() {
-  const def = (S.nightConfig && S.nightConfig.defenseEnabled) ? (S.defenseLevel || 0) : 0;
+  const def = activeDefenseLevel();
   return Math.max(0, 1 - def * (INVASION_CFG.defenseLossReduction || 0.2));
 }
 
@@ -373,7 +376,7 @@ function tickInvasions(dt) {
         const civPlanets = civPlanetCount();
         if (civPlanets > 0) {
           const hours = dt / 3600;
-          const reduction = S.nightConfig.defenseEnabled ? Math.min(0.25, (INVASION_CFG.defenseDrainReduction || 0.05) * (S.defenseLevel || 0)) : 0;
+          const reduction = defenseDrainReduction(now);
           const eDrain = capE * tier.energyDrain * (1 + 0.3 * civPlanets) * hours * (1 - reduction);
           const cDrain = capC * tier.civDrain * (1 + 0.3 * civPlanets) * hours * (1 - reduction);
           
