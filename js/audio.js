@@ -10,6 +10,7 @@ let audioCtx = null;
 let isAudioUnlocked = false;
 let ambientSource = null;
 let ambientGain = null;
+let ambientAudio = null;   // Один HTMLAudioElement на весь сеанс (не создаём новый при каждом включении)
 
 function initAudio() {
   if (audioCtx) return;
@@ -19,12 +20,24 @@ function initAudio() {
 }
 
 function unlockAudio() {
-  if (isAudioUnlocked || !audioCtx) return;
+  // Контекст мог не создаться (initAudio вызван до готовности SDK) — пробуем ещё раз
+  if (!audioCtx) initAudio();
+  if (!audioCtx) return;
+
+  // ★ ВАЖНО: раньше здесь стоял ранний выход по флагу isAudioUnlocked.
+  // Из-за этого, если браузер усыплял AudioContext (фоновая вкладка,
+  // автоплей-политика, Telegram WebView), звук больше никогда не возвращался.
+  // Теперь resume() повторяется на каждом жесте пользователя.
+  if (audioCtx.state !== 'running') {
+    const resumed = audioCtx.resume();
+    if (resumed && typeof resumed.catch === 'function') resumed.catch(function() {});
+  }
+
   isAudioUnlocked = true;
-  
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-  
-  if (S.settings && S.settings.sound) startAmbient();
+
+  // startAmbient() сам понимает, играет фон или нет, поэтому вызов на каждый
+  // клик безопасен — именно так музыка возвращается после «Выкл → Вкл».
+  if (!S.settings || S.settings.sound !== false) startAmbient();
 }
 
 // ─── Базовые генераторы звука ───────────────────────────────────
@@ -161,33 +174,64 @@ function playSFX(type) {
 
 // ─── ФОНОВЫЙ ЭМБИЕНТ ────────────────────────────────────────────
 function startAmbient() {
-  if (ambientSource || !isAudioUnlocked || !audioCtx) return;
-  
-  // Оставляем .wav для фона, так как он хорошо звучит
-  const audio = new Audio('audio/ambient_deep.wav');
-  audio.loop = true;
-  audio.volume = AMBIENT_VOLUME;
-  
-  audio.play().catch(e => console.warn('Фон не запустился:', e));
-  
+  if (!audioCtx) initAudio();
+  if (!audioCtx) return;
+  if (S.settings && S.settings.sound === false) return;
+  if (!isAudioUnlocked) return;
+
+  // Фон уже играет — второй экземпляр не нужен
+  if (ambientAudio && !ambientAudio.paused) {
+    ambientSource = ambientSource || { stop: stopAmbient };
+    return;
+  }
+
+  if (!ambientAudio) {
+    ambientAudio = new Audio('audio/ambient_deep.wav');
+    ambientAudio.loop = true;
+    ambientAudio.preload = 'auto';
+  }
+  ambientAudio.volume = AMBIENT_VOLUME;
+
+  const audio = ambientAudio;
+  const attempt = audio.play();
+
+  // play() может быть отклонён автоплей-политикой. Раньше ambientSource всё
+  // равно оставался установленным, и фон больше нельзя было запустить вообще.
+  if (attempt && typeof attempt.catch === 'function') {
+    attempt.catch(function(e) {
+      console.warn('Фон не запустился:', e);
+      if (ambientAudio === audio && audio.paused) ambientSource = null;
+    });
+  }
+
   // Заглушка для совместимости со старой логикой
-  ambientSource = { stop: () => { audio.pause(); audio.currentTime = 0; } };
+  ambientSource = { stop: stopAmbient };
 }
 
 function stopAmbient() {
-  if (ambientSource) {
-    ambientSource.stop();
-    ambientSource = null;
+  ambientSource = null;
+  if (ambientAudio) {
+    try {
+      ambientAudio.pause();
+      ambientAudio.currentTime = 0;
+    } catch (e) { /* некоторые браузеры кидают при readyState = 0 */ }
   }
 }
 
 function toggleSound() {
   if (!S.settings) S.settings = { brightness: 1.0, sound: true };
   S.settings.sound = !S.settings.sound;
-  
+
   if (S.settings.sound) {
-    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-    unlockAudio();
+    if (!audioCtx) initAudio();
+    if (audioCtx && audioCtx.state !== 'running') {
+      const resumed = audioCtx.resume();
+      if (resumed && typeof resumed.catch === 'function') resumed.catch(function() {});
+    }
+    isAudioUnlocked = true;
+    // ★ Явный запуск фона: unlockAudio() здесь недостаточно — он выходил по
+    // флагу isAudioUnlocked, и после «Выкл → Вкл» музыка не возвращалась.
+    startAmbient();
   } else {
     stopAmbient();
   }
@@ -202,3 +246,17 @@ window.unlockAudio = unlockAudio;
 window.initAudio = initAudio;
 window.startAmbient = startAmbient;
 window.stopAmbient = stopAmbient;
+
+// ─── СТРАХОВКА: возврат звука после сворачивания вкладки ─────────
+// Браузер может усыпить AudioContext или поставить фон на паузу, пока вкладка
+// скрыта. При возврате на страницу без клика звук иначе остался бы тихим.
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState !== 'visible') return;
+  if (!S.settings || S.settings.sound === false) return;
+  if (!audioCtx) return;
+  if (audioCtx.state !== 'running') {
+    const resumed = audioCtx.resume();
+    if (resumed && typeof resumed.catch === 'function') resumed.catch(function() {});
+  }
+  if (isAudioUnlocked) startAmbient();
+});

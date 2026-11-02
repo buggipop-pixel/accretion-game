@@ -16,7 +16,8 @@
     "test:fleet": "node tests/fleet-test.js",
     "test:defense": "node tests/defense-levels-test.js",
     "test:fleet-visual": "node tests/fleet-visual-test.js",
-    "test:all": "node tests/smoke-test.js && node tests/prime-protection-test.js && node tests/fleet-test.js && node tests/defense-levels-test.js && node tests/fleet-visual-test.js && node tests/cloud-sync-test.js && node tests/save-validation-test.js && node tests/game-core-test.js && node tests/economy-actions-test.js && node tests/wallet-test.js && node tests/chest-test.js && node tests/reward-test.js && node tests/capability-test.js"
+    "test:audio": "node tests/audio-test.js",
+    "test:all": "node tests/smoke-test.js && node tests/prime-protection-test.js && node tests/fleet-test.js && node tests/defense-levels-test.js && node tests/fleet-visual-test.js && node tests/audio-test.js && node tests/cloud-sync-test.js && node tests/save-validation-test.js && node tests/game-core-test.js && node tests/economy-actions-test.js && node tests/wallet-test.js && node tests/chest-test.js && node tests/reward-test.js && node tests/capability-test.js"
   },
   "dependencies": {
     "express": "^4.19.2",
