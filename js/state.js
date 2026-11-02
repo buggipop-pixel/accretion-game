@@ -174,6 +174,65 @@ function resetStateValues() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+//  ПРАЙМ-СИСТЕМЫ: ИДЕНТИФИКАЦИЯ И ЗАЩИТА
+//
+//  Прайм-система определяется по флагу isPrime ИЛИ по наличию primeData.
+//  Это лечит старые сейвы, где флаг мог не сохраниться, и даёт единый
+//  способ проверки для престижа, вторжений и UI.
+// ═══════════════════════════════════════════════════════════════
+function primeDataOfSystem(sys) {
+  if (!sys) return null;
+  return sys.primeData || sys.primeSystem || null;
+}
+
+function isPrimeSystemData(sys) {
+  if (!sys) return false;
+  return !!(sys.isPrime || primeDataOfSystem(sys));
+}
+
+// Прайм-система по индексу otherSystems. Для активной системы источник
+// истины — S.primeSystem (данные в otherSystems могут быть ещё не синхронизированы).
+function isPrimeSystemAt(idx) {
+  const list = (S && Array.isArray(S.otherSystems)) ? S.otherSystems : [];
+  if (idx === S.activeSystemIdx) return !!(S.primeSystem || isPrimeSystemData(list[idx]));
+  return isPrimeSystemData(list[idx]);
+}
+
+// Лучший бонус кротовой норы среди ВСЕХ прайм-систем (для престижа).
+function bestPrimeWormholePct() {
+  const pcts = { wormhole: 0.2, wormhole2: 0.3, wormhole3: 0.5 };
+  let best = 0;
+  function consider(data) {
+    if (!data) return;
+    const pct = pcts[data.objectKey] || 0;
+    if (pct > best) best = pct;
+  }
+  if (S && S.primeSystem) consider(S.primeSystem);
+  const list = (S && Array.isArray(S.otherSystems)) ? S.otherSystems : [];
+  for (let i = 0; i < list.length; i++) {
+    const sys = list[i];
+    if (!sys) continue;
+    if (i === S.activeSystemIdx && S.primeSystem) continue; // уже учли выше
+    consider(primeDataOfSystem(sys));
+  }
+  return best;
+}
+
+// Помечает систему как Прайм, не теряя остальные поля.
+function markPrimeSystem(sys, data) {
+  if (!sys) return sys;
+  sys.isPrime = true;
+  if (data) sys.primeData = data;
+  return sys;
+}
+
+window.primeDataOfSystem = primeDataOfSystem;
+window.isPrimeSystemData = isPrimeSystemData;
+window.isPrimeSystemAt = isPrimeSystemAt;
+window.bestPrimeWormholePct = bestPrimeWormholePct;
+window.markPrimeSystem = markPrimeSystem;
+
+// ═══════════════════════════════════════════════════════════════
 //  ПЕРЕКЛЮЧЕНИЕ СИСТЕМ (с сохранением Прайм-объектов)
 // ═══════════════════════════════════════════════════════════════
 function switchToSystem(idx) {
@@ -384,18 +443,31 @@ function loadGame() {
     if (!Array.isArray(S.primeCandidates)) S.primeCandidates = [];
     if (!S.primeSystem) S.primeSystem = null;
     if (typeof S.primeLastHealedAt !== 'number') S.primeLastHealedAt = 0;
-        // ★ Лечим старые сейвы: если Прайм есть, но данные потерялись — восстанавливаем
-    for (let i = 1; i < S.otherSystems.length; i++) {
-      const sys = S.otherSystems[i];
-      if (sys && sys.isPrime && !sys.primeData) {
-        sys.primeData = { 
-          objectKey: 'blackHole', 
-          objectName: 'Чёрная дыра', 
-          objectIcon: 'blackHole', 
-          bonus: { dustMult: 0.25 }, 
-          absorbRadius: 150 
-        };
+    // ★ Лечим старые сейвы: Прайм мог сохраниться без флага isPrime
+    // (или наоборот — флаг без данных). Обе стороны нормализуем.
+    if (Array.isArray(S.otherSystems)) {
+      for (let i = 0; i < S.otherSystems.length; i++) {
+        const sys = S.otherSystems[i];
+        if (!sys || typeof sys !== 'object') continue;
+        if (sys.primeData || sys.isPrime) {
+          sys.isPrime = true;
+          if (!sys.primeData) {
+            sys.primeData = {
+              objectKey: 'blackHole',
+              objectName: 'Чёрная дыра',
+              objectIcon: 'blackHole',
+              bonus: { dustMult: 0.25 },
+              absorbRadius: 150
+            };
+          }
+        }
       }
+    }
+    // Родная система тоже может быть Праймом (например, после админ-выдачи).
+    if (S.primeSystem && typeof S.primeSystem === 'object') {
+      if (!S.primeSystem.objectKey) S.primeSystem.objectKey = 'blackHole';
+      if (!S.primeSystem.objectName) S.primeSystem.objectName = 'Чёрная дыра';
+      if (!S.primeSystem.bonus) S.primeSystem.bonus = { dustMult: 0.25 };
     }
 
     // ─── 7. Ночной режим и защита ───

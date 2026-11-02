@@ -50,9 +50,15 @@ function spawnInvasion() {
 
   // ★ Определяем цель: если систем > 1 или мы в галактике — бьем по системе
   if (S.stage === 'galaxy' || S.systems > 1) {
-    const availableSystems = [0];
+    // ★ Прайм-системы неприступны: вторжение выбирает только обычные системы
+    const availableSystems = [];
+    if (!isPrimeSystemAt(0)) availableSystems.push(0);
     for (let i = 1; i < S.otherSystems.length; i++) {
-      if (S.otherSystems[i]) availableSystems.push(i);
+      if (S.otherSystems[i] && !isPrimeSystemAt(i)) availableSystems.push(i);
+    }
+    if (availableSystems.length === 0) {
+      // Все системы — Прайм: атаковать некого.
+      return;
     }
     
     const targetIdx = availableSystems[Math.floor(Math.random() * availableSystems.length)];
@@ -88,6 +94,8 @@ function spawnInvasion() {
   }
 
   // ★ Если система всего одна — бьём СРАЗУ ПО НЕСКОЛЬКИМ планетам (tier.targets)
+  // Прайм-система не может быть целью вторжения вообще.
+  if (S.primeSystem) return;
   const active = S.planets.filter(function(p) { return !p.forming && !isPlanetInvaded(p) && !(p.disabledUntil > now); });
   if (active.length === 0) return;
 
@@ -135,6 +143,8 @@ function invasionDefK() {
 }
 
 function applyInvasionAftermath(inv, victim) {
+  // ★ Прайм-система не получает урона от вторжений
+  if (inv && typeof inv.systemIdx === 'number' && typeof isPrimeSystemAt === 'function' && isPrimeSystemAt(inv.systemIdx)) return;
   const tier = INVASION_CFG.tiers[inv.tierKey] || INVASION_CFG.tiers.raid;
   const k = invasionDefK();
   if (k <= 0) return;
@@ -156,11 +166,18 @@ function applyInvasionAftermath(inv, victim) {
   }
 
   // 2) планеты простаивают, но НЕ удаляются
+  const targetIdx = (typeof inv.systemIdx === 'number') ? inv.systemIdx : S.activeSystemIdx;
+  // ★ Прайм-система неуязвима, даже если вторжение пришло по старому сейву.
+  if (typeof isPrimeSystemAt === 'function' && isPrimeSystemAt(targetIdx)) return;
+  const targetSys = (targetIdx !== S.activeSystemIdx && S.otherSystems) ? S.otherSystems[targetIdx] : null;
+  // Урон идёт по планетам ИМЕННО той системы, которую атаковали, а не по активной.
+  const targetPlanets = (targetSys && Array.isArray(targetSys.planets)) ? targetSys.planets : (S.planets || []);
+
   const victims = [];
-  const direct = victim || (S.planets || []).find(function(p) { return p.seed === inv.planetSeed; });
+  const direct = victim || targetPlanets.find(function(p) { return p.seed === inv.planetSeed; });
   if (direct) victims.push(direct);
-  if (!direct && (S.planets || []).length > 1) {
-    const pool = (S.planets || []).filter(function(p) { return !p.forming && !(p.disabledUntil > now); });
+  if (!direct && targetPlanets.length > 1) {
+    const pool = targetPlanets.filter(function(p) { return !p.forming && !(p.disabledUntil > now); });
     const need = Math.min(tier.disablePlanets || 1, pool.length - 1);
     for (let i = 0; i < need; i++) {
       const idx = Math.floor(Math.random() * pool.length);
@@ -170,7 +187,7 @@ function applyInvasionAftermath(inv, victim) {
   const dur = (tier.disableHours || 2) * k * 3600 * 1000;
   for (const p of victims) {
     if (!p) continue;
-    if ((S.planets || []).length <= 1) break;  // последнюю планету не выключаем
+    if (targetPlanets.length <= 1) break;  // последнюю планету не выключаем
     p.disabledUntil = now + dur;
   }
 }
@@ -227,6 +244,13 @@ function tickInvasions(dt) {
     const inv = S.invasions[i];
     const tier = INVASION_CFG.tiers[inv.tierKey] || INVASION_CFG.tiers.raid;
 
+    // ★ Прайм-системы нельзя ограбить/уничтожить вторжением.
+    const invSysIdx = (typeof inv.systemIdx === 'number') ? inv.systemIdx : -1;
+    if (invSysIdx >= 0 && typeof isPrimeSystemAt === 'function' && isPrimeSystemAt(invSysIdx)) {
+      if (inv.notified) toast('🛡️ Прайм-система неприступна', 'Вторжение отступило');
+      S.invasions.splice(i, 1);
+      continue;
+    }
     // Автооборона
     if (S.nightDefenseExpiresAt > now && inv.ships) {
       let alive = 0;

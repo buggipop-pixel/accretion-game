@@ -503,6 +503,8 @@ function applyInvasionHit(tierKey, caps, kOverride) {
   const def = (S.nightConfig && S.nightConfig.defenseEnabled) ? (S.defenseLevel || 0) : 0;
   const k = (kOverride != null) ? kOverride : Math.max(0, 1 - def * (cfg.defenseLossReduction || 0.2));
   const out = { dust: 0, energy: 0, civ: 0, disabled: 0 };
+  // ★ Прайм-система неприкосновенна: никакого урона от вторжений
+  if (S.primeSystem || (typeof isPrimeSystemAt === 'function' && isPrimeSystemAt(S.activeSystemIdx))) return out;
   if (k <= 0) return out;                       // оборона ур.5 — иммунитет
 
   const now = Date.now();
@@ -555,7 +557,8 @@ function applySystemLosses(count) {
   const until = Date.now() + (INVASION_CFG.planetDisabledHours || 2) * 3600 * 1000;
   for (let i = 1; i < S.otherSystems.length && damaged < count; i++) {
     const sys = S.otherSystems[i];
-    if (sys && !(sys.damagedUntil > Date.now())) {
+    // ★ Прайм-системы не повреждаются вторжениями
+    if (sys && !(sys.damagedUntil > Date.now()) && !(typeof isPrimeSystemData === 'function' && isPrimeSystemData(sys))) {
       sys.damagedUntil = until;
       damaged++;
     }

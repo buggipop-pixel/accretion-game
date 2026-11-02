@@ -54,14 +54,12 @@ function calculateKeepCount(regularCount) {
   let minTotal = Math.max(1, Math.floor(Math.sqrt(regularCount) * 1.5));
   let maxTotal = regularCount;
 
-  // Кротовые норы увеличивают минимум: 20% / 30% / 50% обычных систем
-  if (S.primeSystem) {
-    const wormKey = S.primeSystem.objectKey;
-    const wormPct = wormKey === 'wormhole' ? 0.2 : wormKey === 'wormhole2' ? 0.3 : wormKey === 'wormhole3' ? 0.5 : 0;
-    if (wormPct > 0) {
-      const wormMin = Math.ceil(regularCount * wormPct);
-      if (wormMin > minTotal) minTotal = wormMin;
-    }
+  // Кротовые норы увеличивают минимум: 20% / 30% / 50% обычных систем.
+  // ★ Учитываем лучшую нору среди ВСЕХ прайм-систем, а не только активной.
+  const wormPct = (typeof bestPrimeWormholePct === 'function') ? bestPrimeWormholePct() : 0;
+  if (wormPct > 0) {
+    const wormMin = Math.ceil(regularCount * wormPct);
+    if (wormMin > minTotal) minTotal = wormMin;
   }
 
   minTotal = Math.min(minTotal, maxTotal);
@@ -74,8 +72,7 @@ function _systemRate(sys) {
   if (!sys) return 0;
   
   // ★ ПРАЙМ-СИСТЕМЫ ВСЕГДА В ТОПЕ (не удаляются)
-  if (sys.isPrime) return 9999999;
-  
+  if (typeof isPrimeSystemData === 'function' ? isPrimeSystemData(sys) : sys.isPrime) return 9999999;
   let sum = 0;
   const planets = sys.planets || [];
   for (let i = 0; i < planets.length; i++) {
@@ -210,20 +207,56 @@ function performSupernova(level) {
     }
   }
 
-  // 2. Разделяем системы на Прайм и Обычные
+  // 2. Разделяем системы на Прайм и Обычные.
+  //    ★ Прайм-системы сохраняются ВСЕГДА: независимо от лимита обычных
+  //    систем, от того, какая система активна, и от флага isPrime в старых сейвах.
   const primeSystems = [];
   const regularSystems = [];
-  
-  for (let i = 1; i < S.otherSystems.length; i++) {
+  const takenIdx = new Set();
+
+  // 2a. Активная система (в т.ч. родная): если на ней есть Прайм-объект,
+  //     она обязана выжить. Данные берём из живого состояния, а не из сейва.
+  if (S.primeSystem) {
+    primeSystems.push({
+      name: S.systemName || 'Родная',
+      starType: S.starType,
+      systemType: S.systemType,
+      planets: (S.planets || []).slice(),
+      incomeBonus: S.systemIncomeBonus || 0,
+      isPrime: true,
+      primeData: S.primeSystem
+    });
+    takenIdx.add(S.activeSystemIdx);
+  }
+
+  // 2b. Все остальные системы, включая родную в otherSystems[0].
+  for (let i = 0; i < S.otherSystems.length; i++) {
+    if (takenIdx.has(i)) continue;
     const sys = S.otherSystems[i];
-    if (sys && sys.planets) {
-      if (sys.isPrime) {
-        // ★ ПРАЙМ-СИСТЕМЫ СОХРАНЯЮТСЯ ВСЕГДА И НЕ СЧИТАЮТСЯ В ЛИМИТЕ
-        primeSystems.push(sys); 
-      } else {
-        regularSystems.push({ sys: sys, rate: _systemRate(sys) });
-      }
+    if (!sys || typeof sys !== 'object') continue;
+
+    const primeData = (typeof primeDataOfSystem === 'function')
+      ? primeDataOfSystem(sys)
+      : (sys.primeData || null);
+
+    if (sys.isPrime || primeData || (typeof isPrimeSystemData === 'function' && isPrimeSystemData(sys))) {
+      // ★ ПРАЙМ-СИСТЕМЫ СОХРАНЯЮТСЯ ВСЕГДА И НЕ СЧИТАЮТСЯ В ЛИМИТЕ
+      sys.isPrime = true;
+      if (primeData) sys.primeData = primeData;
+      primeSystems.push(sys);
+    } else if (sys.planets) {
+      regularSystems.push({ sys: sys, rate: _systemRate(sys) });
     }
+  }
+
+  // 2c. Защита от дублей одного и того же Прайм-объекта в списке.
+  const seenPrime = new Set();
+  for (let i = primeSystems.length - 1; i >= 0; i--) {
+    const sys = primeSystems[i];
+    const key = (sys.primeData && sys.primeData.objectKey) || (sys.primeSystem && sys.primeSystem.objectKey) || null;
+    if (!key) continue; // без ключа не рискуем удалять уникальный Прайм
+    if (seenPrime.has(key)) { primeSystems.splice(i, 1); continue; }
+    seenPrime.add(key);
   }
 
   // 3. Считаем лимит ТОЛЬКО для обычных систем

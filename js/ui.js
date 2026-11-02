@@ -431,13 +431,20 @@ function updateSystemSwitcher() {
   btn.style.display = 'flex';
 
   const list = [];
-  if (S.activeSystemIdx === 0) list.push({ idx: 0, name: S.systemName, isPrime: !!S.primeSystem, primeData: S.primeSystem });
-  else if (S.otherSystems[0]) list.push({ idx: 0, name: S.otherSystems[0].name, isPrime: S.otherSystems[0].isPrime, primeData: S.otherSystems[0].primeData });
-  else list.push({ idx: 0, name: 'Родная', isPrime: false });
+  // ★ Прайм определяется и по isPrime, и по primeData (старые сейвы)
+  const _primeOf = (sys) => (typeof primeDataOfSystem === 'function' ? primeDataOfSystem(sys) : (sys && sys.primeData) || null);
+  if (S.activeSystemIdx === 0) {
+    const pd = S.primeSystem || _primeOf(S.otherSystems[0]);
+    list.push({ idx: 0, name: S.systemName, isPrime: !!pd, primeData: pd });
+  } else if (S.otherSystems[0]) {
+    const pd = _primeOf(S.otherSystems[0]);
+    list.push({ idx: 0, name: S.otherSystems[0].name, isPrime: !!(pd || S.otherSystems[0].isPrime), primeData: pd });
+  } else list.push({ idx: 0, name: 'Родная', isPrime: false });
 
   for (let i = 1; i < S.otherSystems.length; i++) {
     if (S.otherSystems[i]) {
-      list.push({ idx: i, name: S.otherSystems[i].name, isPrime: S.otherSystems[i].isPrime, primeData: S.otherSystems[i].primeData });
+      const pd = _primeOf(S.otherSystems[i]);
+      list.push({ idx: i, name: S.otherSystems[i].name, isPrime: !!(pd || S.otherSystems[i].isPrime), primeData: pd });
     }
   }
   // ★ Убираем дублирующиеся короны из названий (для старых сейвов)

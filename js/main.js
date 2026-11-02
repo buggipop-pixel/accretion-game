@@ -474,9 +474,10 @@ let isPrime = false;
 let primeData = null;
 if (pos.idx === S.activeSystemIdx) {
 if (S.primeSystem) { isPrime = true; primeData = S.primeSystem; }
-} else if (S.otherSystems && S.otherSystems[pos.idx] && S.otherSystems[pos.idx].isPrime) {
+} else if (S.otherSystems && S.otherSystems[pos.idx] &&
+           (S.otherSystems[pos.idx].isPrime || (typeof isPrimeSystemData === 'function' && isPrimeSystemData(S.otherSystems[pos.idx])))) {
 isPrime = true;
-primeData = S.otherSystems[pos.idx].primeData;
+primeData = S.otherSystems[pos.idx].primeData || S.otherSystems[pos.idx].primeSystem || null;
 }
 // Упрощение графики (LOD) при >50 систем
 const isLowDetail = (total > 50 && !isActive && !isPrime);
