@@ -133,17 +133,32 @@ function activateSupernova() {
   const nextForm = GALAXY_FORMS[(GALAXY_FORMS.indexOf(curForm) + 1) % GALAXY_FORMS.length];
 
   // Предпросмотр сохранения.
-  // Считаем ТОЛЬКО обычные системы: прайм-системы сохраняются всегда и в лимит не входят.
-  const otherSystems = Math.max(0, (S.systems || 1) - 1);
-  let regularSystemsCount = 0;
+  // ★ Прайм-системы (в т.ч. ВСЕ системы из сундуков) сохраняются всегда
+  // и НЕ входят в лимит обычных систем. Считаем их отдельно, чтобы игрок
+  // видел честную картину и не думал, что оплаченные системы сгорят.
   const otherList = S.otherSystems || [];
-  for (let i = 1; i < otherList.length; i++) {
+  let primeCount = S.primeSystem ? 1 : 0;
+  let regularSystemsCount = 0;
+  for (let i = 0; i < otherList.length; i++) {
     const sys = otherList[i];
-    if (sys && sys.planets && !sys.isPrime) regularSystemsCount++;
+    if (!sys || typeof sys !== 'object') continue;
+    if (i === S.activeSystemIdx) {
+      // Активная система после синхронизации уйдёт в лимит, если она не Прайм.
+      if (!S.primeSystem) regularSystemsCount++;
+      continue;
+    }
+    const sysIsPrime = (typeof isPrimeSystemData === 'function')
+      ? isPrimeSystemData(sys)
+      : !!(sys.isPrime || sys.primeData);
+    if (sysIsPrime) primeCount++;
+    else if (sys.planets) regularSystemsCount++;
   }
   const keepPreview = calculateKeepCount(regularSystemsCount);
-  const wormholeKey = S.primeSystem ? S.primeSystem.objectKey : '';
-  const wormholePct = wormholeKey === 'wormhole' ? 20 : wormholeKey === 'wormhole2' ? 30 : wormholeKey === 'wormhole3' ? 50 : 0;
+  const survivingPreview = 1 + primeCount + keepPreview;
+  const lostPreview = Math.max(0, regularSystemsCount - keepPreview);
+  const wormholePct = (typeof bestPrimeWormholePct === 'function')
+    ? Math.round(bestPrimeWormholePct() * 100)
+    : 0;
   const wormholeNote = wormholePct > 0
     ? '<div class="row-stat"><span>🌀 Кротовая нора:</span><span>+' + wormholePct + '% обычных систем</span></div>'
     : '';
@@ -152,8 +167,8 @@ function activateSupernova() {
       <div class="row-stat"><span>Галактик:</span><span>${S.galaxies || 1} ➔ ${(S.galaxies || 1) + 1}</span></div>
       <div class="row-stat"><span>Множитель дохода:</span><span>×${curMult.toFixed(1)} ➔ ×${nextMult.toFixed(1)}</span></div>
       <div class="row-stat"><span>Форма галактики:</span><span>${formNames[curForm]} ➔ ${formNames[nextForm]}</span></div>
-      <div class="row-stat"><span>Систем после:</span><span>${1 + keepPreview} (родная + ${keepPreview})</span></div>
-      <div class="row-stat"><span>Потеряется:</span><span>${otherSystems - keepPreview}</span></div>
+      <div class="row-stat"><span>Систем после:</span><span>${survivingPreview} (родная + ${primeCount} прайм + ${keepPreview} обычных)</span></div>
+      <div class="row-stat"><span>Потеряется:</span><span>${lostPreview} обычных</span></div>
       ${wormholeNote}
       <div class="row-stat"><span>Металлы:</span><span>останется 50%</span></div>
       <div class="row-stat"><span>Хранилище:</span><span>сохраняется</span></div>
@@ -217,15 +232,21 @@ function performSupernova(level) {
   // 2a. Активная система (в т.ч. родная): если на ней есть Прайм-объект,
   //     она обязана выжить. Данные берём из живого состояния, а не из сейва.
   if (S.primeSystem) {
-    primeSystems.push({
+    // ★ Если Прайм стоит на активной системе, сохраняем САМ объект системы
+    // (а не пересобранную копию), чтобы не потерять поля сундучной системы.
+    const activeSys = (S.activeSystemIdx !== 0) ? S.otherSystems[S.activeSystemIdx] : null;
+    const preservedActive = (activeSys && typeof activeSys === 'object') ? activeSys : {
       name: S.systemName || 'Родная',
       starType: S.starType,
       systemType: S.systemType,
       planets: (S.planets || []).slice(),
-      incomeBonus: S.systemIncomeBonus || 0,
-      isPrime: true,
-      primeData: S.primeSystem
-    });
+      incomeBonus: S.systemIncomeBonus || 0
+    };
+    preservedActive.name = preservedActive.name || S.systemName || 'Родная';
+    preservedActive.planets = preservedActive.planets || (S.planets || []).slice();
+    preservedActive.isPrime = true;
+    preservedActive.primeData = S.primeSystem;
+    primeSystems.push(preservedActive);
     takenIdx.add(S.activeSystemIdx);
   }
 
@@ -249,15 +270,9 @@ function performSupernova(level) {
     }
   }
 
-  // 2c. Защита от дублей одного и того же Прайм-объекта в списке.
-  const seenPrime = new Set();
-  for (let i = primeSystems.length - 1; i >= 0; i--) {
-    const sys = primeSystems[i];
-    const key = (sys.primeData && sys.primeData.objectKey) || (sys.primeSystem && sys.primeSystem.objectKey) || null;
-    if (!key) continue; // без ключа не рискуем удалять уникальный Прайм
-    if (seenPrime.has(key)) { primeSystems.splice(i, 1); continue; }
-    seenPrime.add(key);
-  }
+  // 2c. Дубли Прайм-систем НЕ удаляем: каждая оплаченная система из сундука
+  //     обязана выжить при вспышке, даже если объекты совпадают. Дубликат
+  //     активной системы уже исключён через takenIdx выше.
 
   // 3. Считаем лимит ТОЛЬКО для обычных систем
   const keepRegularCount = calculateKeepCount(regularSystems.length);
