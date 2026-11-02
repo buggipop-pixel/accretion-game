@@ -104,6 +104,7 @@ function makeDevice(server, opts) {
       isResetting: false,
       addEventListener() {},
       confirm: () => true,
+      location: { hash: cfg.hash || '', search: cfg.search || '' },
     },
     Promise,
     JSON,
@@ -122,7 +123,7 @@ function makeDevice(server, opts) {
   // ★ По умолчанию мы в Telegram; cfg.telegram=false — обычный браузер.
   if (cfg.telegram !== false) {
     context.window.Telegram = {
-      WebApp: { initData: 'mock-init-data' },
+      WebApp: { initData: cfg.initData === undefined ? 'mock-init-data' : cfg.initData },
     };
   }
 
@@ -230,6 +231,57 @@ function settle() {
   assert('Браузер: автосохранение в облако отключено', brAuto === false);
   assert('Браузер: saveGame() не создаёт фантомных сейвов',
     browserServer.requests.length === 0);
+
+  assert('Браузер: предупреждение показано один раз',
+    Browser.toasts.filter((t) => String(t.message).indexOf('браузере') >= 0).length === 1);
+
+  // 6в. initData появляется с задержкой — sync должен дождаться
+  const delayedServer = makeServer();
+  delayedServer.data = { stage: 'star', lastTick: 9, dust: 321 };
+  delayedServer.saved_at = 1700000000000;
+  delayedServer.version = 2;
+  const Delayed = makeDevice(delayedServer, {
+    initData: '',
+    knownVersion: 2,
+    initialSave: { stage: 'star', lastTick: 1, dust: 0 },
+  });
+  setTimeout(function() {
+    Delayed.context.window.Telegram.WebApp.initData = 'mock-init-data';
+  }, 100);
+  const delayedSync = await Delayed.context.window.syncCloudOnStart();
+  assert('Telegram: initData с задержкой — дождались и применили',
+    delayedSync === true && Delayed.S.dust === 321);
+
+  // 6г. Telegram SDK не загрузился, но tgWebAppData есть в URL
+  const urlServer = makeServer();
+  urlServer.data = { stage: 'star', lastTick: 9, dust: 654 };
+  urlServer.saved_at = 1700000000000;
+  urlServer.version = 2;
+  const Url = makeDevice(urlServer, {
+    telegram: false,
+    hash: '#tgWebAppData=mock-init-data&tgWebAppVersion=7.0',
+    initialSave: { stage: 'star', lastTick: 1, dust: 0 },
+  });
+  const urlSync = await Url.context.window.syncCloudOnStart();
+  assert('Telegram SDK заблокирован: initData взят из URL',
+    urlSync === true && Url.S.dust === 654);
+  assert('Telegram SDK заблокирован: нет ложного тоста про браузер',
+    !Url.toasts.some((t) => String(t.message).indexOf('браузере') >= 0));
+
+  // 6д. SDK загружен в обычном браузере, но initData пуст — это всё ещё браузер
+  const browserSdkServer = makeServer();
+  browserSdkServer.data = { stage: 'star', lastTick: 9, dust: 777 };
+  browserSdkServer.version = 1;
+  const BrowserSdk = makeDevice(browserSdkServer, {
+    telegram: true,
+    initData: '',
+    initialSave: { stage: 'star', lastTick: 1, dust: 42 },
+  });
+  const brSdkSync = await BrowserSdk.context.window.syncCloudOnStart();
+  assert('Браузер с загруженным SDK: облако не тронуто',
+    brSdkSync === false && BrowserSdk.S.dust === 42 && browserSdkServer.requests.length === 0);
+  assert('Браузер с загруженным SDK: тост про браузер, а не VPN',
+    BrowserSdk.toasts.some((t) => String(t.message).indexOf('браузере') >= 0));
 
   // 6б. ★ После сброса два вызова syncCloudOnStart не должны вернуть старый сейв
   const resetServer = makeServer();

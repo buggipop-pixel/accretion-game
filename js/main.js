@@ -761,12 +761,28 @@ if (typeof loadGame === 'function') loadGame();
   }
 // ★ Отложенный старт: даём Telegram WebApp SDK время инициализироваться,
 // иначе initData ещё пуст и синхронизация падает с «Нет initData».
-setTimeout(function() {
-  console.log('=== СТАРТ ИГРЫ ===');
-  console.log('Локальный ник:', S.playerName);
-  console.log('Локальная фаза:', S.stage);
-  if (typeof syncCloudOnStart === 'function') syncCloudOnStart();
-}, 1000);
+// ★ Telegram внедряет initData не мгновенно. Сначала ready()/expand(),
+// затем даём WebApp 500 мс; вне Telegram — обычная пауза 1000 мс.
+const tgBoot = window.Telegram && window.Telegram.WebApp;
+if (tgBoot) {
+  try {
+    if (tgBoot.ready) tgBoot.ready();
+    if (tgBoot.expand) tgBoot.expand();
+  } catch (e) { /* старые клиенты */ }
+  setTimeout(function() {
+    console.log('=== СТАРТ ИГРЫ ===');
+    console.log('Локальный ник:', S.playerName);
+    console.log('Локальная фаза:', S.stage);
+    if (typeof syncCloudOnStart === 'function') syncCloudOnStart();
+  }, 500);
+} else {
+  setTimeout(function() {
+    console.log('=== СТАРТ ИГРЫ ===');
+    console.log('Локальный ник:', S.playerName);
+    console.log('Локальная фаза:', S.stage);
+    if (typeof syncCloudOnStart === 'function') syncCloudOnStart();
+  }, 1000);
+}
 if (typeof acInit === 'function') acInit();
 resize();
 if (typeof initParticles === 'function') initParticles();

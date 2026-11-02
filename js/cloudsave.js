@@ -46,15 +46,50 @@ function getSaveKey() {
   }
 }
 
-// ★ Единственная проверка «мы действительно в Telegram?».
-// В обычном браузере window.Telegram отсутствует (или initData пуст),
-// поэтому облако должно молчать — иначе сервер отвечает 401.
-function isTelegramEnvironment() {
+// ★ Мы внутри Telegram, даже если SDK ещё не успел загрузиться?
+// Telegram добавляет tgWebAppData в hash — это надёжный признак мини-приложения.
+function hasTelegramLaunchContext() {
   try {
-    return !!(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData);
+    // initData уже есть — мы точно в Telegram.
+    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) return true;
+    const loc = window.location || {};
+    const haystack = String(loc.hash || '') + '&' + String(loc.search || '');
+    return haystack.indexOf('tgWebAppData') !== -1;
   } catch (e) {
     return false;
   }
+}
+
+// SDK может быть загружен и в обычном браузере — сам по себе он не доказывает,
+// что игра открыта внутри Telegram.
+function hasTelegramSdk() {
+  try {
+    return !!(window.Telegram && window.Telegram.WebApp);
+  } catch (e) {
+    return false;
+  }
+}
+
+// ★ Запасной путь: если CDN с Telegram SDK не загрузился (например, блокировка),
+// initData можно достать прямо из URL мини-приложения. Подпись всё равно
+// проверяет сервер, поэтому подменить её нельзя.
+function getInitDataFromUrl() {
+  try {
+    const loc = window.location || {};
+    const sources = [String(loc.hash || ''), String(loc.search || '')];
+    for (let i = 0; i < sources.length; i++) {
+      let s = sources[i];
+      if (s.charAt(0) === '#' || s.charAt(0) === '?') s = s.slice(1);
+      const parts = s.split('&');
+      for (let j = 0; j < parts.length; j++) {
+        const eq = parts[j].indexOf('=');
+        if (eq === -1) continue;
+        if (parts[j].slice(0, eq) !== 'tgWebAppData') continue;
+        return decodeURIComponent(parts[j].slice(eq + 1));
+      }
+    }
+  } catch (e) { /* ignore */ }
+  return '';
 }
 
 function getTgInitData() {
@@ -65,16 +100,39 @@ function getTgInitData() {
     }
   } catch (e) { /* ignore */ }
 
-  // Предупреждаем один раз, а не на каждый вызов — и НЕ идём на сервер.
-  if (!window.__cloudNoTgWarned) {
-    window.__cloudNoTgWarned = true;
-    console.warn('[CloudSave] Telegram initData недоступен. Облачные сохранения отключены.');
-  }
-  return '';
+  // SDK мог быть заблокирован — пробуем данные из URL.
+  return getInitDataFromUrl();
+}
+
+function isTelegramEnvironment() {
+  return hasTelegramLaunchContext() && !!getTgInitData();
 }
 
 function isCloudAvailable() {
-  return isTelegramEnvironment() && !!getTgInitData();
+  return isTelegramEnvironment();
+}
+
+// Ждём, пока Telegram внедрит initData (обычно 100–500 мс, но бывает дольше).
+function waitForTgInitData(timeoutMs) {
+  const limit = typeof timeoutMs === 'number' ? timeoutMs : 2000;
+  return new Promise(function(resolve) {
+    const started = Date.now();
+    (function poll() {
+      const data = getTgInitData();
+      if (data) return resolve(data);
+      if (Date.now() - started >= limit) return resolve('');
+      setTimeout(poll, 200);
+    })();
+  });
+}
+
+// Показываем уведомление один раз, чтобы main.js + load не дублировали тосты.
+function showCloudNotice(key, title, message) {
+  try {
+    if (window[key]) return;
+    window[key] = true;
+  } catch (e) { /* ignore */ }
+  if (typeof toast === 'function') toast(title, message);
 }
 
 // ★ Сброс прогресса в процессе? (флаг живёт в памяти и переживает перезагрузку в localStorage)
@@ -394,24 +452,37 @@ async function syncCloudOnStart() {
     }
   } catch (e) { /* sessionStorage недоступен */ }
 
-  // ★ ЖЁСТКАЯ БЛОКИРОВКА БЕЗ TELEGRAM:
-  // в обычном браузере не грузим и не сохраняем облако вообще.
-  if (!window.Telegram || !window.Telegram.WebApp || !window.Telegram.WebApp.initData) {
-    console.warn('[Sync] Игра запущена вне Telegram. Облачная синхронизация отключена.');
-    if (typeof toast === 'function') {
-      toast('⚠️ Внимание', 'Вы играете в браузере. Прогресс не будет синхронизирован!');
-    }
-    return false;
-  }
-
-  const initData = getTgInitData();
-  if (!initData) return false;
-
-  // Защита от двойного запуска (main.js + событие load)
+  // Защита от двойного запуска (main.js + событие load) — ставим ДО ожидания,
+  // иначе два вызова могут одновременно ждать initData и дублировать тосты.
   if (syncCloudOnStart._running) return false;
   syncCloudOnStart._running = true;
 
   try {
+    // ★ Внутри Telegram SDK может быть ещё не готов, но tgWebAppData уже в URL.
+    const launchedFromTelegram = hasTelegramLaunchContext();
+    const sdkLoaded = hasTelegramSdk();
+    let initData = getTgInitData();
+
+    // Если SDK загружен, но initData пуст — даём Telegram время его внедрить.
+    if (!initData && (launchedFromTelegram || sdkLoaded)) {
+      console.log('[Sync] initData пуст. Ждём инициализации Telegram SDK...');
+      initData = await waitForTgInitData(launchedFromTelegram ? 2000 : 1200);
+    }
+
+    if (!initData) {
+      if (launchedFromTelegram) {
+        console.warn('[Sync] Все еще нет initData. Возможно, скрипт Telegram не загрузился (блокировка РКН).');
+        showCloudNotice('__cloudTgErrorShown', '⚠️ Ошибка сети',
+          'Не удалось получить данные от Telegram. Проверьте VPN.');
+      } else {
+        console.warn('[Sync] Игра запущена вне Telegram. Облачная синхронизация отключена.');
+        showCloudNotice('__cloudBrowserWarned', '⚠️ Внимание',
+          'Вы играете в браузере. Прогресс не будет синхронизирован!');
+      }
+      return false;
+    }
+
+    console.log('[Sync] initData получен, длина:', initData.length);
     console.log('[Sync] Запрос облачного сейва...');
     const res = await fetch(CLOUD_API + '/api/load', {
       method: 'POST',
@@ -421,6 +492,8 @@ async function syncCloudOnStart() {
 
     if (res.status === 401) {
       console.warn('[Sync] Сервер отклонил initData (401). Играем локально.');
+      showCloudNotice('__cloudAuthErrorShown', '⛔ Ошибка входа',
+        'Telegram отклонил данные. Перезапустите мини-приложение.');
       return false;
     }
 
@@ -433,7 +506,7 @@ async function syncCloudOnStart() {
     }
 
     const cloudData = json.data;
-    if (typeof cloudData !== 'object') {
+    if (!cloudData || typeof cloudData !== 'object') {
       console.warn('[Sync] Облачный сейв повреждён, применяем локальный.');
       return false;
     }
@@ -462,6 +535,7 @@ async function syncCloudOnStart() {
     return true;
   } catch (e) {
     console.warn('[CloudSave] Ошибка сети при загрузке:', e);
+    showCloudNotice('__cloudServerErrorShown', '⚠️ Ошибка', 'Сервер Render недоступен');
   } finally {
     syncCloudOnStart._running = false;
   }
