@@ -242,7 +242,20 @@ function localProgressIsAhead(local, cloud) {
 function backupLocalSave() {
   try {
     const prev = localStorage.getItem(getSaveKey());
-    if (prev) localStorage.setItem(CLOUD_BACKUP_KEY, prev);
+    if (!prev) return;
+
+    const existing = localStorage.getItem(CLOUD_BACKUP_KEY);
+    // ★ Не затираем хороший бэкап более слабым сейвом: иначе после
+    // нескольких запусков единственная копия старого прогресса исчезнет.
+    if (existing) {
+      try {
+        const prevData = JSON.parse(prev);
+        const oldData = JSON.parse(existing);
+        if (oldData && !localProgressIsAhead(prevData, oldData)) return;
+      } catch (e) { /* битый бэкап — заменяем */ }
+    }
+
+    localStorage.setItem(CLOUD_BACKUP_KEY, prev);
   } catch (e) { /* нет места — не критично */ }
 }
 

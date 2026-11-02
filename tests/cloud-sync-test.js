@@ -395,6 +395,23 @@ function settle() {
   assert('Миграция: локальный прогресс записан на сервер',
     aheadServer.data.stage === 'galaxy' && aheadServer.data.dust === 5000 && aheadServer.version === 3);
 
+  // 6л. ★ Хороший бэкап не затирается более слабым сейвом при следующих запусках
+  const keepBackupServer = makeServer();
+  keepBackupServer.data = { stage: 'system', lastTick: 9, dust: 100, dustTotal: 100 };
+  keepBackupServer.saved_at = 1700000000000;
+  keepBackupServer.version = 3;
+  const Keep = makeDevice(keepBackupServer, {
+    knownVersion: 2,
+    initialSave: { stage: 'system', lastTick: 1, dust: 50, dustTotal: 50 },
+  });
+  Keep.localStorage.setItem('accretion_local_backup', JSON.stringify({
+    stage: 'galaxy', lastTick: 2, dust: 99999, dustTotal: 99999,
+  }));
+  await Keep.context.window.syncCloudOnStart();
+  const keptBackup = JSON.parse(Keep.localStorage.getItem('accretion_local_backup'));
+  assert('Бэкап: сильный бэкап не затёрт слабым сейвом',
+    keptBackup && keptBackup.stage === 'galaxy' && keptBackup.dust === 99999);
+
   // 7. saveGame() сам отправляет сейв в облако (без ручного вызова)
   const liveServer = makeServer();
   const L = makeDevice(liveServer, { initialSave: { stage: 'star', lastTick: 1, dust: 5 } });
