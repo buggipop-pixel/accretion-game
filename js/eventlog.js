@@ -38,6 +38,17 @@ const EVENT_ICONS = {
   // Прочее
   offline_income:     '💤',
   milestone:          '🎯',
+  random_event:       '🎲',
+  random_event_win:   '🏆',
+  random_event_fail:  '💀',
+  weekly_event:       '🌟',
+  weekly_event_buff:  '🌟',
+  weekly_event_debuff:'🌑',
+  weekly_event_mixed: '🎭',
+  world_event:        '🌍',
+  world_event_buff:   '🌿',
+  world_event_debuff: '☠️',
+  world_event_mixed:  '🎭',
 };
 
 const EVENT_COLORS = {
@@ -60,6 +71,17 @@ const EVENT_COLORS = {
   prime_found:       '#ffcc55',
   offline_income:    '#a89ce0',
   milestone:         '#ffcc55',
+  random_event:      '#7ec8e3',
+  random_event_win:  '#7ee0a8',
+  random_event_fail: '#ff5e5e',
+  weekly_event:      '#ffcc55',
+  weekly_event_buff: '#ffcc55',
+  weekly_event_debuff:'#ff5e5e',
+  weekly_event_mixed:'#ffb347',
+  world_event:       '#b9a8ff',
+  world_event_buff:  '#7ee0a8',
+  world_event_debuff:'#ff5e5e',
+  world_event_mixed: '#ffb347',
 };
 
 // Иконки типов планет для строк журнала.

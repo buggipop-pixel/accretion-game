@@ -708,7 +708,7 @@ const eGain = safeEnergyPerSec() * dt;
 const actualEGain = Math.min(energyCap - S.energy, eGain);
 if (actualEGain > 0) S.energy = (S.energy || 0) + actualEGain;
 }
-const metalGain = safeMetalsPerSec() * dt;
+const metalGain = safeMetalsPerSec() * dt * ((typeof eventMult === 'function') ? eventMult('metals') : 1);
 if (metalGain > 0) {
   const mCap = (typeof metalsCap === 'function') ? metalsCap() : Infinity;
   // ★ Не «срезаем» уже накопленное, если кап оказался ниже запаса.
@@ -727,47 +727,7 @@ if (typeof tickInvasions === 'function') tickInvasions(dt);
 if (typeof checkEvolution === 'function') checkEvolution();
 if (typeof checkAchievements === 'function') checkAchievements();
 if (typeof tickProtostar === 'function') tickProtostar(dt);
-if (typeof checkGlobalEvents === 'function') checkGlobalEvents();
-
-// ═══ СЛУЧАЙНЫЕ СОБЫТИЯ: спавн раз в сутки и тик активного события ═══
-if (!window.activeRandomEvent) window.activeRandomEvent = null;
-
-// Спавн (раз в сутки, 40% шанс)
-if (!window.activeRandomEvent && typeof RANDOM_EVENTS !== 'undefined' &&
-    now - (S.lastRandomEvent || 0) > 24 * 3600 * 1000) {
-  if (Math.random() < 0.4) {
-    S.lastRandomEvent = now;
-    const evt = RANDOM_EVENTS[Math.floor(Math.random() * RANDOM_EVENTS.length)];
-    if (typeof triggerRandomEvent === 'function') triggerRandomEvent(evt);
-  }
-}
-
-// Тик активного события
-if (window.activeRandomEvent) {
-  const evt = window.activeRandomEvent;
-  evt.timeLeft -= dt;
-
-  // Урон от флота для боссов
-  if (evt.type === 'boss' && evt.hp > 0 && S.fleetActive && S.fleet) {
-    let fleetDps = 0;
-    for (const key in S.fleet) {
-      const shipCfg = FLEET_CFG.ships[key];
-      if (shipCfg && S.fleet[key] > 0) fleetDps += S.fleet[key] * shipCfg.damage * shipCfg.fireRate;
-    }
-    evt.hp -= fleetDps * dt;
-  }
-
-  if (typeof updateRandomEventUI === 'function') updateRandomEventUI();
-
-  // Проверка на успех/провал
-  if (evt.type === 'boss' && evt.hp <= 0) {
-    if (typeof resolveRandomEvent === 'function') resolveRandomEvent(true);
-  } else if (evt.type === 'tap' && evt.taps >= evt.tapsRequired) {
-    if (typeof resolveRandomEvent === 'function') resolveRandomEvent(true);
-  } else if (evt.timeLeft <= 0) {
-    if (typeof resolveRandomEvent === 'function') resolveRandomEvent(false);
-  }
-}
+if (typeof checkRandomEvents === 'function') checkRandomEvents(dt);
 // Магазин систем — подсказка
 if (S.stage === 'galaxy' && typeof systemShopCosts === 'function') {
 const shopCostObj = systemShopCosts();
@@ -972,6 +932,7 @@ if (offline && typeof checkFirstNightShield === 'function') {
 checkFirstNightShield(offline.seconds);
 }
 if (typeof updateUI === 'function') updateUI();
+if (typeof restoreRandomEvent === 'function') restoreRandomEvent();
 if (typeof updateSystemSwitcher === 'function') updateSystemSwitcher();
 function bootLoop() { requestAnimationFrame(loop); }
 function afterBootLore() {
@@ -1002,34 +963,9 @@ window.addEventListener('beforeunload', function() {
 if (typeof saveGame === 'function') saveGame();
 });
 // ═══════════════════════════════════════════════════════════════
-//  ГЛОБАЛЬНЫЕ СОБЫТИЯ
 // ═══════════════════════════════════════════════════════════════
-function checkGlobalEvents() {
-if (typeof EVENT_CFG === 'undefined' || !EVENT_CFG.types || !EVENT_CFG.interval) return;
-const now = Date.now();
-if (S.activeEvent) {
-if (now > S.activeEvent.endsAt) {
-S.activeEvent = null;
-if (typeof updateUI === 'function') updateUI();
-}
-return;
-}
-if (!S.lastEventAt) S.lastEventAt = now;
-if (now - S.lastEventAt > EVENT_CFG.interval) {
-const type = EVENT_CFG.types[Math.floor(Math.random() * EVENT_CFG.types.length)];
-const duration = EVENT_CFG.durationMin + Math.random() * (EVENT_CFG.durationMax - EVENT_CFG.durationMin);
-S.activeEvent = {
-id: type.id,
-endsAt: now + duration
-};
-S.lastEventAt = now;
-if (typeof toast === 'function') toast(type.icon + ' ' + type.name, type.desc);
-if (typeof addEvent === 'function') {
-addEvent('milestone', 'Событие: ' + type.name);
-}
-if (typeof playSFX === 'function') playSFX('ui_levelup');
-if (typeof saveGame === 'function') saveGame();
-}
-}
+//  СЛУЧАЙНЫЕ СОБЫТИЯ
+//  Вся логика — в js/random-events.js (daily + weekly world events).
+// ═══════════════════════════════════════════════════════════════
 // Запуск приложения
 start();

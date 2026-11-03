@@ -343,21 +343,132 @@ const CHEST_CFG = {
 };
 
 // ─── СЛУЧАЙНЫЕ СОБЫТИЯ ───
-// Боссы требуют тапов, а активный флот наносит им урон автоматически.
-// Провал (время вышло) даёт штраф; позитивные события срабатывают сразу.
-const RANDOM_EVENTS = [
-  // БОССЫ (требуют тапов + флот помогает)
-  { id: 'leviathan', type: 'boss', title: 'Космический Левиафан', desc: 'Огромный организм атакует систему!', hp: 1000, tapDamage: 5, rewardDust: 50000, penalty: 'destroy_planet', timeLimit: 60 },
-  { id: 'wandering_bh', type: 'boss', title: 'Блуждающая Чёрная Дыра', desc: 'Искажает пространство! Уничтожьте её или потеряете планету.', hp: 2000, tapDamage: 2, rewardDust: 100000, penalty: 'destroy_planet', timeLimit: 90 },
-  { id: 'wandering_magnetar', type: 'boss', title: 'Блуждающий Магнетар', desc: 'Магнитное поле высасывает энергию!', hp: 1500, tapDamage: 3, rewardEnergy: 5000, penalty: 'drain_energy', timeLimit: 60 },
+// Единая подсистема: ежедневные события (интерактивные, мгновенные и
+// «мировые» баффы/дебаффы) и еженедельные «убер»-события.
+// Всё, что раньше было отдельными «глобальными событиями», теперь живёт здесь.
+//
+// kind: boss   — босс, тапы + урон флота, таймер
+//       tap    — только тапы
+//       good   — мгновенная награда
+//       bad    — мгновенный штраф
+//       world  — временный мировой модификатор (mods)
+//       choice — выбор из 2–3 вариантов (риск/награда)
+// mods: allMult / dustMult / energyMult / civMult / metalsMult / clickMult /
+//       cometMult / expeditionMult — перемножаются для всех активных событий.
+const EVENTS_CFG = {
+  daily: {
+    chance: 0.7,          // шанс события в сутки (один бросок на день)
+    minStage: 'system',   // не спавним раньше системы
+    pool: [
+      // ── БОССЫ ──────────────────────────────────────────────────
+      { id: 'leviathan', kind: 'boss', weight: 6, icon: '🐙', color: '#ff6b6b', title: 'Космический Левиафан', desc: 'Огромный организм атакует систему. Уничтожьте его!', hp: 900, tapDamage: 6, timeLimit: 60, reward: { dust: 50000, dustHours: 1, metals: 300 }, penalty: { destroyPlanets: 1 } },
+      { id: 'wandering_bh', kind: 'boss', weight: 4, icon: '🕳️', color: '#b9a8ff', title: 'Блуждающая Чёрная Дыра', desc: 'Искажает пространство и пожирает планеты.', hp: 1800, tapDamage: 3, timeLimit: 90, reward: { dust: 100000, dustHours: 2 }, penalty: { destroyPlanets: 1 } },
+      { id: 'wandering_magnetar', kind: 'boss', weight: 5, icon: '🧲', color: '#7ec8e3', title: 'Блуждающий Магнетар', desc: 'Магнитное поле высасывает энергию из систем.', hp: 1400, tapDamage: 4, timeLimit: 75, reward: { energy: 5000, energyHours: 2 }, penalty: { energyPct: 0.5 } },
+      { id: 'void_kraken', kind: 'boss', weight: 3, icon: '🦑', color: '#8b7fd4', title: 'Кракен Пустоты', desc: 'Щупальца тянутся к вашим планетам.', hp: 2500, tapDamage: 3, timeLimit: 100, reward: { dust: 120000, dustHours: 2, metals: 800 }, penalty: { disablePlanetHours: 2 } },
+      { id: 'rogue_dreadnought', kind: 'boss', weight: 3, icon: '🛸', color: '#ff9944', title: 'Мятежный дредноут', desc: 'Автономный корабль-убийца вышел на охоту.', hp: 2200, tapDamage: 4, timeLimit: 90, reward: { metals: 1500, energy: 8000 }, penalty: { metalsPct: 0.25 } },
+      { id: 'crystal_tyrant', kind: 'boss', weight: 2, icon: '💎', color: '#7ee0a8', title: 'Кристаллический тиран', desc: 'Живой кристалл поглощает свет звёзд.', hp: 3200, tapDamage: 2, timeLimit: 120, reward: { dust: 180000, dustHours: 3, civ: 3 }, penalty: { destroyPlanets: 1 } },
 
-  // АКТИВНЫЕ УГРОЗЫ (только тапы)
-  { id: 'meteor_shower', type: 'tap', title: 'Метеоритный дождь', desc: 'Тапайте, чтобы сбить осколки!', tapsRequired: 50, rewardDust: 5000, penalty: 'damage_planet' },
+      // ── АКТИВНЫЕ УГРОЗЫ (ТОЛЬКО ТАПЫ) ─────────────────────────
+      { id: 'meteor_shower', kind: 'tap', weight: 6, icon: '☄️', color: '#ffb347', title: 'Метеоритный дождь', desc: 'Тапайте, чтобы сбить осколки!', tapsRequired: 50, timeLimit: 60, reward: { dust: 5000, dustHours: 0.5 }, penalty: { disablePlanetHours: 1 } },
+      { id: 'pirate_raid', kind: 'tap', weight: 5, icon: '🏴‍☠️', color: '#ff9944', title: 'Пиратский налёт', desc: 'Отгоните рейдеров тапами!', tapsRequired: 40, timeLimit: 55, reward: { metals: 700 }, penalty: { metalsPct: 0.15 } },
+      { id: 'nanite_swarm', kind: 'tap', weight: 4, icon: '🦠', color: '#7ee0a8', title: 'Рой нанитов', desc: 'Сожмите рой, пока он не сожрал энергию.', tapsRequired: 70, timeLimit: 70, reward: { energy: 4000 }, penalty: { energyPct: 0.3 } },
+      { id: 'solar_flare_tap', kind: 'tap', weight: 4, icon: '🔥', color: '#ffcc55', title: 'Солнечная вспышка', desc: 'Сбейте плазменные выбросы тапами!', tapsRequired: 60, timeLimit: 65, reward: { dust: 20000, energy: 2000 }, penalty: { worldEvent: 'dust_drought', durationHours: 2 } },
 
-  // ПОЗИТИВНЫЕ (автоматические)
-  { id: 'derelict_ship', type: 'good', title: 'Заброшенный корабль', desc: 'Найден старый крейсер.', rewardMetals: 500 },
-  { id: 'solar_flare', type: 'good', title: 'Солнечная вспышка', desc: 'Временный буст дохода!', buff: 'income', duration: 3600000 }
-];
+      // ── МГНОВЕННЫЕ НАГРАДЫ ─────────────────────────────────────
+      { id: 'derelict_ship', kind: 'good', weight: 8, icon: '🚀', color: '#7ec8e3', title: 'Заброшенный корабль', desc: 'Найден старый крейсер. Металл ещё пригодится.', reward: { metals: 500, metalsHours: 1 } },
+      { id: 'supply_convoy', kind: 'good', weight: 7, icon: '📦', color: '#7ee0a8', title: 'Караван снабжения', desc: 'Торговый конвой сбросил контейнеры с энергией.', reward: { energy: 3000, energyHours: 1 } },
+      { id: 'ancient_cache', kind: 'good', weight: 6, icon: '🗝️', color: '#ffcc55', title: 'Древний тайник', desc: 'В астероиде спрятан запас пыли.', reward: { dust: 25000, dustHours: 1 } },
+      { id: 'refugee_fleet', kind: 'good', weight: 5, icon: '🛖', color: '#b9a8ff', title: 'Флот беженцев', desc: 'Беженцы просят убежища и вливаются в цивилизацию.', reward: { civ: 3, civHours: 4 } },
+      { id: 'comet_shard', kind: 'good', weight: 6, icon: '🌠', color: '#7ec8e3', title: 'Осколок кометы', desc: 'Обломок кометы упал прямо в систему.', reward: { dust: 15000, dustHours: 1 } },
+      { id: 'trophy_beacon', kind: 'good', weight: 1, icon: '🏆', color: '#ffcc55', title: 'Трофейный маяк', desc: 'Сигнал древнего контракта. Награда ждёт.', reward: { trophy: 'insane' } },
+      { id: 'gas_cloud', kind: 'good', weight: 5, icon: '🌫️', color: '#7ec8e3', title: 'Газовое облако', desc: 'Плотное облако можно переработать в топливо.', reward: { energy: 2000, metals: 300 } },
+      { id: 'quantum_lab', kind: 'good', weight: 4, icon: '🔬', color: '#b9a8ff', title: 'Квантовая лаборатория', desc: 'Брошенная станция с работающим реактором.', reward: { civ: 2, energy: 1500 } },
+      { id: 'scavenger_haul', kind: 'good', weight: 5, icon: '🛠️', color: '#ffb347', title: 'Улов мусорщиков', desc: 'Разобранный корпус дал много металла.', reward: { metals: 1000 } },
+
+      // ── МГНОВЕННЫЕ ШТРАФЫ ──────────────────────────────────────
+      { id: 'reactor_meltdown', kind: 'bad', weight: 3, icon: '⚠️', color: '#ff5e5e', title: 'Расплавление реактора', desc: 'Скачок напряжения сжёг часть запасов энергии.', penalty: { energyPct: 0.25 } },
+      { id: 'smuggler_tax', kind: 'bad', weight: 4, icon: '💰', color: '#ff9944', title: 'Налог контрабандистов', desc: 'Контрабандисты забрали часть металла «за проход».', penalty: { metalsPct: 0.2 } },
+      { id: 'corsair_raid', kind: 'bad', weight: 4, icon: '⚔️', color: '#ff5e5e', title: 'Корсарский рейд', desc: 'Одна из планет выведена из строя на час.', penalty: { disablePlanetHours: 1 } },
+      { id: 'ion_storm_raid', kind: 'bad', weight: 3, icon: '🌩️', color: '#8b7fd4', title: 'Ионный шторм', desc: 'Помехи снижают выработку энергии на 3 часа.', penalty: { worldEvent: 'energy_leak', durationHours: 3 } },
+      { id: 'dust_drought_raid', kind: 'bad', weight: 3, icon: '🌵', color: '#ffb347', title: 'Пылевая засуха', desc: 'Потоки пыли ослабевают на 3 часа.', penalty: { worldEvent: 'dust_drought', durationHours: 3 } },
+
+      // ── МИРОВЫЕ БАФФЫ И ДЕБАФФЫ ────────────────────────────────
+      { id: 'trade_boom', kind: 'world', weight: 6, icon: '📈', color: '#7ee0a8', title: 'Торговый бум', desc: 'Доход пыли +60% на 2 часа.', durationHours: 2, mods: { dustMult: 1.6 } },
+      { id: 'solar_wind', kind: 'world', weight: 5, icon: '💨', color: '#7ec8e3', title: 'Солнечный ветер', desc: 'Выработка энергии +80% на 2 часа.', durationHours: 2, mods: { energyMult: 1.8 } },
+      { id: 'renaissance', kind: 'world', weight: 4, icon: '🎭', color: '#b9a8ff', title: 'Ренессанс', desc: 'Рост цивилизации +100% на 3 часа.', durationHours: 3, mods: { civMult: 2.0 } },
+      { id: 'forge_fever', kind: 'world', weight: 4, icon: '⚒️', color: '#ffb347', title: 'Кузнечная лихорадка', desc: 'Добыча металла +100% на 3 часа.', durationHours: 3, mods: { metalsMult: 2.0 } },
+      { id: 'lucky_star', kind: 'world', weight: 3, icon: '🍀', color: '#ffcc55', title: 'Счастливая звезда', desc: 'Награды комет +100% на 4 часа.', durationHours: 4, mods: { cometMult: 2.0 } },
+      { id: 'golden_hour', kind: 'world', weight: 3, icon: '🌟', color: '#ffcc55', title: 'Золотой час', desc: 'Весь доход +40% на 1 час.', durationHours: 1, mods: { allMult: 1.4 } },
+      { id: 'neural_boost', kind: 'world', weight: 4, icon: '🧠', color: '#b9a8ff', title: 'Нейроусиление', desc: 'Доход от кликов +100% на 2 часа.', durationHours: 2, mods: { clickMult: 2.0 } },
+      { id: 'dust_drought', kind: 'world', weight: 2, icon: '🌵', color: '#ff9944', title: 'Пылевая засуха', desc: 'Доход пыли −35% на 3 часа.', durationHours: 3, mods: { dustMult: 0.65 } },
+      { id: 'energy_leak', kind: 'world', weight: 2, icon: '🕳️', color: '#8b7fd4', title: 'Утечка энергии', desc: 'Выработка энергии −40% на 3 часа.', durationHours: 3, mods: { energyMult: 0.6 } },
+
+      // ── ВЫБОР (РИСК / НАГРАДА) ─────────────────────────────────
+      {
+        id: 'distress_signal', kind: 'choice', weight: 5, icon: '📡', color: '#7ec8e3', title: 'Сигнал бедствия',
+        desc: 'Неизвестный корабль просит о помощи. Ответить?',
+        options: [
+          { id: 'help', label: 'Помочь', desc: 'Потратить 10% энергии. Шанс 65% на большой куш.', cost: { energyPct: 0.1 }, chance: 0.65, success: { dust: 60000, dustHours: 2, metals: 500 }, fail: { energyPct: 0.15 } },
+          { id: 'ignore', label: 'Игнорировать', desc: 'Без риска и без награды.', chance: 1, success: {} }
+        ]
+      },
+      {
+        id: 'black_market', kind: 'choice', weight: 4, icon: '🕶️', color: '#ff9944', title: 'Чёрный рынок',
+        desc: 'Торговец предлагает ящик «неизвестного происхождения».',
+        options: [
+          { id: 'buy', label: 'Купить (800 ⚙)', desc: '70% — редкая добыча, 30% — пустышка.', cost: { metals: 800 }, chance: 0.7, success: { dust: 75000, dustHours: 2, civ: 1 }, fail: { metalsPct: 0.1 } },
+          { id: 'pass', label: 'Пройти мимо', desc: 'Лучше не связываться.', chance: 1, success: {} }
+        ]
+      },
+      {
+        id: 'ancient_artifact', kind: 'choice', weight: 3, icon: '🗿', color: '#b9a8ff', title: 'Древний артефакт',
+        desc: 'В обломках найден странный монолит. Что с ним делать?',
+        options: [
+          { id: 'study', label: 'Изучить (3000 ⚡)', desc: '55% — прорыв в цивилизации, 45% — выброс энергии.', cost: { energy: 3000 }, chance: 0.55, success: { civ: 5, civHours: 8, dust: 30000 }, fail: { disablePlanetHours: 2 } },
+          { id: 'sell', label: 'Продать', desc: 'Гарантированно получить пыль.', chance: 1, success: { dust: 20000, dustHours: 1 } }
+        ]
+      }
+    ]
+  },
+
+  weekly: {
+    durationHours: 24,
+    pool: [
+      { id: 'week_golden_age', weight: 6, icon: '🌟', color: '#ffcc55', title: 'Неделя Золотого века', desc: 'Весь доход ×2 на 24 часа. Лучшее время для экспансии!', durationHours: 24, mods: { allMult: 2.0 } },
+      { id: 'week_comet', weight: 5, icon: '☄️', color: '#7ec8e3', title: 'Неделя Комет', desc: 'Награды комет ×3, весь доход +25% на 24 часа.', durationHours: 24, mods: { cometMult: 3.0, allMult: 1.25 } },
+      { id: 'week_forge', weight: 5, icon: '⚒️', color: '#ffb347', title: 'Неделя Кузни', desc: 'Добыча металла ×3 и весь доход +10% на 24 часа.', durationHours: 24, mods: { metalsMult: 3.0, allMult: 1.1 } },
+      { id: 'week_mind', weight: 5, icon: '🧠', color: '#b9a8ff', title: 'Неделя Разума', desc: 'Рост цивилизации ×3, энергия ×1.5 на 24 часа.', durationHours: 24, mods: { civMult: 3.0, energyMult: 1.5 } },
+      { id: 'week_storm', weight: 4, icon: '🌪️', color: '#8b7fd4', title: 'Неделя Штормов', desc: 'Пыль ×2.5, но энергия ×0.8. Дерзкое время.', durationHours: 24, mods: { dustMult: 2.5, energyMult: 0.8 } },
+      { id: 'week_void', weight: 4, icon: '🕳️', color: '#8b7fd4', title: 'Неделя Пустоты', desc: 'Клики ×5, пассивная пыль ×0.8 на 24 часа.', durationHours: 24, mods: { clickMult: 5.0, dustMult: 0.8 } },
+      { id: 'week_wanderers', weight: 4, icon: '🚀', color: '#7ee0a8', title: 'Неделя Странников', desc: 'Награды экспедиций ×2.5, комет ×1.5 на 24 часа.', durationHours: 24, mods: { expeditionMult: 2.5, cometMult: 1.5 } },
+      { id: 'week_harvest', weight: 5, icon: '🌾', color: '#ffb347', title: 'Неделя Урожая', desc: 'Пыль +80%, кометы +50% на 24 часа.', durationHours: 24, mods: { dustMult: 1.8, cometMult: 1.5 } },
+      { id: 'week_singularity', weight: 2, icon: '✨', color: '#ffffff', title: 'Неделя Сингулярности', desc: 'RARE! Весь доход ×3, но только 12 часов.', durationHours: 12, mods: { allMult: 3.0 } },
+      { id: 'week_plague', weight: 2, icon: '🦠', color: '#7ee0a8', title: 'Неделя Чумы', desc: 'Доход ×0.65, зато металл ×2.5. Переживите её.', durationHours: 24, mods: { allMult: 0.65, metalsMult: 2.5 } },
+      { id: 'week_fortune', weight: 3, icon: '🍀', color: '#7ee0a8', title: 'Неделя Фортуны', desc: 'Клики ×3, весь доход +30% на 24 часа.', durationHours: 24, mods: { clickMult: 3.0, allMult: 1.3 } },
+      { id: 'week_black_market', weight: 3, icon: '🕶️', color: '#ff9944', title: 'Неделя Чёрного рынка', desc: 'Металл ×2, клики ×2 на 24 часа.', durationHours: 24, mods: { metalsMult: 2.0, clickMult: 2.0 } },
+
+      // ── НЕГАТИВНЫЕ НЕДЕЛИ ──────────────────────────────────────
+      { id: 'week_taxes', weight: 3, icon: '💸', color: '#ff5e5e', title: 'Неделя Налогов', desc: 'Империя вводит поборы: весь доход ×0.8, пыль ×0.7 на 24 часа.', durationHours: 24, mods: { allMult: 0.8, dustMult: 0.7 } },
+      { id: 'week_famine', weight: 2, icon: '🍂', color: '#ff9944', title: 'Неделя Голода', desc: 'Пыль ×0.55, энергия ×0.8, цивилизация ×0.8. Переживите спад.', durationHours: 24, mods: { dustMult: 0.55, energyMult: 0.8, civMult: 0.8 } },
+      { id: 'week_darkness', weight: 2, icon: '🌑', color: '#8b7fd4', title: 'Неделя Тьмы', desc: 'Энергия ×0.5, кометы ×0.6, клики ×0.7 на 24 часа.', durationHours: 24, mods: { energyMult: 0.5, cometMult: 0.6, clickMult: 0.7 } },
+      { id: 'week_discord', weight: 3, icon: '⚔️', color: '#ff5e5e', title: 'Неделя Раздора', desc: 'Весь доход ×0.85, клики ×0.6. Смутное время.', durationHours: 24, mods: { allMult: 0.85, clickMult: 0.6 } },
+
+      // ── СМЕШАННЫЕ НЕДЕЛИ (ПЛЮС И МИНУС) ────────────────────────
+      { id: 'week_titanforge', weight: 3, icon: '🏗️', color: '#ffb347', title: 'Неделя Титанов', desc: 'Металл ×3, но энергия ×0.7 на 24 часа.', durationHours: 24, mods: { metalsMult: 3.0, energyMult: 0.7 } },
+      { id: 'week_echo', weight: 3, icon: '📡', color: '#7ec8e3', title: 'Неделя Эха', desc: 'Кометы ×3, но пыль ×0.8 на 24 часа.', durationHours: 24, mods: { cometMult: 3.0, dustMult: 0.8 } },
+      { id: 'week_war', weight: 2, icon: '🪖', color: '#ff9944', title: 'Неделя Войны', desc: 'Металл ×2.5, но весь доход ×0.75. Кузница победы.', durationHours: 24, mods: { metalsMult: 2.5, allMult: 0.75 } }
+    ]
+  },
+
+  limits: {
+    maxWorldEvents: 5,
+    primeProtected: true
+  }
+};
+
+// Совместимость со старыми названиями (внешние скрипты/тесты).
+const RANDOM_EVENTS = EVENTS_CFG.daily.pool;
+const EVENT_CFG = EVENTS_CFG;
 
 // ═══════════════════════════════════════════════════════════════
 //  ГЕНЕРАТОРЫ СИСТЕМ И ЗВЕЗД
@@ -472,50 +583,13 @@ function planetDiameter(type) {
   return d[type] || 1.0;
 }
 // ─── ГЛОБАЛЬНЫЕ СОБЫТИЯ ───
-const EVENT_CFG = {
-  interval: 48 * 3600 * 1000, // Раз в 48 часов (в миллисекундах)
-  durationMin: 2 * 3600 * 1000, // Мин. длительность 2 часа
-  durationMax: 4 * 3600 * 1000, // Макс. длительность 4 часа
-  
-  types: [
-    {
-      id: 'comet_halley',
-      name: 'Комета Галлея',
-      icon: '☄️',
-      desc: 'Все кометы приносят в 2 раза больше пыли.',
-      color: '#7ec8e3',
-      dustCometMult: 2.0
-    },
-    {
-      id: 'solar_flare',
-      name: 'Вспышка на Солнце',
-      icon: '☀️',
-      desc: 'Доход энергии -50%, но шанс Прайма увеличен.',
-      color: '#ffcc55',
-      energyMult: 0.5,
-      primeChanceMult: 2.0
-    },
-    {
-      id: 'space_storm',
-      name: 'Космический шторм',
-      icon: '🌪️',
-      desc: 'Весь доход увеличен в 5 раз!',
-      color: '#b9a8ff',
-      globalIncomeMult: 5.0
-    },
-    {
-      id: 'income',
-      name: 'Солнечная вспышка',
-      icon: '☀️',
-      desc: 'Доход увеличен в 2 раза!',
-      color: '#ffcc55',
-      globalIncomeMult: 2.0
-    }
-  ]
-};
+// Устарело: глобальные события влились в EVENTS_CFG (random-events.js).
+// Оставлено пустое объявление для обратной совместимости старых сборок.
+const EVENT_CFG_LEGACY = { types: [] };
 
 // Экспорт
-window.EVENT_CFG = EVENT_CFG;
+window.EVENTS_CFG = EVENTS_CFG;
+window.EVENT_CFG = EVENTS_CFG;
 window.CFG = CFG;
 window.STAGES = STAGES;
 window.STAR_TYPES = STAR_TYPES;

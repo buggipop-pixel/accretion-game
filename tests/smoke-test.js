@@ -188,6 +188,7 @@ const files = [
   'premium.js',
   'cloudsave.js',
   'prestige.js',
+  'random-events.js',
 ];
 
 files.forEach((f) => {
@@ -271,6 +272,13 @@ assert(
   'У вторжения есть корабли',
   context.S.invasions[0].ships !== undefined && context.S.invasions[0].ships.length > 0
 );
+
+// Тест 5.1: Случайные события (единая подсистема)
+assert('Движок случайных событий загружен', typeof context.RandomEvents === 'object' && typeof context.checkRandomEvents === 'function');
+assert('Конфиг событий: есть daily и weekly пулы', !!(context.EVENTS_CFG && context.EVENTS_CFG.daily.pool.length && context.EVENTS_CFG.weekly.pool.length));
+const allEventIds = context.EVENTS_CFG.daily.pool.concat(context.EVENTS_CFG.weekly.pool).map((e) => e.id);
+assert('Конфиг событий: id уникальны', allEventIds.every((id, i) => allEventIds.indexOf(id) === i));
+assert('Недельный план строится и детерминирован', JSON.stringify(context.RandomEvents.makeWeeklyPlan(7)) === JSON.stringify(context.RandomEvents.makeWeeklyPlan(7)));
 
 // Тест 6: Сохранение (сериализация состояния в JSON)
 try {

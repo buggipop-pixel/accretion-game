@@ -101,7 +101,7 @@ function missionDistanceOptions() {
       cost: c.energy,
       energy: c.energy,
       metals: c.metals,
-      reward: Math.floor(dustPerSec() * (cfg.expeditionRewardShare || 0.5) * (cfg.expeditionFlightMin * d.mult / 1000)),
+      reward: Math.floor(dustPerSec() * (cfg.expeditionRewardShare || 0.5) * (cfg.expeditionFlightMin * d.mult / 1000) * ((typeof eventMult === 'function') ? eventMult('expedition') : 1)),
     };
   });
 }
@@ -189,10 +189,7 @@ function launchComet(sizePct) {
 
   // ─── Награда: привязана к стоимости (EV +8% при fail 20%) ───
   let reward = Math.floor(cost * (cfg.cometRewardMult || 1.35));
-  if (S.activeEvent && typeof EVENT_CFG !== 'undefined' && Array.isArray(EVENT_CFG.types)) {
-    const evt = EVENT_CFG.types.find(t => t.id === S.activeEvent.id);
-    if (evt && evt.dustCometMult) reward = Math.floor(reward * evt.dustCometMult);
-  }
+  if (typeof eventMult === 'function') reward = Math.floor(reward * eventMult('comet'));
 
   // ─── Находим ледяной гигант для старта ───
   let icePlanet = null;
@@ -288,7 +285,7 @@ function launchExpedition(distanceMultiplier) {
 
   // ─── Время полёта и награда зависят от дальности ───
   const flightMs = Math.floor(cfg.expeditionFlightMin * mult);
-  const reward = Math.floor(dustPerSec() * (cfg.expeditionRewardShare || 0.5) * (flightMs / 1000));
+  const reward = Math.floor(dustPerSec() * (cfg.expeditionRewardShare || 0.5) * (flightMs / 1000) * ((typeof eventMult === 'function') ? eventMult('expedition') : 1));
   // ─── Находим планету с жизнью для старта ───
   let civPlanet = null;
   for (let i = 0; i < S.planets.length; i++) {

@@ -215,10 +215,7 @@ function dustPerSec() {
 
   let finalRate = (base + pRate) * gMult * galMult * primeMultiplier * boostMult * techMult * achMult;
   finalRate *= invasionDebuffMult();   // ★ штраф после вторжения (−до 60%)
-  if (S.activeEvent && typeof EVENT_CFG !== 'undefined' && Array.isArray(EVENT_CFG.types)) {
-    const evt = EVENT_CFG.types.find(t => t.id === S.activeEvent.id);
-    if (evt && evt.globalIncomeMult) finalRate *= evt.globalIncomeMult;
-  }
+  if (typeof eventMult === 'function') finalRate *= eventMult('dust');
   return (isFinite(finalRate) && !isNaN(finalRate)) ? Math.max(0, finalRate) : 0;
 }
 
@@ -226,6 +223,7 @@ function clickGain() {
   const st = STAGES[S.stage];
   if (!st) return 0;
   let finalRate = Number(st.clickRate || 0) * starMult() * systemTypeMult() * systemMult() * gammaMult() * galaxyMult() * (typeof achIncomeMult === 'function' ? achIncomeMult() : 1) * invasionDebuffMult();
+  if (typeof eventMult === 'function') finalRate *= eventMult('click');
   return isFinite(finalRate) ? finalRate : 0;
 }
 
@@ -407,10 +405,7 @@ function civPerSec() {
   if (total === 0) return 0.005 * techMult;
 
   let finalRate = total;
-  if (S.activeEvent && typeof EVENT_CFG !== 'undefined' && Array.isArray(EVENT_CFG.types)) {
-    const evt = EVENT_CFG.types.find(t => t.id === S.activeEvent.id);
-    if (evt && evt.globalIncomeMult) finalRate *= evt.globalIncomeMult;
-  }
+  if (typeof eventMult === 'function') finalRate *= eventMult('civ');
   return isFinite(finalRate) ? finalRate : 0;
 }
 
@@ -433,11 +428,7 @@ function energyPerSec() {
   const lvlMult = Math.pow(1.5, (Number(levels.energy) || 1) - 1);
 
   let finalRate = (base - 3) * c * 0.5 * lvlMult * techMult * primeMultiplier;
-  if (S.activeEvent && typeof EVENT_CFG !== 'undefined' && Array.isArray(EVENT_CFG.types)) {
-    const evt = EVENT_CFG.types.find(t => t.id === S.activeEvent.id);
-    if (evt && evt.globalIncomeMult) finalRate *= evt.globalIncomeMult;
-    if (evt && evt.energyMult) finalRate *= evt.energyMult;
-  }
+  if (typeof eventMult === 'function') finalRate *= eventMult('energy');
   return (isFinite(finalRate) && !isNaN(finalRate)) ? Math.max(0, finalRate) : 0;
 }
 window.energyPerSec = energyPerSec;

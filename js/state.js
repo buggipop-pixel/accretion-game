@@ -7,9 +7,14 @@ const S = {
   stage: 'cloud',
   tutorialStep: 0, // Обучалка: 0 — выключена, 1-5 — шаги
   tutorialDone: false, // Прошёл ли игрок обучение (не показываем повторно)
-  activeEvent: null,
-  lastEventAt: 0,
-  lastRandomEvent: 0, // Когда последний раз проверялся спавн случайного события
+  activeEvent: null, // legacy: старые глобальные события (мигрируют при загрузке)
+  lastEventAt: 0, // legacy
+  lastRandomEvent: 0, // legacy
+  activeRandomEvent: null, // текущее интерактивное событие (босс/тапы/выбор)
+  activeWorldEvents: [], // активные daily/weekly модификаторы
+  lastDailyEventDay: 0, // индекс дня последнего ежедневного события
+  lastWeeklyEventWeek: 0, // индекс недели последнего еженедельного события
+  weeklyEventPlan: null, // { week, dayOffset, eventId }
   phaseProgress: { cloud: 0, condense: 0, protostar: 0 },
   lastIgnitionQuality: 0.5,
   protostarHeat: 0,
@@ -108,6 +113,11 @@ function resetStateValues() {
   S.activeEvent = null;
   S.lastEventAt = 0;
   S.lastRandomEvent = 0;
+  S.activeRandomEvent = null;
+  S.activeWorldEvents = [];
+  S.lastDailyEventDay = 0;
+  S.lastWeeklyEventWeek = 0;
+  S.weeklyEventPlan = null;
   S.phaseProgress = { cloud: 0, condense: 0, protostar: 0 };
   S.lastIgnitionQuality = 0.5;
   S.protostarHeat = 0;
@@ -342,6 +352,11 @@ function saveGame() {
       activeEvent: S.activeEvent,
       lastEventAt: S.lastEventAt,
       lastRandomEvent: S.lastRandomEvent,
+      activeRandomEvent: S.activeRandomEvent,
+      activeWorldEvents: S.activeWorldEvents,
+      lastDailyEventDay: S.lastDailyEventDay,
+      lastWeeklyEventWeek: S.lastWeeklyEventWeek,
+      weeklyEventPlan: S.weeklyEventPlan,
       
       // Престиж и ачивки
       prestigeLevel: S.prestigeLevel, galaxies: S.galaxies,
@@ -424,6 +439,23 @@ function loadGame() {
     if (typeof S.lastEventAt !== 'number') S.lastEventAt = 0;
     if (typeof S.lastRandomEvent !== 'number' || !isFinite(S.lastRandomEvent)) S.lastRandomEvent = 0;
     if (!S.activeEvent || typeof S.activeEvent !== 'object') S.activeEvent = null;
+    if (!S.activeRandomEvent || typeof S.activeRandomEvent !== 'object' || !S.activeRandomEvent.id) S.activeRandomEvent = null;
+    if (!Array.isArray(S.activeWorldEvents)) S.activeWorldEvents = [];
+    else S.activeWorldEvents = S.activeWorldEvents.filter(function(e) {
+      return e && typeof e === 'object' && typeof e.id === 'string' && typeof e.endsAt === 'number' && isFinite(e.endsAt);
+    });
+    if (typeof S.lastDailyEventDay !== 'number' || !isFinite(S.lastDailyEventDay)) S.lastDailyEventDay = 0;
+    if (typeof S.lastWeeklyEventWeek !== 'number' || !isFinite(S.lastWeeklyEventWeek)) S.lastWeeklyEventWeek = 0;
+    if (S.weeklyEventPlan && (typeof S.weeklyEventPlan !== 'object' || typeof S.weeklyEventPlan.week !== 'number')) S.weeklyEventPlan = null;
+    // ★ Миграция старых глобальных событий в единую систему случайных событий.
+    if (S.activeEvent && typeof S.activeEvent.endsAt === 'number' && S.activeEvent.endsAt > Date.now()) {
+      const legacyMap = { comet_halley: 'lucky_star', solar_flare: 'energy_leak', space_storm: 'golden_hour', income: 'golden_hour' };
+      const newId = legacyMap[S.activeEvent.id];
+      if (newId) S.activeWorldEvents.push({ id: newId, tier: 'daily', startedAt: Date.now(), endsAt: S.activeEvent.endsAt });
+    }
+    S.activeEvent = null;
+    S.lastEventAt = 0;
+    S.lastRandomEvent = 0;
     if (typeof S.lastInvasionCheck !== 'number') S.lastInvasionCheck = 0;
 
     // ─── 3. Престиж ───

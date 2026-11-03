@@ -1929,3 +1929,69 @@ body.tg-fullscreen #app { max-width: none; }
   .tutorial-title { font-size: 14px; }
   .tutorial-sub { font-size: 11px; }
 }
+
+/* ─── Ежедневные и еженедельные случайные события ─── */
+.weekly-modal {
+  border-color: rgba(255, 204, 85, 0.55);
+  box-shadow: 0 30px 100px rgba(255, 180, 60, 0.35), inset 0 0 0 1px rgba(255, 204, 85, 0.15);
+}
+.weekly-effect-box {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 204, 85, 0.08);
+  border: 1px solid rgba(255, 204, 85, 0.25);
+  text-align: center;
+}
+.weekly-effect-line {
+  font-size: 12px;
+  color: #ffd98a;
+  line-height: 1.6;
+}
+.event-choice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+.event-choice-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(139, 127, 212, 0.45);
+  background: rgba(15, 10, 32, 0.7);
+  color: #e8e2ff;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.event-choice-btn b { color: #fff; font-size: 13px; }
+.event-choice-btn span { color: #9a8fd0; font-size: 11px; line-height: 1.4; }
+.event-choice-btn:active { transform: scale(0.98); }
+.weekly-polarity {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.weekly-polarity.positive {
+  color: #7ee0a8;
+  background: rgba(126, 224, 168, 0.12);
+  border: 1px solid rgba(126, 224, 168, 0.35);
+}
+.weekly-polarity.negative {
+  color: #ff8a8a;
+  background: rgba(255, 94, 94, 0.12);
+  border: 1px solid rgba(255, 94, 94, 0.35);
+}
+.weekly-polarity.mixed {
+  color: #ffd98a;
+  background: rgba(255, 179, 71, 0.12);
+  border: 1px solid rgba(255, 179, 71, 0.35);
+}
