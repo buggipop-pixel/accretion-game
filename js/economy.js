@@ -352,6 +352,9 @@ function payFleetUpkeep(dt) {
       toast('Флот в резерве', 'Не хватило металла на содержание флота');
       setTimeout(function () { window.__fleetUpkeepWarned = false; }, 5000);
     }
+    if (typeof sendPushNotification === 'function') {
+      sendPushNotification('🚀 <b>Действие флота закончилось.</b> Причина: не хватило металла на содержание.', 'fleet');
+    }
   }
   return have;
 }

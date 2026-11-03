@@ -950,6 +950,22 @@ async function reportRewards() {
 window.reportRewards = reportRewards;
 window.resetRewardBaseline = resetRewardBaseline;
 
+// ─── Push-уведомления ───────────────────────────────────────────
+async function sendPushNotification(message, type) {
+  const initData = getTgInitData();
+  if (!initData || !window.__serverWallet) return; // Только в Telegram и в режиме кошелька
+  if (typeof S !== 'undefined' && S && S.settings && S.settings.pushEnabled === false) return; // Если игрок отключил
+
+  try {
+    await fetch(CLOUD_API + '/api/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, type: type || 'info', message: message })
+    });
+  } catch (e) { /* silent */ }
+}
+window.sendPushNotification = sendPushNotification;
+
 // ★ Аварийное восстановление: перед применением облака мы сохраняли
 // предыдущий локальный сейв. Если облако оказалось старым — вернуть его.
 function getLocalBackupInfo() {

@@ -175,6 +175,10 @@ function spawnInvasion() {
       notified: isActive || S.stage === 'galaxy',
     });
 
+    if (typeof sendPushNotification === 'function') {
+      sendPushNotification('⚔️ <b>Вторжение!</b> На вашу систему напали. Срочно зайдите в игру!', 'invasion');
+    }
+
     if (!isActive && S.stage !== 'galaxy') {
       // Игрок в другой системе — присылаем уведомление
       toast('⚔️ Вторжение!', 'Атакована система «' + sysName + '»');
@@ -223,8 +227,11 @@ function spawnInvasion() {
       notified: true,
     });
   }
-
   if (wantTargets === 0) return;
+
+  if (typeof sendPushNotification === 'function') {
+    sendPushNotification('⚔️ <b>Вторжение!</b> На вашу систему напали. Срочно зайдите в игру!', 'invasion');
+  }
   toast('⚔️ ' + tier.label + '!', wantTargets > 1 ? ('Атаковано планет: ' + wantTargets) : (victimNames[0] + ' атакована'));
   if (typeof playSFX === 'function') playSFX('invasion');
   if (typeof addEvent === 'function') addEvent('invasion_spawn', tier.label + ': ' + victimNames.join(', '), { meta: { systemIdx: S.activeSystemIdx, planetSeed: victimSeeds[0] } });
@@ -317,6 +324,9 @@ function tickInvasions(dt) {
       ? 'Верфь пуста'
       : 'Нужна активная Автоборона ур.' + fleetDefenseLevelReq();
     if (typeof toast === 'function') toast('🚀 Флот отведён', reason);
+    if (typeof sendPushNotification === 'function') {
+      sendPushNotification('🚀 <b>Действие флота закончилось.</b> Причина: ' + reason + '.', 'fleet');
+    }
   }
 
   if (S.activeTrophyEffects) {

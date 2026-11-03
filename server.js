@@ -26,6 +26,7 @@ import { clampReward, hasReward, maxExtraReward } from './lib/reward.js';
 import { capabilityAudit, remainingCapabilityBudget, chestCapabilityValue } from './lib/capability.js';
 import fs from 'node:fs';
 import TelegramBot from 'node-telegram-bot-api';
+import cron from 'node-cron';
 console.log("[START] Инициализация сервера...");
 console.log("BOT_TOKEN задан:", !!process.env.BOT_TOKEN);
 console.log("UPSTASH_URL задан:", !!process.env.UPSTASH_REDIS_REST_URL);
@@ -67,6 +68,23 @@ async function redisSet(key, value) {
   const url = `${UPSTASH_REDIS_REST_URL}/set/${encodeURIComponent(key)}/${encodeURIComponent(value)}`;
   const r = await fetch(url, { headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` } });
   return r.ok;
+}
+
+// ─── Push-уведомления в Telegram ────────────────────────────────
+// chatId игрока хранится в tg_chat:<userId> после команды /start.
+// Пустое значение (или отсутствие ключа) означает, что игрок отключил
+// уведомления командой /stop либо заблокировал бота.
+async function sendNotification(userId, text) {
+  try {
+    const chatId = await redisGet(`tg_chat:${userId}`);
+    if (!chatId || chatId === 'null') return;
+    await bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
+  } catch (e) {
+    console.warn(`[notify] Не удалось отправить ${userId}:`, e.message);
+    if (e.response && e.response.statusCode === 403) {
+      await redisSet(`tg_chat:${userId}`, ''); // Игрок заблокировал бота
+    }
+  }
 }
 
 // Upstash REST отдаёт result как строку, но если значение записали
@@ -1016,6 +1034,22 @@ app.post('/webhook', async (req, res) => {
       return res.sendStatus(200);
     }
 
+    // ─── Текстовые команды игрока: подписка/отписка от уведомлений ───
+    if (update.message && update.message.text) {
+      const chatId = update.message.chat.id;
+      const userId = update.message.from.id;
+      const text = update.message.text.trim();
+
+      if (text === '/start') {
+        await redisSet(`tg_chat:${userId}`, String(chatId));
+        await bot.sendMessage(chatId, 'Привет! Я буду присылать тебе важные уведомления из игры «Аккреция». Чтобы отключить их, напиши /stop.');
+      } else if (text === '/stop') {
+        await redisSet(`tg_chat:${userId}`, '');
+        await bot.sendMessage(chatId, 'Уведомления отключены. Чтобы включить снова, напиши /start.');
+      }
+      return res.sendStatus(200); // Завершаем обработку
+    }
+
     if (update.message && update.message.successful_payment) {
       const sp = update.message.successful_payment;
       const userId = update.message.from.id;
@@ -1452,6 +1486,59 @@ app.post('/admin/api/player/:id/invasion', adminGuard, async (req, res) => {
     console.error('[admin] /admin/api/player/invasion', e);
     res.status(500).json({ error: e.message });
   }
+});
+
+// ─── Push-уведомления от клиента ────────────────────────────────
+app.post('/api/notify', async (req, res) => {
+  try {
+    const { initData, type, message } = req.body || {};
+    const user = validateInitData(initData);
+    if (!user) return res.status(401).json({ error: 'Invalid initData' });
+    if (typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({ error: 'Empty message' });
+    }
+
+    // Троттлинг: не чаще 1 уведомления в минуту на категорию.
+    // Разные категории (вторжение, событие, хранилище, щит, флот)
+    // не блокируют друг друга.
+    const rawType = (typeof type === 'string') ? type : 'info';
+    const notifyType = /^[a-z0-9_]{1,32}$/.test(rawType) ? rawType : 'info';
+    const rlKey = `notify_rl:${user.id}:${notifyType}`;
+    const last = await redisGet(rlKey);
+    if (last && Date.now() - Number(last) < 60000) {
+      return res.json({ ok: true, throttled: true });
+    }
+    await redisSet(rlKey, String(Date.now()));
+
+    await sendNotification(user.id, message.slice(0, 1000));
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── Cron: напоминание «спящим» игрокам (раз в день в 12:00) ────
+cron.schedule('0 12 * * *', async () => {
+  console.log('[cron] Проверка спящих игроков...');
+  try {
+    const keys = await redisScanAll('cloudsave:*', 500);
+    for (const key of keys) {
+      const userId = key.split(':')[1];
+      const raw = await redisGet(key);
+      const payload = parseRedisJson(raw);
+      if (!payload || !payload.data) continue;
+
+      // Уважаем переключатель уведомлений в настройках игры.
+      const psettings = payload.data.settings;
+      if (psettings && psettings.pushEnabled === false) continue;
+
+      const lastTick = payload.data.lastTick || 0;
+      // Если игрок не заходил больше 24 часов
+      if (Date.now() - lastTick > 24 * 3600 * 1000) {
+        await sendNotification(userId, '💤 Давно не виделись! Ваша галактика ждет вас. Заберите ежедневную награду и проверьте хранилища.');
+      }
+    }
+  } catch (e) { console.error('[cron] Ошибка:', e.message); }
 });
 
 const server = app.listen(PORT, () => {

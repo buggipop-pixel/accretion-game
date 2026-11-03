@@ -35,6 +35,21 @@ const RE_EFFECT_LABELS = {
 
 function reNow() { return Date.now(); }
 
+function reEscapeHtml(value) {
+  return String(value == null ? '' : value).replace(/[&<>"']/g, function(ch) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+  });
+}
+
+// Push игрокам о любом событии (ежедневном, недельном, интерактивном).
+function rePushEventNotify(cfg, type, lead) {
+  if (!cfg || typeof sendPushNotification !== 'function') return;
+  const title = reEscapeHtml(cfg.title || 'Событие');
+  const desc = reEscapeHtml(cfg.desc || '');
+  const icon = cfg.icon ? String(cfg.icon) + ' ' : '';
+  sendPushNotification(lead + ' ' + icon + '<b>' + title + '</b>' + (desc ? ' — ' + desc : ''), type || 'event');
+}
+
 function reDayIndex(ts) {
   const t = Number(ts) || reNow();
   return Math.floor((t - RE_EPOCH) / RE_DAY_MS);
@@ -357,6 +372,7 @@ function reStartInteractive(cfg) {
   reRenderEventModal(cfg);
   if (typeof toast === 'function') toast(cfg.icon + ' ' + cfg.title, 'Событие на экране · ' + cfg.desc);
   if (typeof addEvent === 'function') addEvent('random_event', cfg.icon + ' ' + cfg.title + ' — ' + cfg.desc);
+  rePushEventNotify(cfg, 'event_interactive', '⚡ <b>Новое событие!</b>');
   if (typeof playSFX === 'function') playSFX('ui_levelup');
   if (typeof saveGame === 'function') saveGame();
   return true;
@@ -676,6 +692,7 @@ function reFireDaily(cfg) {
     const parts = reApplyReward(cfg.reward);
     if (typeof toast === 'function') toast(cfg.icon + ' ' + cfg.title, cfg.desc + (parts.length ? ' · ' + parts.join(' · ') : ''));
     if (typeof addEvent === 'function') addEvent('random_event_win', cfg.icon + ' ' + cfg.title + (parts.length ? ': ' + parts.join(', ') : ''));
+    rePushEventNotify(cfg, 'event_daily', '🎉 <b>Хорошее событие!</b>');
     if (typeof playSFX === 'function') playSFX('ui_levelup');
     if (typeof playEventCinematic === 'function') playEventCinematic(cfg, 'positive');
     if (typeof updateUI === 'function') updateUI();
@@ -687,6 +704,7 @@ function reFireDaily(cfg) {
     if (typeof toast === 'function') toast(cfg.icon + ' ' + cfg.title, cfg.desc + (parts.length ? ' · ' + parts.join(' · ') : ''));
     if (typeof playSFX === 'function') playSFX('explosion');
     if (typeof playEventCinematic === 'function') playEventCinematic(cfg, 'negative');
+    rePushEventNotify(cfg, 'event_daily', '⚠️ <b>Плохое событие!</b>');
     if (typeof updateUI === 'function') updateUI();
     if (typeof saveGame === 'function') saveGame();
     return true;
@@ -698,6 +716,7 @@ function reFireDaily(cfg) {
     reAddWorldEvent(cfg, hours * 3600 * 1000, 'daily');
     if (typeof toast === 'function') toast(pol.icon + ' ' + cfg.icon + ' ' + cfg.title, cfg.desc);
     if (typeof addEvent === 'function') addEvent(evType, pol.icon + ' ' + cfg.icon + ' ' + cfg.title + ' — ' + cfg.desc);
+    rePushEventNotify(cfg, 'event_world', '🌍 <b>Мировое событие!</b>');
     if (typeof playSFX === 'function') playSFX(pol.key === 'negative' ? 'explosion' : 'ui_levelup');
     if (typeof playEventCinematic === 'function') playEventCinematic(cfg, pol.key);
     if (typeof updateEventUI === 'function') updateEventUI();
@@ -741,6 +760,7 @@ function reFireWeekly(evt, now) {
   const evType = 'weekly_event_' + (pol.key === 'positive' ? 'buff' : pol.key === 'negative' ? 'debuff' : 'mixed');
   if (typeof toast === 'function') toast(pol.icon + ' ' + evt.title, evt.desc);
   if (typeof addEvent === 'function') addEvent(evType, pol.icon + ' ' + evt.title + ' — ' + evt.desc);
+  rePushEventNotify(evt, 'event_weekly', '📅 <b>Недельное событие!</b>');
   if (typeof playSFX === 'function') playSFX(pol.key === 'negative' ? 'explosion' : 'ui_levelup');
   if (typeof playEventCinematic === 'function') playEventCinematic(evt, pol.key);
   reShowWeeklyModal(evt);

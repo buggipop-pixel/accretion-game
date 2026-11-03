@@ -797,6 +797,7 @@ function initUI() {
         soundToggleBtn.textContent = S.settings.sound ? 'Вкл' : 'Выкл';
         soundToggleBtn.classList.toggle('active', S.settings.sound);
       }
+      if (pushBtn) pushBtn.textContent = S.settings.pushEnabled !== false ? 'Вкл' : 'Выкл';
       settingsModal.classList.add('show');
     });
   }
@@ -815,6 +816,18 @@ function initUI() {
       const isOn = (typeof toggleSound === 'function') ? toggleSound() : !S.settings.sound;
       soundToggleBtn.textContent = isOn ? 'Вкл' : 'Выкл';
       soundToggleBtn.classList.toggle('active', isOn);
+    });
+  }
+
+  // Push-уведомления: переключатель в настройках
+  const pushBtn = document.getElementById('pushToggleBtn');
+  if (pushBtn) {
+    pushBtn.textContent = S.settings.pushEnabled !== false ? 'Вкл' : 'Выкл';
+    pushBtn.addEventListener('click', () => {
+      if (typeof playSFX === 'function') playSFX('ui_click');
+      S.settings.pushEnabled = !(S.settings.pushEnabled !== false);
+      pushBtn.textContent = S.settings.pushEnabled ? 'Вкл' : 'Выкл';
+      saveGame();
     });
   }
 

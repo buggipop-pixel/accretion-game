@@ -658,6 +658,68 @@ return typeof getResourceCap === 'function' ? getResourceCap(type) : Infinity;
 function safeDustPerSec() { return typeof dustPerSec === 'function' ? dustPerSec() : 0; }
 function safeEnergyPerSec() { return typeof energyPerSec === 'function' ? energyPerSec() : 0; }
 function safeMetalsPerSec() { return typeof metalsPerSec === 'function' ? metalsPerSec() : 0; }
+// ─── Push: заполнение хранилищ и истечение таймеров ───────────────
+const STORAGE_NOTIFY_META = {
+  dust:   { icon: '📦', name: 'Пыль',        type: 'storage_dust',   text: 'Пыль больше не добывается.' },
+  energy: { icon: '⚡', name: 'Энергия',     type: 'storage_energy', text: 'Энергия больше не вырабатывается.' },
+  civ:    { icon: '🧬', name: 'Цивилизация', type: 'storage_civ',    text: 'Цивилизация перестала расти.' },
+  metals: { icon: '⚙️', name: 'Металлы',     type: 'storage_metals', text: 'Металлы больше не добываются.' },
+};
+
+function pushIfPossible(text, type) {
+  if (typeof sendPushNotification === 'function') sendPushNotification(text, type || 'info');
+}
+
+// Уведомляем при переходе «не заполнено → заполнено» для каждого ресурса.
+function checkStorageNotifications() {
+  const now = Date.now();
+  if (window.__storageCheckAt && now - window.__storageCheckAt < 1000) return;
+  window.__storageCheckAt = now;
+  if (!window.__storageFullState) window.__storageFullState = {};
+  const state = window.__storageFullState;
+
+  const resources = [
+    ['dust', S.dust, safeGetResourceCap('dust')],
+    ['energy', S.energy, safeGetResourceCap('energy')],
+    ['civ', S.civLevel, safeGetResourceCap('civ')],
+    ['metals', S.metalAmount, (typeof metalsCap === 'function') ? metalsCap() : Infinity],
+  ];
+
+  for (let i = 0; i < resources.length; i++) {
+    const key = resources[i][0];
+    const value = Math.max(0, Number(resources[i][1]) || 0);
+    const cap = Number(resources[i][2]);
+    const meta = STORAGE_NOTIFY_META[key];
+    if (!meta || !isFinite(cap) || cap <= 0) { state[key] = false; continue; }
+    const full = value >= cap;
+    if (full && !state[key]) {
+      state[key] = true;
+      pushIfPossible(meta.icon + ' <b>Хранилище заполнено!</b> ' + meta.name + ': ' + meta.text + ' Зайдите и потратьте ресурсы.', meta.type);
+    } else if (!full) {
+      state[key] = false;
+    }
+  }
+}
+
+// За час предупреждаем об окончании щита и автобороны.
+function checkTimedNotifications() {
+  const now = Date.now();
+  if (!window.__timedNotifyState) window.__timedNotifyState = {};
+  const state = window.__timedNotifyState;
+  const HOUR = 3600 * 1000;
+
+  const shieldUntil = Number(S.shieldUntil) || 0;
+  if (shieldUntil > now && shieldUntil - now <= HOUR && state.shield !== shieldUntil) {
+    state.shield = shieldUntil;
+    pushIfPossible('🛡 <b>Щит скоро отключится!</b> Осталось меньше часа. Продлите защиту, чтобы не потерять ресурсы.', 'shield');
+  }
+
+  const defUntil = Number(S.nightDefenseExpiresAt) || 0;
+  if ((Number(S.nightDefenseLevel) || 0) > 0 && defUntil > now && defUntil - now <= HOUR && state.defense !== defUntil) {
+    state.defense = defUntil;
+    pushIfPossible('🛡 <b>Автоборона скоро закончится!</b> Осталось меньше часа. Активируйте оборону, иначе флот будет отведён.', 'autodefense');
+  }
+}
 // ═══════════════════════════════════════════════════════════════
 //  ГЛАВНЫЙ ЦИКЛ
 // ═══════════════════════════════════════════════════════════════
@@ -735,6 +797,8 @@ if (typeof checkAchievements === 'function') checkAchievements();
 if (typeof tickProtostar === 'function') tickProtostar(dt);
 if (typeof checkRandomEvents === 'function') checkRandomEvents(dt);
 if (typeof updateEventVisuals === 'function') updateEventVisuals(dt, time);
+checkStorageNotifications();
+checkTimedNotifications();
 // Магазин систем — подсказка
 if (S.stage === 'galaxy' && typeof systemShopCosts === 'function') {
 const shopCostObj = systemShopCosts();

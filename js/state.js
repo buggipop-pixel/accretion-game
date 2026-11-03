@@ -96,7 +96,7 @@ const S = {
   sessionStart: Date.now(),
 
   // ─── Настройки и Визуал ───
-  settings: { brightness: 1.0, sound: true },
+  settings: { brightness: 1.0, sound: true, pushEnabled: true },
   vis: { collapse: 0 },
 };
 
@@ -179,7 +179,7 @@ function resetStateValues() {
   S.eventTimer = 0; S.collisionTimer = 0; S.gammaDebuff = 0;
   S.gasDensity = 1;
   S.activeMinigame = null;
-  S.settings = { brightness: 1.0, sound: true };
+  S.settings = { brightness: 1.0, sound: true, pushEnabled: true };
   S.vis = { collapse: 0 };
 
   // Синхронизация с missions.js
@@ -540,6 +540,7 @@ function loadGame() {
     if (!S.settings) S.settings = { brightness: 1.0, sound: true };
     if (typeof S.settings.brightness !== 'number') S.settings.brightness = 1.0;
     if (typeof S.settings.sound !== 'boolean') S.settings.sound = true;
+    if (typeof S.settings.pushEnabled !== 'boolean') S.settings.pushEnabled = true;
 
     // ─── 9. Магазин систем ───
     if (typeof S.systemIncomeBonus !== 'number') S.systemIncomeBonus = 0;
