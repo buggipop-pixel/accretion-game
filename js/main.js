@@ -311,6 +311,12 @@ canvas.addEventListener('pointerdown', function(e) {
     const pos = getPointerPos(e);
     if (tryHitInvasionShip(pos.x, pos.y)) return;
   }
+  // Анимированные ежедневные события: сначала тап по событию,
+  // и только потом обычная логика кликов/панорамирования.
+  if (typeof tryHitEventVisual === 'function') {
+    const evtPos = getPointerPos(e);
+    if (tryHitEventVisual(evtPos.x, evtPos.y)) return;
+  }
 
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -728,6 +734,7 @@ if (typeof checkEvolution === 'function') checkEvolution();
 if (typeof checkAchievements === 'function') checkAchievements();
 if (typeof tickProtostar === 'function') tickProtostar(dt);
 if (typeof checkRandomEvents === 'function') checkRandomEvents(dt);
+if (typeof updateEventVisuals === 'function') updateEventVisuals(dt, time);
 // Магазин систем — подсказка
 if (S.stage === 'galaxy' && typeof systemShopCosts === 'function') {
 const shopCostObj = systemShopCosts();
@@ -752,6 +759,7 @@ if (typeof drawPlanets === 'function') drawPlanets(ctx, time);
 }
 if (typeof drawInvasions === 'function') drawInvasions(ctx, time);
 if (typeof drawFleet === 'function') drawFleet(ctx, time);
+if (typeof drawEventVisuals === 'function') drawEventVisuals(ctx, time);
 // Обновление элементов интерфейса
 if (now - lastSave > 4000) {
 if (typeof saveGame === 'function') saveGame();

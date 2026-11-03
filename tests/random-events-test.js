@@ -65,7 +65,7 @@ context.self = context;
 context.globalThis = context;
 vm.createContext(context);
 
-const files = ['config.js', 'state.js', 'economy.js', 'random-events.js'];
+const files = ['config.js', 'state.js', 'economy.js', 'random-events.js', 'event-visuals.js'];
 for (const file of files) {
   const code = fs.readFileSync(path.join(__dirname, '..', 'js', file), 'utf8');
   vm.runInContext(code, context, { filename: file });
@@ -272,6 +272,69 @@ const saved = context.saveGame();
 const raw = storage['accretion_v17'];
 assert('Сейв: новые поля сериализуются', !!raw && raw.indexOf('lastWeeklyEventWeek') !== -1 && raw.indexOf('weeklyEventPlan') !== -1 && raw.indexOf('activeWorldEvents') !== -1);
 assert('Сейв: активное интерактивное событие сохраняется', !!raw && raw.indexOf('activeRandomEvent') !== -1);
+
+// ─── 11. Брифинг и анимированный слой событий ──────────────────
+resetPlayer();
+const bossCfg = R.eventById('leviathan');
+const tapCfg = R.eventById('meteor_shower');
+const choiceCfg = R.eventById('distress_signal');
+assert('Брифинг: босс — тап по экрану', /экран/i.test(R.briefingHint(bossCfg)));
+assert('Брифинг: осколки — число попаданий', R.briefingHint(tapCfg).indexOf(String(tapCfg.tapsRequired)) !== -1);
+assert('Брифинг: выбор — портал на экране', /портал/i.test(R.briefingHint(choiceCfg)));
+assert('Брифинг: награда содержит ресурсы', R.briefingReward(bossCfg).length > 0);
+
+assert('Визуал: публичный API зарегистрирован',
+  typeof context.updateEventVisuals === 'function' &&
+  typeof context.drawEventVisuals === 'function' &&
+  typeof context.tryHitEventVisual === 'function' &&
+  !!(context.EventVisuals && typeof context.EventVisuals.playCinematic === 'function'));
+
+function makeFakeCtx() {
+  const grad = { addColorStop: noop };
+  return new Proxy({
+    measureText: () => ({ width: 10 }),
+    createRadialGradient: () => grad,
+    createLinearGradient: () => grad
+  }, {
+    get: (target, key) => (key in target ? target[key] : noop),
+    set: (target, key, value) => { target[key] = value; return true; }
+  });
+}
+const fakeCtx = makeFakeCtx();
+const nowSec = context.performance.now() / 1000;
+
+resetPlayer();
+R.startInteractive(bossCfg);
+assert('Визуал: босс стартует в мире', !!S.activeRandomEvent && S.activeRandomEvent.id === 'leviathan');
+context.updateEventVisuals(0.016, nowSec);
+context.drawEventVisuals(fakeCtx, nowSec);
+assert('Визуал: отрисовка босса не падает', true);
+context.tryHitEventVisual(0, 0);
+assert('Визуал: тап по боссу наносит урон', S.activeRandomEvent && S.activeRandomEvent.hp < S.activeRandomEvent.maxHp);
+S.activeRandomEvent.hp = 0;
+context.tickRandomEvent(0.016);
+context.updateEventVisuals(0.016, nowSec + 0.1);
+assert('Визуал: победа снимает событие', !S.activeRandomEvent);
+
+R.startInteractive(tapCfg);
+context.updateEventVisuals(0.016, nowSec + 0.2);
+context.drawEventVisuals(fakeCtx, nowSec + 0.2);
+assert('Визуал: рой осколков рисуется', !!S.activeRandomEvent);
+S.activeRandomEvent.taps = tapCfg.tapsRequired;
+context.tickRandomEvent(0.016);
+context.updateEventVisuals(0.016, nowSec + 0.3);
+assert('Визуал: тап-событие завершается по прогрессу', !S.activeRandomEvent);
+
+resetPlayer();
+R.fireDaily(R.eventById('derelict_ship'));
+context.updateEventVisuals(0.016, nowSec + 0.4);
+context.drawEventVisuals(fakeCtx, nowSec + 0.4);
+assert('Визуал: кинематик награды не падает', true);
+
+S.activeWorldEvents = [{ id: 'golden_hour', tier: 'daily', startedAt: Date.now(), endsAt: Date.now() + 60000 }];
+context.updateEventVisuals(0.016, nowSec + 0.5);
+context.drawEventVisuals(fakeCtx, nowSec + 0.5);
+assert('Визуал: аура мирового события рисуется', true);
 
 console.log('========================================');
 console.log('ИТОГО: Пройдено ' + passed + ', Провалено ' + failed);

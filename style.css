@@ -1995,3 +1995,94 @@ body.tg-fullscreen #app { max-width: none; }
   background: rgba(255, 179, 71, 0.12);
   border: 1px solid rgba(255, 179, 71, 0.35);
 }
+
+/* ─── Брифинг ежедневного события ───────────────────────────────
+   Само событие анимируется на канвасе (js/event-visuals.js),
+   а модалка теперь — только оповещение «что случилось / что делать». */
+.evt-kicker {
+  text-align: center;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.9;
+  margin-bottom: 6px;
+}
+.evt-icon {
+  text-align: center;
+  font-size: 52px;
+  line-height: 1;
+  margin: 2px 0 8px;
+  filter: drop-shadow(0 0 18px currentColor);
+  animation: evtIconFloat 3.2s ease-in-out infinite;
+}
+@keyframes evtIconFloat {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-4px) scale(1.05); }
+}
+.evt-brief {
+  margin-top: 12px;
+  border-radius: 14px;
+  padding: 11px 13px;
+  background: linear-gradient(135deg, rgba(139, 127, 212, 0.16), rgba(60, 40, 110, 0.10));
+  border: 1px solid rgba(139, 127, 212, 0.32);
+}
+.evt-brief-title {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #b9a8ff;
+  margin-bottom: 5px;
+}
+.evt-brief-text {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #e8e2ff;
+}
+.evt-reward {
+  margin-top: 9px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffe8a0;
+}
+.evt-timer {
+  margin-top: 9px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffb347;
+}
+.evt-progress {
+  height: 8px;
+  margin-top: 10px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.1);
+}
+.evt-progress > div {
+  height: 100%;
+  width: 0;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #ff5e5e, #ffcc55);
+  transition: width 0.2s;
+}
+.evt-progress-text {
+  margin-top: 4px;
+  text-align: center;
+  font-size: 11px;
+  color: #aaa;
+}
+.evt-actions {
+  margin-top: 14px;
+}
+.evt-hint {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 10px;
+  color: #8b7fd4;
+}
+.evt-choice-fallback {
+  margin-top: 12px;
+}

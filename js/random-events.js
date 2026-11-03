@@ -355,7 +355,7 @@ function reStartInteractive(cfg) {
     taps: 0
   };
   reRenderEventModal(cfg);
-  if (typeof toast === 'function') toast(cfg.icon + ' ' + cfg.title, cfg.desc);
+  if (typeof toast === 'function') toast(cfg.icon + ' ' + cfg.title, 'Событие на экране · ' + cfg.desc);
   if (typeof addEvent === 'function') addEvent('random_event', cfg.icon + ' ' + cfg.title + ' — ' + cfg.desc);
   if (typeof playSFX === 'function') playSFX('ui_levelup');
   if (typeof saveGame === 'function') saveGame();
@@ -367,29 +367,76 @@ function reModalCard() {
   return document.getElementById('modalCard');
 }
 
+function reBriefingHint(cfg) {
+  if (!cfg) return '';
+  if (cfg.kind === 'boss') {
+    const dmg = Math.max(1, Number(cfg.tapDamage) || 1);
+    return 'Существо уже в вашей системе. Тапайте по нему прямо на игровом экране: каждый тап — ' + dmg + ' урона. Флот стреляет сам.';
+  }
+  if (cfg.kind === 'tap') {
+    return 'Осколки летят к звезде. Сбивайте их тапами по экрану — нужно ' + (Number(cfg.tapsRequired) || 0) + ' попаданий.';
+  }
+  if (cfg.kind === 'choice') {
+    return 'Выберите светящийся портал прямо на экране — или один из вариантов ниже.';
+  }
+  if (cfg.kind === 'world') return 'Мировой эффект уже действует и виден аурой вокруг звезды.';
+  if (cfg.kind === 'good') return 'Награда уже зачислена — смотрите, как груз прибывает в систему.';
+  if (cfg.kind === 'bad') return 'Удар уже случился. Восстанавливайтесь.';
+  return 'Следите за событиями на игровом экране.';
+}
+
+function reBriefingReward(cfg) {
+  if (!cfg) return '';
+  const r = cfg.reward || {};
+  const parts = [];
+  if (r.dust) parts.push('+' + reFmt(r.dust) + ' ✦');
+  if (r.energy) parts.push('+' + reFmt(r.energy) + ' ⚡');
+  if (r.metals) parts.push('+' + reFmt(r.metals) + ' ⚙');
+  if (r.civ) parts.push('+' + reFmt(r.civ) + ' 🧬');
+  if (r.shieldHours) parts.push('🛡 ' + r.shieldHours + 'ч');
+  if (r.defenseHours) parts.push('🛡 оборона ' + r.defenseHours + 'ч');
+  if (r.trophy) parts.push('🏆 трофей');
+  if (parts.length) return parts.join(' · ');
+  if (cfg.kind === 'choice') return 'Награда зависит от выбора';
+  if (cfg.kind === 'world') return 'Мировой эффект · ' + (cfg.durationHours || 2) + ' ч';
+  if (cfg.kind === 'boss') return 'Награда за победу';
+  return '';
+}
+
+// Модалка события — это брифинг-оповещение, а не поле боя:
+// само событие идёт на игровом полотне (js/event-visuals.js).
 function reRenderEventModal(cfg) {
   const card = reModalCard();
   if (!card) return;
   const ar = S.activeRandomEvent;
   if (!ar) return;
+  const pol = rePolarityInfo(cfg);
+  const remain = Math.ceil(reEventRemainingSec(ar));
+  const col = cfg.color || '#ff5e5e';
 
   let html = '';
-  html += '<div class="modal-title" style="color:' + (cfg.color || '#ff5e5e') + ';">' + (cfg.icon || '⚠️') + ' ' + cfg.title + '</div>';
+  html += '<div class="evt-kicker" style="color:' + col + ';">' + pol.icon + ' ЕЖЕДНЕВНОЕ СОБЫТИЕ</div>';
+  html += '<div class="evt-icon" style="color:' + col + ';">' + (cfg.icon || '⚠️') + '</div>';
+  html += '<div class="modal-title">' + cfg.title + '</div>';
   html += '<div class="modal-sub">' + (cfg.desc || '') + '</div>';
-  html += '<div style="font-size:12px; text-align:center; color:#ffb347; margin-bottom:10px;" id="evtTimer">Осталось: ' + Math.ceil(reEventRemainingSec(ar)) + 'с</div>';
+  html += '<div class="evt-brief">';
+  html += '<div class="evt-brief-title">Что делать</div>';
+  html += '<div class="evt-brief-text">' + reBriefingHint(cfg) + '</div>';
+  html += '</div>';
+  const rewardLine = reBriefingReward(cfg);
+  if (rewardLine) html += '<div class="evt-reward">' + rewardLine + '</div>';
+  html += '<div class="evt-timer" id="evtTimer">Осталось: ' + remain + 'с</div>';
 
   if (cfg.kind === 'boss') {
-    html += '<div style="font-size:40px; text-align:center; margin:10px 0;" id="evtTarget">👾</div>';
-    html += '<div style="background:#333; height:10px; border-radius:5px; overflow:hidden; margin-bottom:5px;">';
-    html += '<div id="evtHpBar" style="background:#ff4a4a; height:100%; width:100%; transition:width 0.2s;"></div></div>';
-    html += '<div style="text-align:center; font-size:12px; color:#aaa;" id="evtHpText">HP: ' + ar.hp + ' / ' + ar.maxHp + '</div>';
-    html += '<button class="stars-btn" style="margin-top:15px;" id="evtTapBtn" onclick="tapRandomEvent()">ТАПАТЬ (урон ' + (cfg.tapDamage || 1) + ')</button>';
+    html += '<div class="evt-progress"><div id="evtHpBar" style="width:100%"></div></div>';
+    html += '<div class="evt-progress-text" id="evtHpText">HP: ' + Math.max(0, Math.floor(ar.hp)) + ' / ' + ar.maxHp + '</div>';
   } else if (cfg.kind === 'tap') {
-    html += '<div style="font-size:40px; text-align:center; margin:10px 0;" id="evtTarget">☄️</div>';
-    html += '<div style="text-align:center; font-size:18px; font-weight:bold;" id="evtTapText">0 / ' + cfg.tapsRequired + '</div>';
-    html += '<button class="stars-btn" style="margin-top:15px;" id="evtTapBtn" onclick="tapRandomEvent()">ТАПАТЬ!</button>';
-  } else if (cfg.kind === 'choice') {
-    html += '<div class="event-choice-list">';
+    html += '<div class="evt-progress"><div id="evtHpBar" style="width:0%"></div></div>';
+    html += '<div class="evt-progress-text" id="evtTapText">' + (ar.taps || 0) + ' / ' + cfg.tapsRequired + '</div>';
+  }
+
+  if (cfg.kind === 'choice' && Array.isArray(cfg.options)) {
+    html += '<div class="event-choice-list evt-choice-fallback">';
     for (let i = 0; i < cfg.options.length; i++) {
       const opt = cfg.options[i];
       html += '<button class="event-choice-btn" onclick="resolveRandomEventChoice(\'' + opt.id + '\')">';
@@ -397,6 +444,11 @@ function reRenderEventModal(cfg) {
     }
     html += '</div>';
   }
+
+  html += '<div class="evt-actions">';
+  html += '<button class="stars-btn" style="width:100%;" onclick="closeEventModal()">К событию →</button>';
+  html += '</div>';
+  html += '<div class="evt-hint">Событие идёт на экране · подсказка висит у звезды</div>';
 
   card.innerHTML = html;
   const modalEl = document.getElementById('modal');
@@ -415,6 +467,7 @@ function reTapRandomEvent() {
   } else if (cfg.kind === 'tap') {
     ar.taps = (ar.taps || 0) + 1;
   }
+  if (typeof eventVisualTap === 'function') eventVisualTap();
   reUpdateRandomEventUI();
   reCheckInteractiveSuccess();
 }
@@ -443,6 +496,8 @@ function reUpdateRandomEventUI() {
   } else if (cfg.kind === 'tap') {
     const text = document.getElementById('evtTapText');
     if (text) text.textContent = (ar.taps || 0) + ' / ' + cfg.tapsRequired;
+    const bar = document.getElementById('evtHpBar');
+    if (bar) bar.style.width = Math.max(0, Math.min(100, ((ar.taps || 0) / Math.max(1, cfg.tapsRequired || 1)) * 100)) + '%';
   }
 }
 
@@ -469,6 +524,7 @@ function reResolveRandomEvent(success) {
     if (typeof toast === 'function') toast('💀 Событие пропущено', parts.length ? parts.join(' · ') : 'Вы понесли потери');
     if (typeof playSFX === 'function') playSFX('explosion');
   }
+  if (typeof eventVisualOnResolve === 'function') eventVisualOnResolve(cfg, !!success);
   if (typeof updateUI === 'function') updateUI();
   if (typeof saveGame === 'function') saveGame();
 }
@@ -515,6 +571,7 @@ function reResolveRandomEventChoice(optionId) {
     if (typeof playSFX === 'function') playSFX('explosion');
   }
   if (typeof updateUI === 'function') updateUI();
+  if (typeof eventVisualOnResolve === 'function') eventVisualOnResolve(cfg, success);
   if (typeof saveGame === 'function') saveGame();
 }
 
@@ -522,11 +579,26 @@ function reResolveRandomEventChoice(optionId) {
 
 let _reLastUiAt = 0;
 
+// Брифинг открыт? Тогда таймер события стоит на паузе: игрок читает,
+// а не теряет секунды боя. Проверяем DOM, потому что модалка общая.
+function reBriefingShown() {
+  if (typeof document === 'undefined') return false;
+  const modal = document.getElementById('modal');
+  const timer = document.getElementById('evtTimer');
+  if (!modal || !timer) return false;
+  if (modal.classList && typeof modal.classList.contains === 'function') return modal.classList.contains('show');
+  return true;
+}
+
 function reTickInteractive(dt, now) {
   const ar = S.activeRandomEvent;
   if (!ar) return;
   const cfg = reActiveEventCfg();
   if (!cfg) { S.activeRandomEvent = null; return; }
+
+  if (reBriefingShown()) {
+    ar.endsAt = (Number(ar.endsAt) || now) + Math.max(0, Number(dt) || 0) * 1000;
+  }
 
   if (cfg.kind === 'boss' && ar.hp > 0 && S.fleetActive && S.fleet && typeof FLEET_CFG !== 'undefined') {
     let dps = 0;
@@ -605,6 +677,7 @@ function reFireDaily(cfg) {
     if (typeof toast === 'function') toast(cfg.icon + ' ' + cfg.title, cfg.desc + (parts.length ? ' · ' + parts.join(' · ') : ''));
     if (typeof addEvent === 'function') addEvent('random_event_win', cfg.icon + ' ' + cfg.title + (parts.length ? ': ' + parts.join(', ') : ''));
     if (typeof playSFX === 'function') playSFX('ui_levelup');
+    if (typeof playEventCinematic === 'function') playEventCinematic(cfg, 'positive');
     if (typeof updateUI === 'function') updateUI();
     if (typeof saveGame === 'function') saveGame();
     return true;
@@ -613,6 +686,7 @@ function reFireDaily(cfg) {
     const parts = reApplyPenalty(cfg.penalty, cfg.title);
     if (typeof toast === 'function') toast(cfg.icon + ' ' + cfg.title, cfg.desc + (parts.length ? ' · ' + parts.join(' · ') : ''));
     if (typeof playSFX === 'function') playSFX('explosion');
+    if (typeof playEventCinematic === 'function') playEventCinematic(cfg, 'negative');
     if (typeof updateUI === 'function') updateUI();
     if (typeof saveGame === 'function') saveGame();
     return true;
@@ -625,6 +699,7 @@ function reFireDaily(cfg) {
     if (typeof toast === 'function') toast(pol.icon + ' ' + cfg.icon + ' ' + cfg.title, cfg.desc);
     if (typeof addEvent === 'function') addEvent(evType, pol.icon + ' ' + cfg.icon + ' ' + cfg.title + ' — ' + cfg.desc);
     if (typeof playSFX === 'function') playSFX(pol.key === 'negative' ? 'explosion' : 'ui_levelup');
+    if (typeof playEventCinematic === 'function') playEventCinematic(cfg, pol.key);
     if (typeof updateEventUI === 'function') updateEventUI();
     if (typeof saveGame === 'function') saveGame();
     return true;
@@ -667,6 +742,7 @@ function reFireWeekly(evt, now) {
   if (typeof toast === 'function') toast(pol.icon + ' ' + evt.title, evt.desc);
   if (typeof addEvent === 'function') addEvent(evType, pol.icon + ' ' + evt.title + ' — ' + evt.desc);
   if (typeof playSFX === 'function') playSFX(pol.key === 'negative' ? 'explosion' : 'ui_levelup');
+  if (typeof playEventCinematic === 'function') playEventCinematic(evt, pol.key);
   reShowWeeklyModal(evt);
   if (typeof updateEventUI === 'function') updateEventUI();
   if (typeof saveGame === 'function') saveGame();
@@ -723,8 +799,16 @@ function reCheckRandomEvents(dt) {
   reCheckWeekly(now);
 }
 
+// Брифинг можно открыть повторно в любой момент, пока событие активно.
+function reOpenEventBriefing() {
+  const cfg = reActiveEventCfg();
+  if (!cfg || !S.activeRandomEvent) return false;
+  reRenderEventModal(cfg);
+  return true;
+}
+
 // Восстановление после перезагрузки: активное интерактивное событие
-// уже сохранено в S.activeRandomEvent — показываем его модалку заново.
+// уже сохранено в S.activeRandomEvent — показываем брифинг и визуал заново.
 function reRestoreActiveEvent() {
   if (typeof S === 'undefined' || !S || !S.activeRandomEvent) return;
   const cfg = reActiveEventCfg();
@@ -737,7 +821,9 @@ function reRestoreActiveEvent() {
     if (typeof saveGame === 'function') saveGame();
     return;
   }
+  if (typeof restoreEventVisuals === 'function') restoreEventVisuals();
   reRenderEventModal(cfg);
+  if (typeof toast === 'function') toast(cfg.icon + ' ' + cfg.title, 'Событие ждёт на экране · ' + reBriefingHint(cfg));
 }
 
 // ─── ПУБЛИЧНЫЙ API ────────────────────────────────────────────
@@ -765,6 +851,9 @@ window.RandomEvents = {
   checkDaily: reCheckDaily,
   checkWeekly: reCheckWeekly,
   restore: reRestoreActiveEvent,
+  briefingHint: reBriefingHint,
+  briefingReward: reBriefingReward,
+  openBriefing: function() { return reOpenEventBriefing(); },
   modsSummary: reModsSummary,
   resetRuntime: function() { _reLastUiAt = 0; }
 };
@@ -782,5 +871,7 @@ window.tapRandomEvent = reTapRandomEvent;
 window.resolveRandomEvent = reResolveRandomEvent;
 window.resolveRandomEventChoice = reResolveRandomEventChoice;
 window.closeWeeklyModal = reCloseWeeklyModal;
+window.closeEventModal = reCloseEventModal;
+window.openEventBriefing = reOpenEventBriefing;
 window.eventMult = reEventMult;
 window.restoreRandomEvent = reRestoreActiveEvent;
