@@ -551,14 +551,15 @@ function renderMissionButtons() {
   if (hasCapablePlanet) {
     // Кнопка активна, даже если ресурсов нет. Показываем подсказку.
     const allReady = cometCheck.ok || expCheck.ok;
+    const status = allReady ? 'Доступны' : 'Мало ресурсов';
     html += '<button class="mission-btn missions" data-action="missions" data-distance="' + (MISS.selectedDistance || 1) + '">' +
       '<div class="mb-icon">🚀</div><div>Миссии</div>' +
-      '<div class="mb-cost">' + (allReady ? 'Доступны' : 'Мало ресурсов') + '</div></button>';
+      '<div class="mb-cost" data-default="' + status + '">' + status + '</div></button>';
   } else {
     // Нет подходящих планет вообще
-    html += '<button class="mission-btn disabled" disabled>' +
+    html += '<button class="mission-btn missions disabled" disabled>' +
       '<div class="mb-icon">🚀</div><div>Миссии</div>' +
-      '<div class="mb-cost">Нет подходящих планет</div></button>';
+      '<div class="mb-cost" data-default="Нет подходящих планет">Нет подходящих планет</div></button>';
   }
 
   // ─── Магазин систем (фаза «Галактика» или заполненная фаза «Система») ───

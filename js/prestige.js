@@ -91,25 +91,39 @@ window._systemRate = _systemRate;
 function prestigeRequirements() {
   // ★ явный массив требований: каждый следующий престиж должен быть быстрее,
   // поэтому шаг ~1.4, а не x2 (иначе 2-я галактика недостижима)
+  const step = PRESTIGE_CFG.stepMultiplier || 1.4;
+  let list;
   if (Array.isArray(PRESTIGE_CFG.requirements) && PRESTIGE_CFG.requirements.length) {
-    return PRESTIGE_CFG.requirements.slice();
+    list = PRESTIGE_CFG.requirements.slice();
+  } else {
+    const first = PRESTIGE_CFG.firstRequirement || 5;
+    list = [];
+    for (let i = 0; i < 5; i++) list.push(Math.round(first * Math.pow(step, i)));
   }
-  const first = PRESTIGE_CFG.firstRequirement || 5;
-  const step  = PRESTIGE_CFG.stepMultiplier || 1.4;
-  const list = [];
-  for (let i = 0; i < 5; i++) list.push(Math.round(first * Math.pow(step, i)));
+  // ★ Продлеваем лестницу за пределы явного массива.
+  // Раньше требования заканчивались на 5-й сверхновой: на «Галактике 6»
+  // checkPrestigeAvailability() всегда возвращал 0, а квест «До престижа»
+  // пропадал из панели. Теперь лестница не заканчивается и квест виден всегда.
+  const MIN_LEVELS = 100;
+  while (list.length < MIN_LEVELS) {
+    list.push(Math.round(list[list.length - 1] * step));
+  }
   return list;
+}
+
+// Требование для конкретного уровня престижа (0 — первый престиж).
+function prestigeRequirementFor(level) {
+  const list = prestigeRequirements();
+  const idx = Math.max(0, Math.floor(Number(level) || 0));
+  return list[idx] || list[list.length - 1] || (PRESTIGE_CFG.firstRequirement || 5);
 }
 
 // ─── Проверка доступности престижа ───────────────────────────────
 function checkPrestigeAvailability() {
-  const requirements = prestigeRequirements();
-  const prestigeLevel = S.prestigeLevel || 0;
-  const need = requirements[prestigeLevel];
-  if (need && S.systems >= need) return prestigeLevel + 1;
+  const need = prestigeRequirementFor(S.prestigeLevel || 0);
+  if (need && S.systems >= need) return (S.prestigeLevel || 0) + 1;
   return 0;
 }
-
 // ═══════════════════════════════════════════════════════════════
 //  МОДАЛКА ПОДТВЕРЖДЕНИЯ
 // ═══════════════════════════════════════════════════════════════
@@ -381,9 +395,7 @@ function updatePrestigeButton() {
   if (!prestigeBtn) return;
 
   const order = ['первая', 'вторая', 'третья', 'четвёртая', 'пятая'];
-  const requirements = prestigeRequirements();
-  const nextNeed = requirements[S.prestigeLevel || 0];
-
+  const nextNeed = prestigeRequirementFor(S.prestigeLevel || 0);
   if (availableLevel) {
     prestigeBtn.style.display = 'block';
     prestigeBtn.textContent = '💥 ВСПЫШКА СВЕРХНОВОЙ';
@@ -419,6 +431,7 @@ function initPrestige() {
 
 // ─── Экспорт ────────────────────────────────────────────────────
 window.prestigeRequirements = prestigeRequirements;
+window.prestigeRequirementFor = prestigeRequirementFor;
 window.checkPrestigeAvailability = checkPrestigeAvailability;
 window.activateSupernova = activateSupernova;
 window.performSupernova = performSupernova;

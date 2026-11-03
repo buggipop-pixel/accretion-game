@@ -974,10 +974,16 @@ body.mg-active .toasts {
   word-break: break-word;
 }
 
-/* ─── Живые таймеры активных миссий ─── */
-.mission-timer-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; color: #e8e2ff; }
-.mission-timer-row span:last-child { font-weight: bold; color: #7ee0a8; font-variant-numeric: tabular-nums; }
-.mission-timer-row:last-child { margin-bottom: 0; }
+/* ─── Живые таймеры активных миссий — в кнопке «Миссии» ─── */
+.mission-btn.has-active-mission {
+  border-color: rgba(126, 224, 168, 0.45);
+}
+.mission-btn.has-active-mission .mb-cost {
+  color: #7ee0a8;
+  opacity: 1;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
 .event-time {
   font-size: 10px;
   color: #8b7fd4;
@@ -1808,6 +1814,54 @@ body.tg-fullscreen #app { max-width: none; }
 @keyframes questPanelIn {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* Содержимое панели квестов: заголовок, строки и прогресс */
+.quests-title {
+  margin-bottom: 8px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #8b7fd4;
+}
+.quest-item { margin-bottom: 9px; }
+.quest-item:last-of-type { margin-bottom: 0; }
+.quest-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: #e8e2ff;
+}
+.quest-title > span:first-child { min-width: 0; }
+.quest-title .q-progress {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: #b9a8ff;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.quest-title.quest-done { color: #7ee0a8; }
+.quest-title.quest-done .q-progress { color: #7ee0a8; }
+.quest-bar {
+  height: 4px;
+  margin-top: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.quest-bar > div {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #8b5cf6, #b9a8ff);
+  transition: width 0.3s ease, background 0.3s ease;
+}
+.quest-title.quest-done + .quest-bar > div {
+  background: linear-gradient(90deg, #2eaa77, #7ee0a8);
 }
 
 /* Тосты — над доком, не перекрывают кнопки */

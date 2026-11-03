@@ -156,28 +156,51 @@ function _fmtMissionTimer(sec) {
 }
 
 function updateActiveMissionsUI() {
-  const panel = document.getElementById('activeMissionsPanel');
-  if (!panel) return;
+  // ★ Таймеры показываем прямо в кнопке «Миссии», а не отдельной плашкой:
+  // раньше плашка висела поверх соседней кнопки «Новая система» и
+  // перекрывала её на телефоне.
+  const btn = document.querySelector('#missionButtons .mission-btn.missions');
+  if (!btn) return;
+  const costEl = btn.querySelector('.mb-cost');
+  if (!costEl) return;
 
   const missions = (typeof getActiveMissions === 'function') ? getActiveMissions() : [];
   if (!Array.isArray(missions) || missions.length === 0) {
-    panel.style.display = 'none';
-    panel.innerHTML = '';
+    btn.classList.remove('has-active-mission');
+    btn.title = '';
+    if (costEl.dataset && costEl.dataset.default) costEl.textContent = costEl.dataset.default;
     return;
   }
 
-  let html = '';
+  // На узких экранах два таймера не помещаются в кнопку —
+  // показываем ближайший и счётчик остальных. Полный список — в title.
+  const compact = (window.innerWidth || 400) < 420 && missions.length > 1;
+  const titles = [];
+  const timers = [];
   for (let i = 0; i < missions.length; i++) {
     const m = missions[i];
     if (!m) continue;
     const icon = m.icon || (m.type === 'comet' ? '☄️' : '🚀');
     const label = m.type === 'comet' ? 'Комета' : 'Экспедиция';
-    html += '<div class="mission-timer-row"><span>' + icon + ' ' + label + '</span><span>' +
-      _fmtMissionTimer(m.timeLeft) + '</span></div>';
+    const timer = _fmtMissionTimer(m.timeLeft);
+    timers.push({ icon: icon, timer: timer, left: Math.max(0, Number(m.timeLeft) || 0) });
+    titles.push(label + ' · ' + timer);
   }
+  timers.sort(function(a, b) { return a.left - b.left; });
 
-  panel.style.display = 'block';
-  panel.innerHTML = html;
+  let text = '';
+  if (timers.length) {
+    text = timers[0].icon + ' ' + timers[0].timer;
+    if (compact) text += ' +' + (timers.length - 1);
+    else if (timers.length > 1) {
+      const rest = [];
+      for (let j = 1; j < timers.length; j++) rest.push(timers[j].icon + ' ' + timers[j].timer);
+      text += ' · ' + rest.join(' · ');
+    }
+  }
+  costEl.textContent = text;
+  btn.classList.add('has-active-mission');
+  btn.title = titles.join('\n');
 }
 
 function updateUI() {
@@ -543,17 +566,24 @@ function getQuests() {
   else if (st === 'galaxy') {
     const systems = S.systems;
     const nextCost = systemCost(Math.max(0, systems - 1));
+
+    // ★ Престиж виден ВСЕГДА в стадии галактики — в том числе после
+    // 5-й вспышки, когда явный список требований заканчивался.
+    // Показываем и требование, и текущий прогресс.
+    if (typeof prestigeRequirementFor === 'function') {
+      const need = prestigeRequirementFor(S.prestigeLevel || 0);
+      if (need) {
+        const ready = systems >= need;
+        list.push({
+          title: (ready ? '💥 Престиж доступен! · ' : '💥 До престижа · ') + fmt(need) + ' сист.',
+          cur: systems, max: need,
+        });
+      }
+    }
+
     if (systems < 2) {
       list.push({ title: 'Основай 2-ю систему · ' + fmt(nextCost) + ' ✦', cur: S.dust, max: nextCost });
     } else {
-      const avail = (typeof checkPrestigeAvailability === 'function') ? checkPrestigeAvailability() : 0;
-      if (avail > 0) {
-        list.push({ title: '💥 Престиж доступен!', cur: 1, max: 1 });
-      } else {
-        const reqs = (typeof prestigeRequirements === 'function') ? prestigeRequirements() : [];
-        const nextReq = reqs[S.prestigeLevel || 0];
-        if (nextReq) list.push({ title: '💥 До престижа', cur: systems, max: nextReq });
-      }
       list.push({ title: 'Следующая система · ' + fmt(nextCost) + ' ✦', cur: S.dust, max: nextCost });
     }
   }

@@ -314,7 +314,30 @@ try {
   console.error('   престиж: ' + e.message);
   assert('Престиж: при 6 системах открывается окно Вспышки', false);
 }
-
+// Тест 9: лестница престижа продолжается после 5-й вспышки
+// (раньше требования заканчивались, и квест «До престижа» пропадал)
+try {
+  const S = context.S;
+  const reqs = context.prestigeRequirements();
+  assert(
+    'Престиж: лестница продолжается после 5-й вспышки',
+    reqs.length > 5 && reqs[5] === 25 && reqs[6] > reqs[5]
+  );
+  S.prestigeLevel = 5;
+  S.systems = 8;
+  assert('Престиж: 6-я вспышка требует больше систем', context.checkPrestigeAvailability() === 0);
+  S.systems = 25;
+  assert('Престиж: 6-я вспышка доступна при 25 системах', context.checkPrestigeAvailability() === 6);
+  S.prestigeLevel = 6;
+  S.systems = 30;
+  assert(
+    'Престиж: 7-я вспышка требует больше, чем 6-я',
+    context.checkPrestigeAvailability() === 0 && context.prestigeRequirementFor(6) === reqs[6]
+  );
+} catch (e) {
+  console.error('   prestige ladder: ' + e.message);
+  assert('Престиж: лестница продолжается после 5-й вспышки', false);
+}
 // Тест 8: кнопка полного экрана присутствует и подключена
 try {
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
