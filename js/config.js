@@ -273,6 +273,42 @@ const METALS_CFG = { expeditionCostMetals: 200, cometBoostCostMetals: 100, comet
   capBase: 750, capGrowth: 2.0,            // ★ кап металлов: 750 x 2^(уровень хранилища-1)
   capStorage: 'energy' };
 
+// ═══════════════════════════════════════════════════════════════
+//  ★ ЭКОНОМИКА ИМПЕРИИ (доход со ВСЕХ систем)
+//  Доход больше не зависит от того, какая система открыта: каждая
+//  система игрока даёт пыль/энергию/цив/металлы сама за себя.
+// ═══════════════════════════════════════════════════════════════
+const ECONOMY_CFG = {
+  // Прайм-бонусы (dustMult/allMult/energyMult) складываются со ВСЕХ
+  // прайм-систем, но с затуханием:
+  //   итог = 1 + min(primeBonusCap, Σбонусов × primeBonusWeight)
+  primeBonusWeight: 0.40,
+  primeBonusCap: 1.50,          // потолок: +150% (т.е. максимум ×2.5)
+
+  // Кап металлов = max(750 × 2^(ур.хранилища-1), доход × 3600 × metalsCapHours)
+  // Чтобы «медленный» ресурс не упирался в потолок при росте империи.
+  metalsCapHours: 2,
+
+  // ─── ДИНАМИЧЕСКИЕ ЦЕНЫ ─────────────────────────────────────────
+  // Цена = max(базовая, доход/час × priceHours). Игрок считает не
+  // «3000 ⚙», а «столько-то часов добычи» — ресурсы распределяются осознанно.
+  priceHours: {
+    // Автоборона: часы металлодобычи по уровням 1..5 (держится defenseHours = 10 ч)
+    defense: [0, 0.15, 0.35, 0.70, 1.20, 2.00],
+    // Верфь: часы металлодобычи за ОДИН корабль
+    fleet: { interceptor: 0.25, cruiser: 0.75, dreadnought: 2.00 },
+    // Экспедиция: часы металлодобычи за запуск (×дальность)
+    expedition: 0.15,
+  },
+
+  // Содержание АКТИВНОГО флота: доля металлодобычи в секунду.
+  // Вес корабля: перехватчик 1, крейсер 3, дредноут 8; за каждую единицу
+  // веса — fleetUpkeepPerPower дохода, но не более fleetUpkeepCap.
+  // 0 — флот содержать бесплатно.
+  fleetUpkeepPerPower: 0.015,
+  fleetUpkeepCap: 0.60,
+};
+
 // ─── ФЛОТ (Верфь) ───
 const FLEET_CFG = {
   ships: {
@@ -496,6 +532,7 @@ window.MISSIONS_CFG = MISSIONS_CFG;
 window.SYSTEM_SHOP_CFG = SYSTEM_SHOP_CFG;
 window.PRESTIGE_CFG = PRESTIGE_CFG;
 window.METALS_CFG = METALS_CFG;
+window.ECONOMY_CFG = ECONOMY_CFG;
 window.STAR_WEIGHTS = STAR_WEIGHTS;
 window.STORAGE_CFG = STORAGE_CFG;
 window.CHEST_CFG = CHEST_CFG;

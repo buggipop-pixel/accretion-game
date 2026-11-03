@@ -576,6 +576,8 @@ function openShipyard() {
     ? '<span style="color:#7ee0a8">В БОЮ</span>'
     : (S.fleetActive ? '<span style="color:#ffb347">ЗАБЛОКИРОВАН</span>' : '<span style="color:#8b7fd4">В РЕЗЕРВЕ</span>');
   const canToggleFleet = fleetActive || (fleetReady && totalShips > 0);
+  const upkeepSharePotential = (typeof fleetUpkeepShare === 'function') ? fleetUpkeepShare(true) : 0;
+  const upkeepPerSecNow = (typeof fleetUpkeepPerSec === 'function') ? fleetUpkeepPerSec() : 0;
 
   html += `<div class="info-box" style="border-color:${fleetActive ? 'rgba(46,170,119,0.6)' : 'rgba(139,127,212,0.4)'};">
     <div class="row-stat"><span>🚀 Флот</span>${fleetState}</div>
@@ -584,8 +586,12 @@ function openShipyard() {
       <span>Урон: ${dps.toFixed(1)}/с</span>
     </div>
     <div class="row-stat" style="font-size:10px;color:#8b7fd4;">
-      <span>Вложения: ${fmt(fleetValue)} ⚙</span>
+      <span>Сила флота: ${fmt(fleetValue)} ⚙</span>
       <span>${fleetActive ? '+' + Math.round(fleetBonusPct) : '+' + fleetPotentialPct}% к отбитию (макс +30%)</span>
+    </div>
+    <div class="row-stat" style="font-size:10px;color:${upkeepPerSecNow > 0 ? '#ffb347' : '#8b7fd4'};">
+      <span>Содержание: ${upkeepPerSecNow > 0 ? fmt(upkeepPerSecNow * 3600) + ' ⚙/ч' : '—'}</span>
+      <span>${upkeepSharePotential > 0 ? Math.round(upkeepSharePotential * 100) + '% металлодобычи' : 'бесплатно'}</span>
     </div>
     <div class="row-stat" style="font-size:10px;color:#8b7fd4;">
       <span>Автоборона: ${defActive ? (defLvl > paidLvl ? 'ур.' + defLvl + ' · трофей' : 'ур.' + defLvl + ' · ' + defLeftH + ' ч') : 'выключена'}</span>
@@ -601,10 +607,11 @@ function openShipyard() {
   for (const key in FLEET_CFG.ships) {
     const ship = FLEET_CFG.ships[key];
     const count = shipCount(key);
-    const canAfford = (S.metalAmount || 0) >= ship.costMetals && (S.energy || 0) >= ship.costEnergy && (S.civLevel || 0) >= ship.costCiv;
-    const canAffordFive = (S.metalAmount || 0) >= ship.costMetals * 5 && (S.energy || 0) >= ship.costEnergy * 5 && (S.civLevel || 0) >= ship.costCiv * 5;
+    const shipPrice = (typeof fleetShipPrice === 'function') ? fleetShipPrice(key) : ship.costMetals;
+    const canAfford = (S.metalAmount || 0) >= shipPrice && (S.energy || 0) >= ship.costEnergy && (S.civLevel || 0) >= ship.costCiv;
+    const canAffordFive = (S.metalAmount || 0) >= shipPrice * 5 && (S.energy || 0) >= ship.costEnergy * 5 && (S.civLevel || 0) >= ship.costCiv * 5;
     html += `<div class="info-box">
-      <div class="row-stat"><span>${ship.name} (есть: ${count})</span><span>${fmt(ship.costMetals)} ⚙ · ${fmt(ship.costEnergy)} ⚡ · ${ship.costCiv} 🧬</span></div>
+      <div class="row-stat"><span>${ship.name} (есть: ${count})</span><span>${fmt(shipPrice)} ⚙ · ${fmt(ship.costEnergy)} ⚡ · ${ship.costCiv} 🧬</span></div>
       <div class="row-stat" style="opacity:0.7;font-size:11px;">
         <span>Урон ${ship.damage} · HP ${ship.hp} · ${ship.fireRate} выстр./с</span>
       </div>
@@ -626,7 +633,9 @@ function buyShip(key, amount) {
   const ship = FLEET_CFG.ships[key];
   if (!ship) return;
   const count = Math.max(1, Math.floor(Number(amount) || 1));
-  const costMetals = ship.costMetals * count;
+  // ★ Динамическая цена: чем выше металлодобыча — тем дороже корабль.
+  const unitMetal = (typeof fleetShipPrice === 'function') ? fleetShipPrice(key) : ship.costMetals;
+  const costMetals = unitMetal * count;
   const costEnergy = ship.costEnergy * count;
   const costCiv = ship.costCiv * count;
   if ((S.metalAmount || 0) < costMetals || (S.energy || 0) < costEnergy || (S.civLevel || 0) < costCiv) {

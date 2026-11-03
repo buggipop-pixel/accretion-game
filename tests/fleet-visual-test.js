@@ -255,6 +255,9 @@ function testDefenseCostDeferred() {
   const g = createGame();
   const S = prepare(g);
   S.metalAmount = 10000;
+  // ★ Реалистичный цив: в prepare() стоит 1e9, а он даёт бонус к металлам
+  //   (1 + floor(civ/1000)*0.1) и раздувает цену обороны через динамику.
+  S.civLevel = 50;
   S.systems = 1;
   S.nightDefenseLevel = 0;
   S.nightDefenseExpiresAt = 0;
@@ -271,7 +274,9 @@ function testDefenseCostDeferred() {
   assert('Выбор уровня показывает «к активации»', g.document.getElementById('modalCard').innerHTML.includes('к активации'));
 
   g.saveNightConfig();
-  const cost = Math.floor(g.INVASION_CFG.defenseCost[3]);
+  const cost = (typeof g.defenseActivationCost === 'function')
+    ? g.defenseActivationCost(3)
+    : Math.floor(g.INVASION_CFG.defenseCost[3]);
   assert('«Готово» списывает металл', S.metalAmount === 10000 - cost);
   assert('«Готово» применяет уровень', S.nightDefenseLevel === 3);
   const hours = g.INVASION_CFG.defenseHours;

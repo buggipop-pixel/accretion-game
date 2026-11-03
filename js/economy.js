@@ -3,36 +3,158 @@
 // ═══════════════════════════════════════════════════════════════
 
 // ─── Множители ──────────────────────────────────────────────────
+function econCfg() {
+  return (typeof ECONOMY_CFG !== 'undefined' && ECONOMY_CFG) ? ECONOMY_CFG : {};
+}
 function starMult() { return S.starType ? STAR_TYPES[S.starType].rateMult : 1; }
 function systemTypeMult() { return S.systemType ? SYSTEM_TYPES[S.systemType].rateMult : 1; }
-function systemMult() { 
-  return 1 + Math.max(0, S.systems - 1) * (CFG.systemIncomeMultPerSystem || 1.0); 
+// ★ Оставлено для клика. В доходе пыли больше НЕ участвует: раньше он заменял
+//   доход неактивных систем (×N), теперь каждая система считается напрямую.
+function systemMult() {
+  return 1 + Math.max(0, S.systems - 1) * (CFG.systemIncomeMultPerSystem || 1.0);
 }
 function gammaMult() { return Date.now() < S.gammaDebuff ? 0.4 : 1; }
 function galaxyMult() { return S.galaxyMultiplier || 1; }
 
-// ─── Доход от планет (Защита от NaN) ────────────────────────────
+// Множители конкретной системы (своя звезда + свой тип).
+function systemStarMult(starType) {
+  return (STAR_TYPES[starType] && Number(STAR_TYPES[starType].rateMult)) || 1;
+}
+function systemTypeMultOf(systemType) {
+  return (SYSTEM_TYPES[systemType] && Number(SYSTEM_TYPES[systemType].rateMult)) || 1;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  ★ ЕДИНЫЙ ОБХОД ВСЕХ СИСТЕМ ИГРОКА
+//  Раньше доход считался только по активной системе (S.planets),
+//  а владение N системами учитывалось плоским множителем systemMult().
+//  Теперь каждая система игрока даёт доход сама за себя.
+// ═══════════════════════════════════════════════════════════════
+// callback(idx, planets, starType, systemType, incomeBonus, primeData, damaged, isActive)
+function forEachOwnedSystem(cb) {
+  if (!S) return;
+  const activeIdx = Number(S.activeSystemIdx) || 0;
+
+  // Активная система: источник истины — поля S.*
+  cb(activeIdx,
+     Array.isArray(S.planets) ? S.planets : [],
+     S.starType || 'G',
+     S.systemType || 'single',
+     Number(S.systemIncomeBonus) || 0,
+     S.primeSystem || null,
+     false,
+     true);
+
+  const list = Array.isArray(S.otherSystems) ? S.otherSystems : [];
+  const now = Date.now();
+  for (let i = 0; i < list.length; i++) {
+    if (i === activeIdx) continue;          // активную уже обошли
+    const sys = list[i];
+    if (!sys || typeof sys !== 'object') continue;
+    const pd = (typeof primeDataOfSystem === 'function')
+      ? primeDataOfSystem(sys)
+      : (sys.primeData || sys.primeSystem || null);
+    cb(i,
+       Array.isArray(sys.planets) ? sys.planets : [],
+       sys.starType || 'G',
+       sys.systemType || 'single',
+       Number(sys.incomeBonus) || 0,
+       pd,
+       !!(sys.damagedUntil && sys.damagedUntil > now),
+       false);
+  }
+}
+window.forEachOwnedSystem = forEachOwnedSystem;
+
+// Всего планет во всех системах (для фоллбеков).
+function totalPlanetCount() {
+  let n = 0;
+  forEachOwnedSystem(function(idx, planets) { n += planets.length; });
+  return n;
+}
+window.totalPlanetCount = totalPlanetCount;
+
+// ─── Прайм-бонусы: складываются со ВСЕХ прайм-систем ────────────
+// Чтобы 12 прайм-систем не давали ×12 дохода, сумма проходит через
+// затухание (primeBonusWeight) и жёсткий потолок (primeBonusCap).
+function primeBonusMult(kind) {
+  const cfg = econCfg();
+  const weight = isFinite(Number(cfg.primeBonusWeight)) ? Number(cfg.primeBonusWeight) : 0.40;
+  const cap = isFinite(Number(cfg.primeBonusCap)) ? Number(cfg.primeBonusCap) : 1.50;
+  let raw = 0;
+
+  function addBonus(b) {
+    if (!b) return;
+    raw += Number(b.allMult) || 0;
+    if (kind === 'energy') raw += Number(b.energyMult) || 0;
+    else raw += Number(b.dustMult) || 0;
+  }
+
+  if (S.primeSystem) addBonus(S.primeSystem.bonus);
+  const list = Array.isArray(S.otherSystems) ? S.otherSystems : [];
+  const activeIdx = Number(S.activeSystemIdx) || 0;
+  for (let i = 0; i < list.length; i++) {
+    if (i === activeIdx && S.primeSystem) continue;
+    const sys = list[i];
+    if (!sys) continue;
+    const pd = (typeof primeDataOfSystem === 'function')
+      ? primeDataOfSystem(sys)
+      : (sys.primeData || sys.primeSystem || null);
+    if (pd) addBonus(pd.bonus);
+  }
+  return 1 + Math.min(cap, raw * weight);
+}
+window.primeBonusMult = primeBonusMult;
+
+// ─── Доход одной планеты (без системных/глобальных множителей) ──
+function planetBaseRate(p) {
+  const pt = PLANET_TYPES[p.type];
+  let base = pt ? Number(pt.rate) || 0 : 0;
+  if (!isFinite(base)) base = 0;
+
+  if (typeof safronovAccretion === 'function') base *= (1 + safronovAccretion(p) * 10);
+  if (p.mass > 1 && isFinite(p.mass)) base *= (1 + Math.log(p.mass) * 0.35);
+
+  if (typeof tempAt === 'function') {
+    const rAe = (p.orbitR || 100) / PHYS.refRadius;
+    base *= 0.8 + Math.min(1, tempAt(rAe) / 400) * 0.4;
+  }
+
+  return isFinite(base) ? base : 0;
+}
+window.planetBaseRate = planetBaseRate;
+
+// ─── Учитываем ли планету в доходе ──────────────────────────────
+// ★ Флаг `forming` снимается только у АКТИВНОЙ системы (updatePlanets),
+//   поэтому в остальных системах планета могла «застрять» в статусе
+//   формирования навсегда. Если formUntil уже прошёл — планета работает.
+function isPlanetProducing(p, now) {
+  if (!p) return false;
+  now = now || Date.now();
+  if (p.forming && (Number(p.formUntil) || 0) > now) return false;
+  if (p.disabledUntil && p.disabledUntil > now) return false;
+  if (typeof isPlanetInvaded === 'function' && isPlanetInvaded(p)) return false;
+  return true;
+}
+window.isPlanetProducing = isPlanetProducing;
+
+// ─── Доход от планет ВСЕХ систем игрока ─────────────────────────
 function planetRate() {
   let sum = 0;
-  for (let i = 0; i < S.planets.length; i++) {
-    const p = S.planets[i];
-    if (!p || p.forming || !isFinite(p.baseOrbitR)) continue; 
-    if (typeof isPlanetInvaded === 'function' && isPlanetInvaded(p)) continue;
-    if (p.disabledUntil && p.disabledUntil > Date.now()) continue;   // ★ повреждена вторжением
-
-    let base = PLANET_TYPES[p.type] ? PLANET_TYPES[p.type].rate : 0;
-    if (!isFinite(base)) base = 0;
-
-    if (typeof safronovAccretion === 'function') base *= (1 + safronovAccretion(p) * 10);
-    if (p.mass > 1 && isFinite(p.mass)) base *= (1 + Math.log(p.mass) * 0.35);
-
-    if (typeof tempAt === 'function') {
-      const rAe = (p.orbitR || 100) / PHYS.refRadius;
-      base *= 0.8 + Math.min(1, tempAt(rAe) / 400) * 0.4;
+  const now = Date.now();
+  forEachOwnedSystem(function(idx, planets, starType, systemType, incomeBonus, primeData, damaged) {
+    if (damaged) return;                       // система выведена из строя вторжением
+    let local = 0;
+    for (let i = 0; i < planets.length; i++) {
+      const p = planets[i];
+      if (!isPlanetProducing(p, now)) continue;
+      if (!isFinite(p.baseOrbitR)) continue;
+      local += planetBaseRate(p);
     }
+    if (local === 0) return;
 
-    if (isFinite(base)) sum += base;
-  }
+    sum += local * systemStarMult(starType) * systemTypeMultOf(systemType) * (1 + incomeBonus);
+  });
   return isFinite(sum) ? sum : 0;
 }
 
@@ -46,30 +168,30 @@ function invasionDebuffMult() {
 }
 window.invasionDebuffMult = invasionDebuffMult;
 
-// ─── Металлы (доход в секунду от лава-планет) ───────────────────
+// ─── Металлы (доход в секунду от лава-планет ВСЕХ систем) ───────
 function metalsPerSec() {
   let sum = 0;
-  // Проверяем, есть ли вообще лава-планеты (для базовой добычи)
   let hasLava = false;
-  for (let i = 0; i < S.planets.length; i++) {
-    const p = S.planets[i];
-    if (!p || p.forming) continue;
-    if (typeof isPlanetInvaded === 'function' && isPlanetInvaded(p)) continue;
-    if (p.disabledUntil && p.disabledUntil > Date.now()) continue;
-    const pt = PLANET_TYPES[p.type];
-    if (pt && pt.bonus && pt.bonus.type === 'metals') {
-      hasLava = true;
-      sum += Number(pt.bonus.metalsPerSec) || 0;
-    }
-  }
+  const now = Date.now();
 
-  // ★ Если есть хотя бы одна Лава-планета, Цив дает пассивный бонус ко всем планетам
+  forEachOwnedSystem(function(idx, planets, starType, systemType, incomeBonus, primeData, damaged) {
+    if (damaged) return;
+    for (let i = 0; i < planets.length; i++) {
+      const p = planets[i];
+      if (!isPlanetProducing(p, now)) continue;
+      const pt = PLANET_TYPES[p.type];
+      if (pt && pt.bonus && pt.bonus.type === 'metals') {
+        hasLava = true;
+        sum += Number(pt.bonus.metalsPerSec) || 0;
+      }
+    }
+  });
+
+  // ★ Цив даёт пассивный бонус ко всей добыче (как и раньше).
   if (hasLava && S.civLevel > 100) {
-    // Каждые 1000 Цив дают +10% к добыче (очень скромно)
-    let civBonus = 1 + Math.floor(S.civLevel / 1000) * 0.1;
-    sum *= civBonus;
+    sum *= 1 + Math.floor(S.civLevel / 1000) * 0.1;
   }
-  return sum;
+  return isFinite(sum) ? sum : 0;
 }
 
 // ─── Доход в секунду (Абсолютная защита от NaN) ───
@@ -77,28 +199,21 @@ function dustPerSec() {
   const st = STAGES[S.stage];
   if (!st) return 0;
   if (S.stage === 'cloud' || S.stage === 'condense' || S.stage === 'protostar') return 0;
-  
-  let primeMult = 1;
-  if (S.primeSystem && S.primeSystem.bonus) {
-    if (S.primeSystem.bonus.dustMult) primeMult += Number(S.primeSystem.bonus.dustMult) || 0;
-    if (S.primeSystem.bonus.allMult) primeMult += Number(S.primeSystem.bonus.allMult) || 0;
-  }
+
+  // ★ Бонусы всех прайм-систем (с затуханием), а не только активной.
+  const primeMultiplier = primeBonusMult('dust');
   const boostMult = (S.boosters && S.boosters.incomeUntil > Date.now()) ? (PREMIUM_CFG.booster.incomeMult || 1) : 1;
 
   const base = Number(st.baseRate) || 0;
   const pRate = Number(planetRate()) || 0;
-  const sMult = Number(starMult()) || 1;
-  const stMult = Number(systemTypeMult()) || 1;
-  const sysMult = Number(systemMult()) || 1;
   const gMult = Number(gammaMult()) || 1;
   const galMult = Number(galaxyMult()) || 1;
-  const sysInc = Number(1 + (S.systemIncomeBonus || 0)) || 1;
   const techMult = Number(1 + (S.techLevels?.astro || 0) * 0.15) || 1;
-  
+
   let achMult = 1;
   if (typeof achIncomeMult === 'function') achMult = Number(achIncomeMult()) || 1;
 
-  let finalRate = (base + pRate) * sMult * stMult * sysMult * gMult * galMult * sysInc * primeMult * boostMult * techMult * achMult;
+  let finalRate = (base + pRate) * gMult * galMult * primeMultiplier * boostMult * techMult * achMult;
   finalRate *= invasionDebuffMult();   // ★ штраф после вторжения (−до 60%)
   if (S.activeEvent && typeof EVENT_CFG !== 'undefined' && Array.isArray(EVENT_CFG.types)) {
     const evt = EVENT_CFG.types.find(t => t.id === S.activeEvent.id);
@@ -115,42 +230,183 @@ function clickGain() {
 }
 
 // ─── Кап металлов: нельзя копить «в стол» ───────────────────────
+// ★ Раньше это был единственный кап, не учитывающий доход: 750×2^(ур.-1),
+//   т.е. максимум 48 000 и «стена» при любом прогрессе. Теперь, как у
+//   пыли/энергии/цив: не меньше N часов текущего дохода.
 function metalsCap() {
   const cfg = (typeof METALS_CFG !== 'undefined') ? METALS_CFG : {};
   const lvl = Math.max(1, Math.min(7, Number((S.storageLevels || {})[cfg.capStorage || 'energy']) || 1));
-  return Math.floor((cfg.capBase || 750) * Math.pow(cfg.capGrowth || 2, lvl - 1));
+  const flat = (cfg.capBase || 750) * Math.pow(cfg.capGrowth || 2, lvl - 1);
+
+  const econ = econCfg();
+  const hoursRaw = Number(econ.metalsCapHours);
+  const hours = (isFinite(hoursRaw) && hoursRaw > 0) ? hoursRaw : 2;
+
+  const cap = Math.max(flat, metalsPerSec() * 3600 * hours);
+  return isFinite(cap) ? Math.floor(cap) : flat;
 }
 window.metalsCap = metalsCap;
 
-// ─── Цивилизация: подсчет обитаемых планет ──────────────────────
-// ─── Цивилизация: подсчет обитаемых планет ──────────────────────
+// ═══════════════════════════════════════════════════════════════
+//  ★ ДИНАМИЧЕСКИЕ ЦЕНЫ
+//  Цена = max(базовая, доход/час × часы). Так цена всегда означает
+//  «столько-то часов добычи», и ресурсы приходится распределять:
+//  оборона ↔ флот ↔ экспедиции ↔ колонии.
+// ═══════════════════════════════════════════════════════════════
+function priceFromIncome(base, incomePerSec, hours) {
+  const b = Math.max(0, Number(base) || 0);
+  const inc = Math.max(0, Number(incomePerSec) || 0);
+  const h = Math.max(0, Number(hours) || 0);
+  const price = Math.max(b, inc * 3600 * h);
+  return isFinite(price) ? Math.ceil(price) : Math.ceil(b);
+}
+window.priceFromIncome = priceFromIncome;
+
+function metalPrice(base, hours) { return priceFromIncome(base, metalsPerSec(), hours); }
+function energyPrice(base, hours) { return priceFromIncome(base, energyPerSec(), hours); }
+function civPrice(base, hours) { return priceFromIncome(base, civPerSec(), hours); }
+window.metalPrice = metalPrice;
+window.energyPrice = energyPrice;
+window.civPrice = civPrice;
+
+function priceHours(key) {
+  const t = econCfg().priceHours || {};
+  if (key === 'defense') return Array.isArray(t.defense) ? t.defense : [];
+  if (key === 'fleet') return t.fleet || {};
+  const v = Number(t[key]);
+  return isFinite(v) && v >= 0 ? v : 0;
+}
+window.priceHoursFor = priceHours;
+// ─── Автоборона: базовая цена × системы + динамика по доходу ────
+function defenseActivationCost(level) {
+  const lvl = Math.max(0, Math.min(5, Math.round(Number(level) || 0)));
+  if (lvl === 0) return 0;
+
+  const cfg = (typeof INVASION_CFG !== 'undefined') ? INVASION_CFG : {};
+  const systemsExtra = Math.max(0, (S.systems || 1) - 1);
+  const base = (Number((cfg.defenseCost || [])[lvl]) || 0) *
+               (1 + systemsExtra * (Number(cfg.defenseCostMultiplierPerSystem) || 0));
+
+  const hoursArr = priceHours('defense');
+  return metalPrice(base, Number(hoursArr[lvl]) || 0);
+}
+window.defenseActivationCost = defenseActivationCost;
+
+// ─── Верфь: цена одного корабля ────────────────────────────────
+function fleetShipPrice(key) {
+  const ships = (typeof FLEET_CFG !== 'undefined' && FLEET_CFG.ships) ? FLEET_CFG.ships : {};
+  const ship = ships[key];
+  if (!ship) return 0;
+  const hoursMap = priceHours('fleet') || {};
+  return metalPrice(ship.costMetals, Number(hoursMap[key]) || 0);
+}
+window.fleetShipPrice = fleetShipPrice;
+
+// ─── Содержание активного флота ─────────────────────────────────
+// ★ Флот больше не бесплатен: пока он включён, металл уходит постоянно.
+//   Вес: перехватчик 1, крейсер 3, дредноут 8.
+const FLEET_POWER = { interceptor: 1, cruiser: 3, dreadnought: 8 };
+
+function fleetUpkeepShare(forceActive) {
+  if (!forceActive && (typeof isFleetActive !== 'function' || !isFleetActive())) return 0;
+
+  const cfg = econCfg();
+  let power = 0;
+  const fleet = S.fleet || {};
+  for (const key in FLEET_POWER) {
+    power += Math.max(0, Number(fleet[key]) || 0) * FLEET_POWER[key];
+  }
+  if (power <= 0) return 0;
+
+  const perRaw = Number(cfg.fleetUpkeepPerPower);
+  const capRaw = Number(cfg.fleetUpkeepCap);
+  const per = (isFinite(perRaw) && perRaw >= 0) ? perRaw : 0.015;
+  const cap = (isFinite(capRaw) && capRaw > 0) ? capRaw : 0.60;
+
+  return Math.min(cap, power * per);
+}
+window.fleetUpkeepShare = fleetUpkeepShare;
+
+function fleetUpkeepPerSec() {
+  return metalsPerSec() * fleetUpkeepShare();
+}
+window.fleetUpkeepPerSec = fleetUpkeepPerSec;
+
+// Списание содержания за dt. Возвращает фактически списанное.
+// Если металла не хватает — флот уходит в резерв (это и есть «стратегия»).
+function payFleetUpkeep(dt) {
+  const perSec = fleetUpkeepPerSec();
+  if (!(perSec > 0) || !(dt > 0)) return 0;
+
+  const due = perSec * dt;
+  const have = Math.max(0, Number(S.metalAmount) || 0);
+
+  if (have >= due) {
+    S.metalAmount = have - due;
+    return due;
+  }
+
+  S.metalAmount = 0;
+  if (S.fleetActive) {
+    S.fleetActive = false;
+    if (typeof toast === 'function' && !window.__fleetUpkeepWarned) {
+      window.__fleetUpkeepWarned = true;
+      toast('Флот в резерве', 'Не хватило металла на содержание флота');
+      setTimeout(function () { window.__fleetUpkeepWarned = false; }, 5000);
+    }
+  }
+  return have;
+}
+window.payFleetUpkeep = payFleetUpkeep;
+
+// ─── Цивилизация: подсчет обитаемых планет (во ВСЕХ системах) ───
 function civPlanetCount() {
   let n = 0;
-  for (let i = 0; i < S.planets.length; i++) {
-    // ★ Убрана проверка на STAR_TYPES.civ, чтобы планеты на любых звездах давали жизнь
-    if (PLANET_TYPES[S.planets[i].type].civ && !S.planets[i].forming) n++;
-  }
+  const now = Date.now();
+  forEachOwnedSystem(function(idx, planets, starType, systemType, incomeBonus, primeData, damaged) {
+    if (damaged) return;
+    for (let i = 0; i < planets.length; i++) {
+      const p = planets[i];
+      // ★ Убрана проверка на STAR_TYPES.civ, чтобы планеты на любых звездах давали жизнь
+      if (!isPlanetProducing(p, now)) continue;
+      const pt = PLANET_TYPES[p.type];
+      if (pt && pt.civ) n++;
+    }
+  });
   return n;
 }
 window.civPlanetCount = civPlanetCount;
 
-// ─── Рост цивилизации ───────────────────────────────────────────
+// ─── Рост цивилизации (по ВСЕМ системам) ────────────────────────
 function civPerSec() {
-  const c = civPlanetCount();
-  if (c === 0) {
-    // ★ Фоллбек: если планет нет, даем минимальный рост для восстановления
-    return 0.005 * (1 + (S.techLevels?.cyber || 0) * 0.20);
-  }
-  const sysType = S.systemType || 'single';
-  let mult = SYSTEM_TYPES[sysType].civPassiveMult;
-  for (let i = 0; i < S.planets.length; i++) {
-    const p = S.planets[i];
-    if (p.forming) continue;
-    if (p.disabledUntil && p.disabledUntil > Date.now()) continue;
-    const pt = PLANET_TYPES[p.type];
-    if (pt.bonus && pt.bonus.type === 'civ') mult *= (pt.bonus.civMult || 1);
-  }
-  let finalRate = CFG.civGrowthPerPlanet * c * mult * (1 + (S.techLevels?.cyber || 0) * 0.20);
+  const techMult = 1 + ((S.techLevels?.cyber || 0) * 0.20);
+  const now = Date.now();
+  let total = 0;
+
+  forEachOwnedSystem(function(idx, planets, starType, systemType, incomeBonus, primeData, damaged) {
+    if (damaged) return;
+
+    const typeCfg = SYSTEM_TYPES[systemType] || SYSTEM_TYPES.single;
+    let mult = Number(typeCfg.civPassiveMult) || 1;
+    let c = 0;
+
+    for (let i = 0; i < planets.length; i++) {
+      const p = planets[i];
+      if (!isPlanetProducing(p, now)) continue;
+      const pt = PLANET_TYPES[p.type];
+      if (!pt) continue;
+      if (pt.civ) c++;
+      if (pt.bonus && pt.bonus.type === 'civ') mult *= (pt.bonus.civMult || 1);
+    }
+
+    if (c === 0) return;
+    total += CFG.civGrowthPerPlanet * c * mult * techMult;
+  });
+
+  // ★ Фоллбек: если планет с жизнью нет, даем минимальный рост для восстановления
+  if (total === 0) return 0.005 * techMult;
+
+  let finalRate = total;
   if (S.activeEvent && typeof EVENT_CFG !== 'undefined' && Array.isArray(EVENT_CFG.types)) {
     const evt = EVENT_CFG.types.find(t => t.id === S.activeEvent.id);
     if (evt && evt.globalIncomeMult) finalRate *= evt.globalIncomeMult;
@@ -158,27 +414,25 @@ function civPerSec() {
   return isFinite(finalRate) ? finalRate : 0;
 }
 
-// ─── Доход энергии ───
+// ─── Доход энергии (по ВСЕМ системам) ───────────────────────────
 function energyPerSec() {
+  const c = civPlanetCount();
+
   if (S.civLevel < 4) {
     // ★ Фоллбек: если цив < 4, но планеты есть, даем минимальный приток энергии
-    return S.planets.length > 0 ? 0.1 : 0;
+    return c > 0 ? 0.1 : 0;
   }
-  const c = civPlanetCount();
   if (c === 0) return 0;
+
   const levels = S.storageLevels || { energy: 1 };
-  
-  let primeMult = 1;
-  if (S.primeSystem && S.primeSystem.bonus) {
-    if (S.primeSystem.bonus.energyMult) primeMult += Number(S.primeSystem.bonus.energyMult) || 0;
-    if (S.primeSystem.bonus.allMult) primeMult += Number(S.primeSystem.bonus.allMult) || 0;
-  }
+  // ★ Энергобонусы всех прайм-систем (с затуханием), а не только активной.
+  const primeMultiplier = primeBonusMult('energy');
 
   const base = Number(S.civLevel) || 0;
   const techMult = Number(1 + (S.techLevels?.quantum || 0) * 0.20) || 1;
   const lvlMult = Math.pow(1.5, (Number(levels.energy) || 1) - 1);
 
-  let finalRate = (base - 3) * c * 0.5 * lvlMult * techMult * primeMult;
+  let finalRate = (base - 3) * c * 0.5 * lvlMult * techMult * primeMultiplier;
   if (S.activeEvent && typeof EVENT_CFG !== 'undefined' && Array.isArray(EVENT_CFG.types)) {
     const evt = EVENT_CFG.types.find(t => t.id === S.activeEvent.id);
     if (evt && evt.globalIncomeMult) finalRate *= evt.globalIncomeMult;
@@ -186,6 +440,7 @@ function energyPerSec() {
   }
   return (isFinite(finalRate) && !isNaN(finalRate)) ? Math.max(0, finalRate) : 0;
 }
+window.energyPerSec = energyPerSec;
 
 // ─── Стоимости (Динамический баланс) ────────────────────────────
 function planetCost(n) {
@@ -299,10 +554,11 @@ function applyOfflineProgress() {
   const levels = S.storageLevels || { dust: 1, energy: 1, civ: 1 };
   const out = {
     seconds: Math.floor(elapsedSec),
-    dustEarned: 0, energyEarned: 0, civEarned: 0,
+    dustEarned: 0, energyEarned: 0, civEarned: 0, metalsEarned: 0,
     cometEarned: 0, expEarned: 0, nightEnded: false,
     invasionAttacks: 0, invasionDefended: 0, invasionLost: 0,
     invasionDrainE: 0, invasionDrainC: 0, shieldProtected: false,
+    fleetUpkeep: 0, fleetDeactivated: false,
   };
 
   processOfflineMissions(out);
@@ -354,6 +610,42 @@ function applyOfflineProgress() {
     }
   }
 
+  // ★ Металлы тоже капаются офлайн (раньше офлайн их не начислял вовсе).
+  const mRate = metalsPerSec();
+  if (mRate > 0) {
+    const econ = econCfg();
+    const capHRaw = Number(econ.metalsCapHours);
+    const capHours = (isFinite(capHRaw) && capHRaw > 0) ? capHRaw : 2;
+    const mCappedSec = Math.min(elapsedSec, capHours * 3600);
+    const mEarned = Math.floor(mRate * mCappedSec * CFG.offlineEfficiency);
+    if (mEarned > 0) {
+      const mCap = metalsCap();
+      const availableM = mCap - (S.metalAmount || 0);
+      if (availableM > 0) {
+        const actualM = Math.min(mEarned, availableM);
+        S.metalAmount = (S.metalAmount || 0) + actualM;
+        out.metalsEarned = Math.floor(actualM);
+      }
+    }
+  }
+
+  // ★ Содержание флота за офлайн: списывается, но НЕ выключает флот.
+  //   Окно — как у капа металлов (metalsCapHours), чтобы сумма была оплачиваемой:
+  //   иначе ночная оборона умирала бы от нехватки металла без ведома игрока.
+  const upkeepPerSec = (typeof fleetUpkeepPerSec === 'function') ? fleetUpkeepPerSec() : 0;
+  if (upkeepPerSec > 0) {
+    const econ = econCfg();
+    const capHRaw = Number(econ.metalsCapHours);
+    const capHours = (isFinite(capHRaw) && capHRaw > 0) ? capHRaw : 2;
+    const due = Math.floor(upkeepPerSec * Math.min(elapsedSec, capHours * 3600));
+    if (due > 0) {
+      const have = Math.max(0, S.metalAmount || 0);
+      const paid = Math.min(have, due);
+      S.metalAmount = have - paid;
+      out.fleetUpkeep = Math.floor(paid);
+    }
+  }
+
   // Офлайн-атаки (только если офлайн > 1 часа или активен ночной режим)
   const isNightActive = S.nightDefenseExpiresAt && S.nightDefenseExpiresAt > now;
   if ((S.stage === 'system' || S.stage === 'galaxy') && (elapsedSec >= 3600 || isNightActive)) {
@@ -369,7 +661,8 @@ function applyOfflineProgress() {
     }
   }
 
-  if (out.dustEarned > 0 || out.energyEarned > 0 || out.civEarned > 0 || 
+  if (out.dustEarned > 0 || out.energyEarned > 0 || out.civEarned > 0 || out.metalsEarned > 0 ||
+      out.fleetUpkeep > 0 ||
       out.invasionAttacks > 0 || out.cometEarned > 0 || out.expEarned > 0 || out.nightEnded) {
     return out;
   }

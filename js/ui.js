@@ -1033,7 +1033,9 @@ function openNightMode() {
   // Кнопки уровней обороны
   const defenseButtons = [1, 2, 3, 4, 5].map(lvl => {
     const systemsExtra = Math.max(0, (S.systems || 1) - 1);
-    const cost = Math.floor(INVASION_CFG.defenseCost[lvl] * (1 + systemsExtra * INVASION_CFG.defenseCostMultiplierPerSystem));
+    const cost = (typeof defenseActivationCost === 'function')
+      ? defenseActivationCost(lvl)
+      : Math.floor(INVASION_CFG.defenseCost[lvl] * (1 + systemsExtra * INVASION_CFG.defenseCostMultiplierPerSystem));
     const bonus = Math.round(lvl * (INVASION_CFG.repelDefensePerLevel || 0.10) * 100);
     const isCurrent = selDefLvl === lvl;
     return `<button class="pour-btn" style="flex-direction:column;padding:6px 2px;font-size:9px; line-height:1.2; ${isCurrent ? 'background:rgba(46,170,119,0.4);border-color:#2eaa77;' : ''}"
@@ -1162,7 +1164,9 @@ function saveNightConfig() {
   const selDefLvl = Math.max(0, Math.min(5, Number(_tempNightConfig.defenseLevel) || 0));
   let mCostDefense = 0;
   if (selDefLvl > 0 && _tempNightConfig.defenseDirty) {
-    mCostDefense = Math.floor(INVASION_CFG.defenseCost[selDefLvl] * (1 + systemsExtra * INVASION_CFG.defenseCostMultiplierPerSystem));
+    mCostDefense = (typeof defenseActivationCost === 'function')
+      ? defenseActivationCost(selDefLvl)
+      : Math.floor(INVASION_CFG.defenseCost[selDefLvl] * (1 + systemsExtra * INVASION_CFG.defenseCostMultiplierPerSystem));
     if ((S.metalAmount || 0) < mCostDefense) {
       toast('Не хватает металла', 'Нужно ' + mCostDefense + ' ⚙');
       return;
@@ -1261,7 +1265,9 @@ function selectDefenseLevel(lvl) {
   if (!_tempNightConfig) return;
   lvl = Math.max(1, Math.min(5, Number(lvl) || 1));
   const systemsExtra = Math.max(0, (S.systems || 1) - 1);
-  const cost = Math.floor(INVASION_CFG.defenseCost[lvl] * (1 + systemsExtra * INVASION_CFG.defenseCostMultiplierPerSystem));
+  const cost = (typeof defenseActivationCost === 'function')
+    ? defenseActivationCost(lvl)
+    : Math.floor(INVASION_CFG.defenseCost[lvl] * (1 + systemsExtra * INVASION_CFG.defenseCostMultiplierPerSystem));
   if ((S.metalAmount || 0) < cost) {
     toast('Не хватает металла', 'Нужно ' + cost + ' ⚙');
     return;

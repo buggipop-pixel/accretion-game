@@ -711,8 +711,12 @@ if (actualEGain > 0) S.energy = (S.energy || 0) + actualEGain;
 const metalGain = safeMetalsPerSec() * dt;
 if (metalGain > 0) {
   const mCap = (typeof metalsCap === 'function') ? metalsCap() : Infinity;
-  S.metalAmount = Math.min(mCap, (S.metalAmount || 0) + metalGain);
+  // ★ Не «срезаем» уже накопленное, если кап оказался ниже запаса.
+  const curMetal = Math.max(mCap, S.metalAmount || 0);
+  S.metalAmount = Math.min(curMetal, (S.metalAmount || 0) + metalGain);
 }
+// ★ Содержание активного флота: постоянный расход металла, пока он включён.
+if (typeof payFleetUpkeep === 'function') payFleetUpkeep(dt);
 // Тики и логика систем
 if (typeof tickCiv === 'function') tickCiv(dt);
 if (typeof updateParticles === 'function') updateParticles(dt, time);
@@ -938,6 +942,7 @@ const parts = [];
 if (offline.dustEarned > 0 && typeof fmt === 'function') parts.push('+' + fmt(offline.dustEarned) + ' ✦');
 if (offline.energyEarned > 0 && typeof fmt === 'function') parts.push('+' + fmt(offline.energyEarned) + ' ⚡');
 if (offline.civEarned > 0 && typeof fmt === 'function') parts.push('+' + fmt(offline.civEarned) + ' 🧬');
+if (offline.metalsEarned > 0 && typeof fmt === 'function') parts.push('+' + fmt(offline.metalsEarned) + ' ⚙');
 if (offline.invasionLostMetals > 0 && typeof fmt === 'function') parts.push('⚙ −' + fmt(offline.invasionLostMetals));
 if (offline.cometEarned > 0 && typeof fmt === 'function') parts.push('☄️ +' + fmt(offline.cometEarned) + ' ✦');
 if (offline.expEarned > 0 && typeof fmt === 'function') parts.push('🚀 +' + fmt(offline.expEarned) + ' ✦');

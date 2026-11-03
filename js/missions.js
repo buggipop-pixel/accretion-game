@@ -26,26 +26,43 @@ function cometCost() {
   return Math.floor(baseCost * iceMult);
 }
 
-function expeditionEnergyCost() {
+// ★ Единая цена экспедиции: энергия + металл, обе — от текущего дохода.
+//   Металл делает запуск осмысленной тратой, а не бесплатным конвейером.
+function expeditionCost(distanceMultiplier) {
   const cfg = MISSIONS_CFG;
-  let lifeCount = 0;
-  for (let i = 0; i < S.planets.length; i++) {
-    if (PLANET_TYPES[S.planets[i].type].civ && !S.planets[i].forming) lifeCount++;
-  }
-  // ★ Цена = 5 минут текущего дохода энергии (минимум 3000).
-  const baseCost = Math.max(cfg.expeditionCostBase, energyPerSec() * (cfg.expeditionEnergySeconds || 300));
-  const lifeMult = 1 + lifeCount * 0.4;
-  const systemMult = Math.pow(cfg.expeditionCostRatio, S.systems - 1);
-  return Math.floor(baseCost * lifeMult * systemMult);
+  const mult = Math.max(1, Math.min(3, parseInt(distanceMultiplier) || 1));
+
+  const energyBase = Math.max(
+    Number(cfg.expeditionCostBase) || 3000,
+    energyPerSec() * (Number(cfg.expeditionEnergySeconds) || 300)
+  );
+
+  // ★ Металл: забирает долю металлодобычи — конкурирует с обороной и флотом.
+  const metalsFloor = (typeof METALS_CFG !== 'undefined' && Number(METALS_CFG.expeditionCostMetals)) || 200;
+  const hours = (typeof priceHoursFor === 'function') ? (Number(priceHoursFor('expedition')) || 0) : 0;
+  const metalsBase = (typeof metalPrice === 'function') ? metalPrice(metalsFloor, hours) : metalsFloor;
+
+  return {
+    mult: mult,
+    energy: Math.floor(energyBase * mult),
+    metals: Math.floor(metalsBase * mult),
+  };
 }
+window.expeditionCost = expeditionCost;
 
 function colonyEnergyCost() {
   const cfg = MISSIONS_CFG;
-  return Math.floor(cfg.colonyEnergyCost * Math.pow(cfg.colonyEnergyRatio, S.systems - 1));
+  // ★ Цена колонии привязана к текущему доходу и капу, а не к 2^(систем):
+  //   иначе на 10+ системах она превышает хранилище и колонии недостижимы.
+  const capE = (typeof getResourceCap === 'function') ? getResourceCap('energy') : Infinity;
+  const fromIncomeE = energyPerSec() * 3600 * 2;          // 2 часа дохода
+  return Math.floor(Math.max(cfg.colonyEnergyCost, Math.min(capE * 0.6, fromIncomeE)));
 }
 function colonyCivCost() {
   const cfg = MISSIONS_CFG;
-  return Math.floor(cfg.colonyCivCost * Math.pow(cfg.colonyCivRatio, S.systems - 1));
+  const capC = (typeof getResourceCap === 'function') ? getResourceCap('civ') : Infinity;
+  const fromIncomeC = civPerSec() * 3600 * 2;              // 2 часа дохода
+  return Math.floor(Math.max(cfg.colonyCivCost, Math.min(capC * 0.6, fromIncomeC)));
 }
 
 // ─── КОМЕТЫ ─────────────────────────────────────────────────────
@@ -68,19 +85,22 @@ function canLaunchComet() {
 // ★ Общие параметры дальности миссий (цена/время/награда)
 function missionDistanceOptions() {
   const cfg = MISSIONS_CFG;
-  const baseCost = energyPerSec() * 120;
+  // (цена считается на каждую дальность отдельно)
   const defs = [
     { mult: 1, name: 'Ближняя', desc: 'Короткий полёт, низкая цена' },
     { mult: 2, name: 'Средняя', desc: 'Баланс цены и награды' },
     { mult: 3, name: 'Дальняя', desc: 'Долгий полёт, большая награда' },
   ];
   return defs.map(function(d) {
+    const c = expeditionCost(d.mult);
     return {
       mult: d.mult,
       name: d.name,
       desc: d.desc,
       flightMin: (cfg.expeditionFlightMin * d.mult) / 60000,
-      cost: Math.floor(baseCost * d.mult),
+      cost: c.energy,
+      energy: c.energy,
+      metals: c.metals,
       reward: Math.floor(dustPerSec() * (cfg.expeditionRewardShare || 0.5) * (cfg.expeditionFlightMin * d.mult / 1000)),
     };
   });
@@ -89,12 +109,12 @@ function missionDistanceOptions() {
 function openCometDialog() {
   const options = missionDistanceOptions();
   const choices = options.map(function(o) {
-    const canAfford = (S.energy || 0) >= o.cost;
+    const canAfford = (S.energy || 0) >= o.energy && (S.metalAmount || 0) >= o.metals;
     return {
       id: 'dist_' + o.mult,
       name: o.name + ' миссия',
       desc: o.desc,
-      stats: '⏱ ' + o.flightMin.toFixed(0) + ' мин · ⚡ ' + fmt(o.cost) + ' · +' + fmt(o.reward) + ' ✦',
+      stats: '⏱ ' + o.flightMin.toFixed(0) + ' мин · ⚡ ' + fmt(o.energy) + ' · ' + fmt(o.metals) + ' ⚙ · +' + fmt(o.reward) + ' ✦',
       color: '#3d6dd4', icon: '🚀', disabled: !canAfford,
     };
   });
@@ -236,8 +256,11 @@ function launchComet(sizePct) {
 function canLaunchExpedition(distanceMultiplier) {
   const mult = Math.max(1, Math.min(3, parseInt(distanceMultiplier) || 1));
   if (S.civLevel < 6) return { ok: false, reason: 'Нужен цив. 6' };
-  const cost = Math.floor(Math.max(MISSIONS_CFG.expeditionCostBase || 3000, energyPerSec() * (MISSIONS_CFG.expeditionEnergySeconds || 300)) * mult);
-  if (S.energy < cost) return { ok: false, reason: 'Нужно ' + fmt(cost) + '⚡' };
+  const c = expeditionCost(mult);
+  const cost = c.energy;
+  const metalCost = c.metals;
+  if ((S.energy || 0) < cost) return { ok: false, reason: 'Нужно ' + fmt(cost) + '⚡', energy: cost, metals: metalCost, cost: cost };
+  if ((S.metalAmount || 0) < metalCost) return { ok: false, reason: 'Нужно ' + fmt(metalCost) + '⚙', energy: cost, metals: metalCost, cost: cost };
   const now = Date.now();
   if (now - MISS.lastExpeditionAt < 60000) {
     const left = Math.ceil((60000 - (now - MISS.lastExpeditionAt)) / 1000);
@@ -251,7 +274,7 @@ function canLaunchExpedition(distanceMultiplier) {
     }
   }
   if (!hasCiv) return { ok: false, reason: 'Нужна планета с жизнью' };
-  return { ok: true, cost: cost };
+  return { ok: true, cost: cost, energy: cost, metals: metalCost };
 }
 
 function launchExpedition(distanceMultiplier) {
@@ -259,7 +282,8 @@ function launchExpedition(distanceMultiplier) {
   const mult = Math.max(1, Math.min(3, parseInt(distanceMultiplier) || 1));
   const check = canLaunchExpedition(mult);
   if (!check.ok) { toast('Экспедиция недоступна', check.reason); return false; }
-  S.energy -= check.cost;
+  S.energy -= check.energy;
+  S.metalAmount = Math.max(0, (S.metalAmount || 0) - check.metals);
   MISS.lastExpeditionAt = Date.now();
 
   // ─── Время полёта и награда зависят от дальности ───
@@ -311,7 +335,7 @@ function launchExpedition(distanceMultiplier) {
   MISS.expeditions[MISS.expeditions.length - 1].nightMode = (S.nightConfig && S.nightConfig.mode) || 'balanced';
     toast('🚀 Экспедиция запущена',
     'Возврат через ' + fmtTime(flightMs / 1000) +
-    ' · цена ' + fmt(check.cost) + '⚡');
+    ' · цена ' + fmt(check.energy) + '⚡' + (check.metals > 0 ? ' + ' + fmt(check.metals) + '⚙' : ''));
   if (typeof playSFX === 'function') playSFX('sfx_expedition');
   if (typeof addEvent === 'function') {
     addEvent('comet_spawn',
@@ -488,7 +512,7 @@ function openMissionDialog(distance) {
       name: 'Экспедиция · ' + o.name + (isSelected ? ' ✓' : ''),
       desc: o.desc,
       stats: check.ok
-        ? '⏱ ' + o.flightMin.toFixed(0) + ' мин · ⚡ ' + fmt(check.cost) + ' · +' + fmt(o.reward) + ' ✦'
+        ? '⏱ ' + o.flightMin.toFixed(0) + ' мин · ⚡ ' + fmt(check.energy) + ' + ' + fmt(check.metals) + '⚙ · +' + fmt(o.reward) + ' ✦'
         : (check.reason || 'Недоступна'),
       color: '#2f9e6e', icon: '🚀', disabled: !check.ok,
     });
