@@ -760,7 +760,7 @@ function reFireWeekly(evt, now) {
   const evType = 'weekly_event_' + (pol.key === 'positive' ? 'buff' : pol.key === 'negative' ? 'debuff' : 'mixed');
   if (typeof toast === 'function') toast(pol.icon + ' ' + evt.title, evt.desc);
   if (typeof addEvent === 'function') addEvent(evType, pol.icon + ' ' + evt.title + ' — ' + evt.desc);
-  rePushEventNotify(evt, 'event_weekly', '📅 <b>Недельное событие!</b>');
+  rePushEventNotify(evt, 'event_weekly', '📅 <b>Событие дня!</b>');
   if (typeof playSFX === 'function') playSFX(pol.key === 'negative' ? 'explosion' : 'ui_levelup');
   if (typeof playEventCinematic === 'function') playEventCinematic(evt, pol.key);
   reShowWeeklyModal(evt);

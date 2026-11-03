@@ -317,6 +317,9 @@ function performSupernova(level) {
     prestigeLevel: level,
     storageLevels: Object.assign({ dust: 1, energy: 1, civ: 1 }, S.storageLevels),
     storageProgress: Object.assign({ dust: 0, energy: 0, civ: 0 }, S.storageProgress),
+    // ★ Цена систем не должна откатываться после Вспышки: переносим
+    //   максимальный достигнутый индекс (включая текущее число систем).
+    systemCostFloor: Math.max(0, Number(S.systemCostFloor) || 0, (Number(S.systems) || 1) - 1),
     primeSystem: null,
     primeCandidates: S.primeCandidates || [],
     seenLore: S.seenLore || [],

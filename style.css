@@ -933,6 +933,62 @@ body.mg-active .toasts {
   text-align: center;
 }
 
+/* ─── Баннер активного события в верхнем HUD ───
+   Один источник информации о событии: иконка + название + таймер.
+   Лежит единой строкой под плашкой игрока, на узких экранах не вылезает. */
+#eventBanner {
+  position: absolute;
+  top: calc(var(--hud-safe-top, 10px) + var(--hud-top-extra, 0px) + 54px);
+  left: 12px;
+  right: 54px;
+  margin: 0 auto;
+  max-width: 360px;
+  z-index: 5;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(139, 127, 212, 0.4);
+  background: rgba(15, 10, 32, 0.85);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  pointer-events: auto;
+  cursor: pointer;
+  touch-action: manipulation;
+  backdrop-filter: blur(5px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+}
+#eventBanner:active { transform: scale(0.98); }
+#eventBanner:focus-visible { outline: 2px solid #b9a8ff; outline-offset: 2px; }
+#eventBanner .evb-icon { flex: 0 0 auto; font-size: 12px; line-height: 1; }
+#eventBanner .evb-text {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+}
+#eventBanner .evb-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#eventBanner .evb-timer {
+  flex: 0 0 auto;
+  color: #7ee0a8;
+  font-variant-numeric: tabular-nums;
+}
+
+
 /* ─── Панель журнала ─── */
 .event-log-card {
   max-width: 460px;
@@ -1477,10 +1533,10 @@ body.tg-fullscreen #app { max-width: none; }
   max-width: 84vw;
 }
 
-/* Кнопка возврата в галактику — слева, под 3D */
+/* Кнопка возврата в галактику — под баннером события и индикатором газа */
 #backToGalaxyBtn {
   position: absolute;
-  top: calc(var(--hud-safe-top) + var(--hud-top-extra) + 54px);
+  top: calc(var(--hud-safe-top) + var(--hud-top-extra) + 112px);
   left: 12px;
   bottom: auto;
   transform: none;
@@ -1490,7 +1546,7 @@ body.tg-fullscreen #app { max-width: none; }
   font-size: 10px;
 }
 
-/* Индикатор газа — слева, под кнопкой возврата */
+/* Индикатор газа — под верхней строкой и баннером события */
 #gasIndicator {
   position: absolute;
   top: calc(var(--hud-safe-top) + var(--hud-top-extra) + 88px);
@@ -1512,7 +1568,8 @@ body.tg-fullscreen #app { max-width: none; }
   position: relative;
   right: auto;
   bottom: auto;
-  width: auto;
+  width: 100%;
+  overflow: hidden;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 5px;
@@ -1525,6 +1582,8 @@ body.tg-fullscreen #app { max-width: none; }
   z-index: 11;
 }
 .storage-cell {
+  min-width: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -1630,6 +1689,8 @@ body.tg-fullscreen #app { max-width: none; }
   position: absolute;
   left: 0;
   right: 0;
+  width: 100%;
+  box-sizing: border-box;
   bottom: 0;
   display: flex;
   flex-direction: column;
@@ -1643,6 +1704,9 @@ body.tg-fullscreen #app { max-width: none; }
 .hud-bottom {
   order: 2;
   position: relative;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
   display: flex;
   align-items: flex-end;
   gap: 6px;
@@ -1734,6 +1798,7 @@ body.tg-fullscreen #app { max-width: none; }
 .hud-bottom .mission-buttons {
   flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
   margin-bottom: 0;
   gap: 6px;
 }
@@ -2085,4 +2150,122 @@ body.tg-fullscreen #app { max-width: none; }
 }
 .evt-choice-fallback {
   margin-top: 12px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   АДАПТИВ HUD (320–430px) И КОМПАКТНАЯ ПОДСКАЗКА
+   Правки: наложения верхнего HUD, нижнего дока, хранилищ,
+   баннера события и обучалки.
+   ═══════════════════════════════════════════════════════════ */
+
+/* ─── Обучалка: компактная плашка над нижним доком ─── */
+#tutorialOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 12px calc(env(safe-area-inset-bottom, 0px) + 200px);
+  pointer-events: none;
+}
+.tutorial-bubble {
+  width: auto;
+  max-width: min(340px, calc(100vw - 24px));
+  margin-bottom: 0;
+  padding: 10px 14px;
+  border: 1px solid rgba(185, 168, 255, 0.7);
+  border-radius: 14px;
+  background: rgba(25, 15, 55, 0.93);
+  text-align: left;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5), 0 0 12px rgba(107, 77, 230, 0.32);
+  animation: tutorialPulseSoft 3.4s ease-in-out infinite;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: opacity 0.28s ease, transform 0.28s ease;
+}
+.tutorial-title { font-size: 13px; line-height: 1.25; margin-bottom: 2px; }
+.tutorial-sub { font-size: 11px; line-height: 1.35; color: #c7bbff; }
+.tutorial-close {
+  display: inline-block;
+  margin-top: 7px;
+  padding: 3px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(185, 168, 255, 0.5);
+  background: rgba(139, 127, 212, 0.25);
+  color: #e8e2ff;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+.tutorial-close:active { transform: scale(0.95); }
+.tutorial-bubble.tutorial-hide {
+  opacity: 0;
+  transform: translateY(10px);
+  animation: none;
+  pointer-events: none;
+}
+@keyframes tutorialPulseSoft {
+  0%, 100% { box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5), 0 0 12px rgba(107, 77, 230, 0.3); }
+  50% { box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5), 0 0 18px rgba(107, 77, 230, 0.5); }
+}
+@media (max-width: 420px) {
+  #tutorialOverlay { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 176px); }
+}
+@media (max-height: 620px) {
+  #tutorialOverlay { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 158px); }
+}
+
+/* ─── Верхний HUD: 380px ─── */
+@media (max-width: 380px) {
+  .hud-top { padding-left: 8px; padding-right: 8px; }
+  .view3d-btn { width: 42px; height: 42px; border-radius: 14px; }
+  .nameplate { min-width: 0; max-width: 36vw; padding: 5px 10px 4px; }
+  .np-nick { font-size: 12px; }
+  .system-buttons { gap: 6px; }
+  .system-buttons .event-btn,
+  .system-buttons .settings-btn { width: 32px; height: 32px; border-radius: 11px; font-size: 13px; }
+  #eventBanner { left: 8px; right: 44px; font-size: 10px; padding: 4px 8px; gap: 4px; }
+  .hud-bottom { gap: 4px; }
+  .phase-card { flex: 0 1 auto; min-width: 0; padding: 5px 9px 5px 5px; gap: 6px; }
+  .phase-meta { overflow: hidden; }
+  .phase-name { max-width: 78px; font-size: 9px; }
+  .hud-bottom .mission-btn { height: 50px; padding: 5px 8px; column-gap: 5px; }
+  .hud-bottom .mission-btn .mb-icon { font-size: 16px; }
+  .hud-bottom .mission-btn > div:nth-child(2) { font-size: 9.5px; }
+  .hud-bottom .mission-btn .mb-cost { font-size: 7.5px; }
+  .storage-panel { gap: 4px; padding: 5px; }
+  .storage-cell { padding: 3px 3px; }
+  .sc-top { gap: 2px; }
+  .storage-val { font-size: 10px; }
+}
+
+/* ─── Верхний HUD: 340px ─── */
+@media (max-width: 340px) {
+  #fullscreenBtn { display: none !important; }
+  .view3d-btn { width: 38px; height: 38px; border-radius: 13px; }
+  .view3d-btn .v3-ico { font-size: 15px; }
+  .system-buttons { gap: 5px; }
+  .system-buttons .event-btn,
+  .system-buttons .settings-btn { width: 30px; height: 30px; border-radius: 10px; font-size: 12.5px; }
+  .nameplate { max-width: 34vw; padding: 4px 8px 3px; }
+  .np-nick { font-size: 11px; letter-spacing: 0; }
+  .np-sys { font-size: 8px; letter-spacing: 0.6px; }
+  #eventBanner { left: 8px; right: 40px; font-size: 9.5px; padding: 3px 7px; gap: 4px; }
+  .phase-card { padding: 4px 8px 4px 4px; gap: 5px; }
+  .phase-ring { width: 34px; height: 34px; }
+  .orb-label { font-size: 12px; }
+  .phase-name { display: none; }
+  .hud-bottom .mission-btn { height: 48px; padding: 5px 6px; column-gap: 4px; }
+  .hud-bottom .mission-btn .mb-icon { font-size: 15px; }
+  .hud-bottom .mission-btn > div:nth-child(2) { font-size: 9px; }
+  .storage-panel { gap: 3px; padding: 4px; }
+  .storage-cell { padding: 2px 2px; }
+  .storage-val { font-size: 9.5px; }
+  .storage-label { font-size: 5.5px; letter-spacing: 0; }
+  .storage-upgrade-btn { width: 13px; height: 13px; min-width: 13px; }
+  .storage-upgrade-btn::before { font-size: 8px; }
+  .storage-progress-text { display: none; }
 }

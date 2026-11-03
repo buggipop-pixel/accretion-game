@@ -47,10 +47,12 @@
       <div id="systemDropdown" class="sys-dropdown-list" style="display:none;"></div>
 
       <!-- Баннер событий -->
-      <div id="eventBanner" style="display:none; position:absolute; top:calc(var(--hud-safe-top, 10px) + var(--hud-top-extra, 0px) + 54px); left:50%; transform:translateX(-50%); z-index:5; background:rgba(15,10,32,0.85); border:1px solid rgba(139,127,212,0.4); padding:6px 12px; border-radius:10px; font-size:11px; font-weight:bold; color:#fff; text-align:center; backdrop-filter:blur(5px); box-shadow:0 4px 15px rgba(0,0,0,0.5); width:max-content; max-width:80vw;">
-        <span id="eventIcon"></span>
-        <span id="eventName"></span>
-        <span id="eventTimer" style="color:#7ee0a8; margin-left:5px;"></span>
+      <div id="eventBanner" style="display:none;" role="button" tabindex="0" aria-label="Активное событие">
+        <span id="eventIcon" class="evb-icon"></span>
+        <span class="evb-text">
+          <span id="eventName" class="evb-name"></span>
+          <span id="eventTimer" class="evb-timer"></span>
+        </span>
       </div>
 
       <!-- Кнопка назад в галактику -->
@@ -315,7 +317,7 @@
     </div>
   </div>
 
-  <!-- Обучалка: пошаговые подсказки для новичков -->
-  <div id="tutorialOverlay" style="display: none; position: fixed; inset: 0; z-index: 15; pointer-events: none; align-items: center; justify-content: center;"></div>
+  <!-- Обучалка: компактная подсказка над нижним доком (сама скрывается) -->
+  <div id="tutorialOverlay" style="display: none;"></div>
 </body>
 </html>

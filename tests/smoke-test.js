@@ -253,6 +253,20 @@ assert('Функция metalsPerSec() возвращает число > 0', cont
 assert('Стоимость планеты > 0', context.planetCost(0) > 0);
 assert('Стоимость системы > 0', context.systemCost(1) > 0);
 
+// Тест 2b: цена системы не откатывается после престижа
+context.S.systems = 23;
+context.S.totalSystemsCreated = 23;
+context.S.systemCostFloor = 0;
+assert('Индекс цены системы растёт с числом систем', context.nextSystemCostIndex() === 22);
+const priceBeforePrestige = context.systemCost(context.nextSystemCostIndex());
+context.S.systems = 7; // имитация performSupernova: часть систем сгорела
+context.S.totalSystemsCreated = 7;
+context.S.systemCostFloor = 22; // сохраняется в keep престижа
+assert('После престижа цена системы не откатывается',
+  context.nextSystemCostIndex() === 22 && context.systemCost(context.nextSystemCostIndex()) === priceBeforePrestige);
+context.S.systems = 8; // купили новую систему после престижа
+context.bumpSystemCostFloor();
+assert('Новая система после престижа повышает цену', context.nextSystemCostIndex() === 23);
 // Тест 3: Прайм-объекты
 const prime = context.createPrimeSystem('blackHole');
 assert('Создание Прайм-объекта работает', prime !== null && prime.objectKey === 'blackHole');

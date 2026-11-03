@@ -79,8 +79,20 @@ function makeDevice(server, opts) {
   }
   if (cfg.knownVersion) localStorage.setItem('accretion_cloud_version', String(cfg.knownVersion));
 
+  const fetchStats = { keepaliveRejected: 0 };
+  // Имитация жёсткого лимита Chrome/Telegram WebView на keepalive-тело.
+  const keepaliveBodyLimit = typeof cfg.keepaliveBodyLimit === 'number'
+    ? cfg.keepaliveBodyLimit : null;
+
   const fetchMock = async (url, init) => {
-    const body = init && init.body ? JSON.parse(init.body) : {};
+    const rawBody = init && init.body ? String(init.body) : '';
+    if (keepaliveBodyLimit !== null && init && init.keepalive === true &&
+        rawBody.length > keepaliveBodyLimit) {
+      fetchStats.keepaliveRejected++;
+      // Как в браузере: такой keepalive-запрос реджектится мгновенно (status 0).
+      throw new TypeError('keepalive body exceeds ' + keepaliveBodyLimit + ' bytes');
+    }
+    const body = rawBody ? JSON.parse(rawBody) : {};
     const result = server.handle(url, body, init);
     const status = result.__status || 200;
     return { ok: status === 200, status, json: async () => result };
@@ -137,7 +149,7 @@ function makeDevice(server, opts) {
       if (typeof autoSaveToCloud === 'function') autoSaveToCloud(true);
     }
   `, context, { filename: 'test-state-bridge.js' });
-  return { S, localStorage, context, cloudsave: context, toasts, fetchMock };
+  return { S, localStorage, context, cloudsave: context, toasts, fetchMock, fetchStats };
 }
 
 function assert(name, cond) {
@@ -501,6 +513,40 @@ function settle() {
   assert('Кошелёк: при равной версии серверный баланс применяется',
     wSync === true && W.S.dust === 777);
   assert('Кошелёк: клиент запомнил режим', W.context.window.__serverWallet === true);
+
+  // 12. ★ Большой сейв (>64 KiB): keepalive выключается, save проходит
+  const bigServer = makeServer();
+  const Big = makeDevice(bigServer, {
+    keepaliveBodyLimit: 64 * 1024,
+    initialSave: {
+      stage: 'star', lastTick: 1, dust: 100,
+      longField: 'x'.repeat(70000), // тело сейва заведомо больше лимита keepalive
+    },
+  });
+  Big.S.dust = 250;
+  const bigRes = await Big.context.window.cloudSaveGame();
+  const bigSaveReqs = bigServer.requests.filter((r) => r.url.endsWith('/api/save'));
+  const bigReq = bigSaveReqs[bigSaveReqs.length - 1];
+  assert('Большой сейв: ушёл без keepalive',
+    !!(bigReq && bigReq.init && bigReq.init.keepalive === false));
+  assert('Большой сейв: успешно сохранён',
+    bigRes.ok === true && !!bigServer.data && bigServer.data.dust === 250);
+  assert('Большой сейв: keepalive-запрос не отклонялся',
+    Big.fetchStats.keepaliveRejected === 0);
+
+  // 12б. ★ keepalive падает на сети — один повтор без keepalive спасает save
+  const fallbackServer = makeServer();
+  const Fallback = makeDevice(fallbackServer, {
+    keepaliveBodyLimit: 0, // любая keepalive-попытка реджектится как TypeError
+    initialSave: { stage: 'star', lastTick: 1, dust: 5 },
+  });
+  Fallback.S.dust = 11;
+  const fbRes = await Fallback.context.window.cloudSaveGame();
+  const fbSaveReqs = fallbackServer.requests.filter((r) => r.url.endsWith('/api/save'));
+  assert('Fallback: keepalive-попытка отклонена', Fallback.fetchStats.keepaliveRejected === 1);
+  assert('Fallback: повтор без keepalive сохранён',
+    fbRes.ok === true && fbSaveReqs.length === 1 &&
+    fbSaveReqs[0].init.keepalive === false && fallbackServer.data.dust === 11);
 
   console.log('========================================');
   console.log(process.exitCode === 1 ? '❌ Есть падения' : '✅ Все проверки пройдены');

@@ -344,7 +344,7 @@ const CHEST_CFG = {
 
 // ─── СЛУЧАЙНЫЕ СОБЫТИЯ ───
 // Единая подсистема: ежедневные события (интерактивные, мгновенные и
-// «мировые» баффы/дебаффы) и еженедельные «убер»-события.
+// «мировые» баффы/дебаффы) и суточные «убер»-события (выпадают раз в неделю).
 // Всё, что раньше было отдельными «глобальными событиями», теперь живёт здесь.
 //
 // kind: boss   — босс, тапы + урон флота, таймер
@@ -434,29 +434,29 @@ const EVENTS_CFG = {
   weekly: {
     durationHours: 24,
     pool: [
-      { id: 'week_golden_age', weight: 6, icon: '🌟', color: '#ffcc55', title: 'Неделя Золотого века', desc: 'Весь доход ×2 на 24 часа. Лучшее время для экспансии!', durationHours: 24, mods: { allMult: 2.0 } },
-      { id: 'week_comet', weight: 5, icon: '☄️', color: '#7ec8e3', title: 'Неделя Комет', desc: 'Награды комет ×3, весь доход +25% на 24 часа.', durationHours: 24, mods: { cometMult: 3.0, allMult: 1.25 } },
-      { id: 'week_forge', weight: 5, icon: '⚒️', color: '#ffb347', title: 'Неделя Кузни', desc: 'Добыча металла ×3 и весь доход +10% на 24 часа.', durationHours: 24, mods: { metalsMult: 3.0, allMult: 1.1 } },
-      { id: 'week_mind', weight: 5, icon: '🧠', color: '#b9a8ff', title: 'Неделя Разума', desc: 'Рост цивилизации ×3, энергия ×1.5 на 24 часа.', durationHours: 24, mods: { civMult: 3.0, energyMult: 1.5 } },
-      { id: 'week_storm', weight: 4, icon: '🌪️', color: '#8b7fd4', title: 'Неделя Штормов', desc: 'Пыль ×2.5, но энергия ×0.8. Дерзкое время.', durationHours: 24, mods: { dustMult: 2.5, energyMult: 0.8 } },
-      { id: 'week_void', weight: 4, icon: '🕳️', color: '#8b7fd4', title: 'Неделя Пустоты', desc: 'Клики ×5, пассивная пыль ×0.8 на 24 часа.', durationHours: 24, mods: { clickMult: 5.0, dustMult: 0.8 } },
-      { id: 'week_wanderers', weight: 4, icon: '🚀', color: '#7ee0a8', title: 'Неделя Странников', desc: 'Награды экспедиций ×2.5, комет ×1.5 на 24 часа.', durationHours: 24, mods: { expeditionMult: 2.5, cometMult: 1.5 } },
-      { id: 'week_harvest', weight: 5, icon: '🌾', color: '#ffb347', title: 'Неделя Урожая', desc: 'Пыль +80%, кометы +50% на 24 часа.', durationHours: 24, mods: { dustMult: 1.8, cometMult: 1.5 } },
-      { id: 'week_singularity', weight: 2, icon: '✨', color: '#ffffff', title: 'Неделя Сингулярности', desc: 'RARE! Весь доход ×3, но только 12 часов.', durationHours: 12, mods: { allMult: 3.0 } },
-      { id: 'week_plague', weight: 2, icon: '🦠', color: '#7ee0a8', title: 'Неделя Чумы', desc: 'Доход ×0.65, зато металл ×2.5. Переживите её.', durationHours: 24, mods: { allMult: 0.65, metalsMult: 2.5 } },
-      { id: 'week_fortune', weight: 3, icon: '🍀', color: '#7ee0a8', title: 'Неделя Фортуны', desc: 'Клики ×3, весь доход +30% на 24 часа.', durationHours: 24, mods: { clickMult: 3.0, allMult: 1.3 } },
-      { id: 'week_black_market', weight: 3, icon: '🕶️', color: '#ff9944', title: 'Неделя Чёрного рынка', desc: 'Металл ×2, клики ×2 на 24 часа.', durationHours: 24, mods: { metalsMult: 2.0, clickMult: 2.0 } },
+      { id: 'week_golden_age', weight: 6, icon: '🌟', color: '#ffcc55', title: 'День Золотого века', desc: 'Весь доход ×2 на 24 часа. Лучшее время для экспансии!', durationHours: 24, mods: { allMult: 2.0 } },
+      { id: 'week_comet', weight: 5, icon: '☄️', color: '#7ec8e3', title: 'День Комет', desc: 'Награды комет ×3, весь доход +25% на 24 часа.', durationHours: 24, mods: { cometMult: 3.0, allMult: 1.25 } },
+      { id: 'week_forge', weight: 5, icon: '⚒️', color: '#ffb347', title: 'День Кузни', desc: 'Добыча металла ×3 и весь доход +10% на 24 часа.', durationHours: 24, mods: { metalsMult: 3.0, allMult: 1.1 } },
+      { id: 'week_mind', weight: 5, icon: '🧠', color: '#b9a8ff', title: 'День Разума', desc: 'Рост цивилизации ×3, энергия ×1.5 на 24 часа.', durationHours: 24, mods: { civMult: 3.0, energyMult: 1.5 } },
+      { id: 'week_storm', weight: 4, icon: '🌪️', color: '#8b7fd4', title: 'День Штормов', desc: 'Пыль ×2.5, но энергия ×0.8. Дерзкое время.', durationHours: 24, mods: { dustMult: 2.5, energyMult: 0.8 } },
+      { id: 'week_void', weight: 4, icon: '🕳️', color: '#8b7fd4', title: 'День Пустоты', desc: 'Клики ×5, пассивная пыль ×0.8 на 24 часа.', durationHours: 24, mods: { clickMult: 5.0, dustMult: 0.8 } },
+      { id: 'week_wanderers', weight: 4, icon: '🚀', color: '#7ee0a8', title: 'День Странников', desc: 'Награды экспедиций ×2.5, комет ×1.5 на 24 часа.', durationHours: 24, mods: { expeditionMult: 2.5, cometMult: 1.5 } },
+      { id: 'week_harvest', weight: 5, icon: '🌾', color: '#ffb347', title: 'День Урожая', desc: 'Пыль +80%, кометы +50% на 24 часа.', durationHours: 24, mods: { dustMult: 1.8, cometMult: 1.5 } },
+      { id: 'week_singularity', weight: 2, icon: '✨', color: '#ffffff', title: 'Полдня Сингулярности', desc: 'RARE! Весь доход ×3, но только 12 часов.', durationHours: 12, mods: { allMult: 3.0 } },
+      { id: 'week_plague', weight: 2, icon: '🦠', color: '#7ee0a8', title: 'День Чумы', desc: 'Доход ×0.65, зато металл ×2.5. Переживите её.', durationHours: 24, mods: { allMult: 0.65, metalsMult: 2.5 } },
+      { id: 'week_fortune', weight: 3, icon: '🍀', color: '#7ee0a8', title: 'День Фортуны', desc: 'Клики ×3, весь доход +30% на 24 часа.', durationHours: 24, mods: { clickMult: 3.0, allMult: 1.3 } },
+      { id: 'week_black_market', weight: 3, icon: '🕶️', color: '#ff9944', title: 'День Чёрного рынка', desc: 'Металл ×2, клики ×2 на 24 часа.', durationHours: 24, mods: { metalsMult: 2.0, clickMult: 2.0 } },
 
-      // ── НЕГАТИВНЫЕ НЕДЕЛИ ──────────────────────────────────────
-      { id: 'week_taxes', weight: 3, icon: '💸', color: '#ff5e5e', title: 'Неделя Налогов', desc: 'Империя вводит поборы: весь доход ×0.8, пыль ×0.7 на 24 часа.', durationHours: 24, mods: { allMult: 0.8, dustMult: 0.7 } },
-      { id: 'week_famine', weight: 2, icon: '🍂', color: '#ff9944', title: 'Неделя Голода', desc: 'Пыль ×0.55, энергия ×0.8, цивилизация ×0.8. Переживите спад.', durationHours: 24, mods: { dustMult: 0.55, energyMult: 0.8, civMult: 0.8 } },
-      { id: 'week_darkness', weight: 2, icon: '🌑', color: '#8b7fd4', title: 'Неделя Тьмы', desc: 'Энергия ×0.5, кометы ×0.6, клики ×0.7 на 24 часа.', durationHours: 24, mods: { energyMult: 0.5, cometMult: 0.6, clickMult: 0.7 } },
-      { id: 'week_discord', weight: 3, icon: '⚔️', color: '#ff5e5e', title: 'Неделя Раздора', desc: 'Весь доход ×0.85, клики ×0.6. Смутное время.', durationHours: 24, mods: { allMult: 0.85, clickMult: 0.6 } },
+      // ── НЕГАТИВНЫЕ СУТОЧНЫЕ СОБЫТИЯ ──────────────────────────────
+      { id: 'week_taxes', weight: 3, icon: '💸', color: '#ff5e5e', title: 'День Налогов', desc: 'Империя вводит поборы: весь доход ×0.8, пыль ×0.7 на 24 часа.', durationHours: 24, mods: { allMult: 0.8, dustMult: 0.7 } },
+      { id: 'week_famine', weight: 2, icon: '🍂', color: '#ff9944', title: 'День Голода', desc: 'Пыль ×0.55, энергия ×0.8, цивилизация ×0.8. Переживите спад.', durationHours: 24, mods: { dustMult: 0.55, energyMult: 0.8, civMult: 0.8 } },
+      { id: 'week_darkness', weight: 2, icon: '🌑', color: '#8b7fd4', title: 'День Тьмы', desc: 'Энергия ×0.5, кометы ×0.6, клики ×0.7 на 24 часа.', durationHours: 24, mods: { energyMult: 0.5, cometMult: 0.6, clickMult: 0.7 } },
+      { id: 'week_discord', weight: 3, icon: '⚔️', color: '#ff5e5e', title: 'День Раздора', desc: 'Весь доход ×0.85, клики ×0.6. Смутное время.', durationHours: 24, mods: { allMult: 0.85, clickMult: 0.6 } },
 
-      // ── СМЕШАННЫЕ НЕДЕЛИ (ПЛЮС И МИНУС) ────────────────────────
-      { id: 'week_titanforge', weight: 3, icon: '🏗️', color: '#ffb347', title: 'Неделя Титанов', desc: 'Металл ×3, но энергия ×0.7 на 24 часа.', durationHours: 24, mods: { metalsMult: 3.0, energyMult: 0.7 } },
-      { id: 'week_echo', weight: 3, icon: '📡', color: '#7ec8e3', title: 'Неделя Эха', desc: 'Кометы ×3, но пыль ×0.8 на 24 часа.', durationHours: 24, mods: { cometMult: 3.0, dustMult: 0.8 } },
-      { id: 'week_war', weight: 2, icon: '🪖', color: '#ff9944', title: 'Неделя Войны', desc: 'Металл ×2.5, но весь доход ×0.75. Кузница победы.', durationHours: 24, mods: { metalsMult: 2.5, allMult: 0.75 } }
+      // ── СМЕШАННЫЕ СУТОЧНЫЕ СОБЫТИЯ (ПЛЮС И МИНУС) ───────────────
+      { id: 'week_titanforge', weight: 3, icon: '🏗️', color: '#ffb347', title: 'День Титанов', desc: 'Металл ×3, но энергия ×0.7 на 24 часа.', durationHours: 24, mods: { metalsMult: 3.0, energyMult: 0.7 } },
+      { id: 'week_echo', weight: 3, icon: '📡', color: '#7ec8e3', title: 'День Эха', desc: 'Кометы ×3, но пыль ×0.8 на 24 часа.', durationHours: 24, mods: { cometMult: 3.0, dustMult: 0.8 } },
+      { id: 'week_war', weight: 2, icon: '🪖', color: '#ff9944', title: 'День Войны', desc: 'Металл ×2.5, но весь доход ×0.75. Кузница победы.', durationHours: 24, mods: { metalsMult: 2.5, allMult: 0.75 } }
     ]
   },
 

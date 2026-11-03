@@ -378,6 +378,7 @@ function offerColony() {
         S.otherSystems.push(newSys);
         S.systems++;
         S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
+        if (typeof bumpSystemCostFloor === 'function') bumpSystemCostFloor();
         toast('Колония основана',
           newSys.name + ' · ' + STAR_TYPES[newSys.starType].name);
 

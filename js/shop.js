@@ -4,7 +4,11 @@
 
 function systemShopCosts() {
   const cfg = SYSTEM_SHOP_CFG || {};
-  const systemsOwned = Math.max(0, (S.systems || 1) - 1);
+  // ★ Цена растёт от накопленного прогресса, а не только от текущего числа
+  // систем: после престижа S.systems падает, но systemCostFloor остаётся.
+  const systemsOwned = (typeof nextSystemCostIndex === 'function')
+    ? nextSystemCostIndex()
+    : Math.max(0, (S.systems || 1) - 1);
   let dust = systemCost(systemsOwned);
   if (typeof getActiveSystemDiscount === 'function') {
     const disc = getActiveSystemDiscount();
@@ -115,6 +119,7 @@ function createSystemFromShop() {
     S.otherSystems.push(newSys);
     S.systems++;
     S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
+    if (typeof bumpSystemCostFloor === 'function') bumpSystemCostFloor();
 
     if (S.systems >= 5 && S.stage === 'system') {
       S.stage = 'galaxy';

@@ -397,6 +397,7 @@ function showChestResult(prime) {
     S.otherSystems.push(newSys);
     S.systems++;
     S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
+    if (typeof bumpSystemCostFloor === 'function') bumpSystemCostFloor();
   }
 
   saveGame();

@@ -991,14 +991,6 @@ function evvDrawWorldAuras(ctx, L, t) {
     }
     ctx.globalAlpha = 1;
     ctx.restore();
-
-    // Плашка с таймером
-    const left = Math.max(0, Number(item.state && item.state.endsAt) - Date.now());
-    const mm = Math.floor(left / 60000);
-    const hh = Math.floor(mm / 60);
-    const timeStr = hh > 0 ? hh + 'ч ' + (mm % 60) + 'м' : mm + 'м';
-    const label = (item.cfg.icon || '✦') + ' ' + evvFitText(ctx, item.cfg.title, (L.galaxy ? 130 : 190) * L.u, 9.5 * L.u, true) + ' · ' + timeStr;
-    evvPill(ctx, L.x, L.y + (L.galaxy ? 42 : 172) * L.u + i * 20 * L.u, label, 9.5 * L.u, col);
   }
 }
 

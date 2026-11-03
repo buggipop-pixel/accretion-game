@@ -454,6 +454,37 @@ function systemCost(n) {
   const discount = 1 - (S.techLevels?.eng || 0) * 0.05;
   return Math.max(min, Math.floor(cost * discount));
 }
+
+// ★ Индекс цены следующей системы. Берём максимум из текущего числа систем
+// и «пола» (S.systemCostFloor), который переживает престиж. Благодаря этому
+// после Вспышки Сверхновой цена не откатывается к ранним системам.
+function nextSystemCostIndex() {
+  const owned = Math.max(1, Number(S.systems) || 1);
+  const floor = Math.max(0, Number(S.systemCostFloor) || 0);
+  return Math.max(owned - 1, floor);
+}
+window.nextSystemCostIndex = nextSystemCostIndex;
+
+// Зафиксировать текущее число систем как новую нижнюю границу цены.
+function syncSystemCostFloor() {
+  if (typeof S === 'undefined' || !S) return 0;
+  const idx = Math.max(0, (Number(S.systems) || 1) - 1, Number(S.systemCostFloor) || 0);
+  S.systemCostFloor = idx;
+  return idx;
+}
+window.syncSystemCostFloor = syncSystemCostFloor;
+
+// ★ Вызывается после основания системы: индекс цены всегда делает шаг вперёд.
+// После престижа S.systems падает, но floor продолжает расти с каждой покупкой.
+function bumpSystemCostFloor() {
+  if (typeof S === 'undefined' || !S) return 0;
+  const systemsIdx = Math.max(0, (Number(S.systems) || 1) - 1);
+  const prev = Math.max(0, Number(S.systemCostFloor) || 0);
+  S.systemCostFloor = Math.max(prev + 1, systemsIdx);
+  return S.systemCostFloor;
+}
+window.bumpSystemCostFloor = bumpSystemCostFloor;
+window.syncSystemCostFloor = syncSystemCostFloor;
 // ─── Цель текущей фазы ──────────────────────────────────────────
 function currentGoal() {
   const st = STAGES[S.stage];
@@ -931,6 +962,9 @@ window.civPlanetCount = civPlanetCount;
 window.energyPerSec = energyPerSec;
 window.planetCost = planetCost;
 window.systemCost = systemCost;
+window.nextSystemCostIndex = nextSystemCostIndex;
+window.syncSystemCostFloor = syncSystemCostFloor;
+window.bumpSystemCostFloor = bumpSystemCostFloor;
 window.currentGoal = currentGoal;
 window.applyOfflineProgress = applyOfflineProgress;
 window.handleCanvasClick = handleCanvasClick;

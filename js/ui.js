@@ -45,6 +45,11 @@ function updateNameplate() {
 // ═══════════════════════════════════════════════════════════════
 // Пошаговые подсказки на первых фазах. Шаги переключаются сами,
 // когда игрок выполняет нужное действие, поэтому оверлей не мешает игре.
+// ★ Состояние между вызовами (updateUI вызывает renderTutorial каждые 250 мс):
+// ключ последнего показанного шага/текста и таймер авто-скрытия.
+let _tutorialKey = '';
+let _tutorialHideTimer = null;
+
 function renderTutorial() {
   const el = document.getElementById('tutorialOverlay');
   let hintText = '';
@@ -123,16 +128,56 @@ function renderTutorial() {
 
   if (!el) return;
 
-  if (hintText) {
-    el.style.display = 'flex';
-    el.innerHTML =
-      '<div class="tutorial-bubble">' +
-        '<div class="tutorial-title">' + hintText + '</div>' +
-        '<div class="tutorial-sub">' + hintSub + '</div>' +
-      '</div>';
-  } else {
-    el.style.display = 'none';
+  // ★ Подсказка не висит постоянно: показываем только при смене шага/текста,
+  // через ~7 секунд плавно скрываем. Повторно — только на новом шаге.
+  if (!hintText) {
+    _hideTutorialBubble();
+    _tutorialKey = '';
+    return;
   }
+
+  const key = (S.tutorialStep || 0) + '|' + hintText + '|' + hintSub;
+  if (key === _tutorialKey) return;
+  _tutorialKey = key;
+
+  el.style.display = 'flex';
+  el.innerHTML =
+    '<div class="tutorial-bubble">' +
+      '<div class="tutorial-title">' + hintText + '</div>' +
+      '<div class="tutorial-sub">' + hintSub + '</div>' +
+      '<button type="button" class="tutorial-close">Понятно</button>' +
+    '</div>';
+
+  const bubble = el.querySelector('.tutorial-bubble');
+  if (bubble) {
+    bubble.addEventListener('click', function() { _hideTutorialBubble(); });
+  }
+
+  if (_tutorialHideTimer) { clearTimeout(_tutorialHideTimer); _tutorialHideTimer = null; }
+  _tutorialHideTimer = setTimeout(function() {
+    _tutorialHideTimer = null;
+    _hideTutorialBubble();
+  }, 7000);
+}
+
+// Плавно скрыть подсказку (тап по плашке или авто-таймер).
+// Ключ шага не сбрасываем, чтобы та же подсказка не возвращалась каждые 250 мс.
+function _hideTutorialBubble() {
+  const el = document.getElementById('tutorialOverlay');
+  if (!el) return;
+  if (_tutorialHideTimer) { clearTimeout(_tutorialHideTimer); _tutorialHideTimer = null; }
+  const bubble = el.querySelector('.tutorial-bubble');
+  if (!bubble) { el.style.display = 'none'; return; }
+  bubble.classList.add('tutorial-hide');
+  setTimeout(function() {
+    const host = document.getElementById('tutorialOverlay');
+    if (!host) return;
+    const b = host.querySelector('.tutorial-bubble');
+    if (b && b.classList.contains('tutorial-hide')) {
+      host.style.display = 'none';
+      host.innerHTML = '';
+    }
+  }, 300);
 }
 
 // Обновить подсказку вручную (вызывается из таймера/кода)
@@ -527,6 +572,28 @@ function namesTitle(res) {
 // ═══════════════════════════════════════════════════════════════
 //  КВЕСТЫ
 // ═══════════════════════════════════════════════════════════════
+
+// ★ Цена следующей системы для квест-панели — как в магазине (shop.js):
+// systemShopCosts().dust учитывает тех-скидку и бонус события.
+// window.nextSystemCostIndex() — будущий хелпер экономики; берём через typeof,
+// чтобы ui.js работал и до его появления (fallback на systemCost).
+function nextSystemDustCost() {
+  if (typeof systemShopCosts === 'function') {
+    try {
+      const shop = systemShopCosts();
+      if (shop && typeof shop.dust === 'number' && isFinite(shop.dust)) return shop.dust;
+    } catch (e) { /* используем запасной вариант ниже */ }
+  }
+  let idx = null;
+  if (typeof nextSystemCostIndex === 'function') {
+    try { idx = nextSystemCostIndex(); } catch (e) { idx = null; }
+  }
+  if (typeof idx !== 'number' || !isFinite(idx) || idx < 0) {
+    idx = Math.max(0, (S.systems || 1) - 1);
+  }
+  return systemCost(idx);
+}
+
 function getQuests() {
   const list = [];
   const st = (S.prestigeLevel > 0 && S.stage === 'system') ? 'galaxy' : S.stage;
@@ -558,14 +625,14 @@ function getQuests() {
         list.push({ title: 'Система готова · расширяйся', cur: 1, max: 1 });
       }
     } else {
-      const shopCost = (typeof systemShopCosts === 'function') ? systemShopCosts().dust : systemCost(Math.max(0, S.systems - 1));
+      const shopCost = nextSystemDustCost();
       list.push({ title: 'До Галактики (5 систем)', cur: S.systems, max: 5 });
       list.push({ title: 'Следующая система · ' + fmt(shopCost) + ' ✦', cur: S.dust, max: shopCost });
     }
   }
   else if (st === 'galaxy') {
     const systems = S.systems;
-    const nextCost = systemCost(Math.max(0, systems - 1));
+    const nextCost = nextSystemDustCost();
 
     // ★ Престиж виден ВСЕГДА в стадии галактики — в том числе после
     // 5-й вспышки, когда явный список требований заканчивался.
@@ -1499,7 +1566,7 @@ function updateEventUI() {
   const pol = (typeof RandomEvents !== 'undefined' && typeof RandomEvents.polarityInfo === 'function')
     ? RandomEvents.polarityInfo(cfg)
     : { key: 'mixed', icon: '🌍', color: '#8b7fd4' };
-  banner.style.display = 'block';
+  banner.style.display = 'flex';
   banner.style.borderColor = pol.color;
   if (pol.key === 'negative') banner.style.background = 'rgba(48,12,20,0.94)';
   else if (pol.key === 'positive') banner.style.background = 'rgba(12,38,28,0.94)';
@@ -1508,9 +1575,31 @@ function updateEventUI() {
   const nameEl = document.getElementById('eventName');
   const timerEl = document.getElementById('eventTimer');
   if (iconEl) iconEl.textContent = cfg.icon || '🌍';
-  if (nameEl) nameEl.textContent = pol.icon + ' ' + cfg.title + (list.length > 1 ? ' +' + (list.length - 1) : '');
+  // ★ Один источник информации: слева иконка события, справа название и таймер.
+  // Значок полярности в названии больше не дублируем (было pol.icon + cfg.title).
+  if (nameEl) nameEl.textContent = cfg.title + (list.length > 1 ? ' +' + (list.length - 1) : '');
   if (timerEl) timerEl.textContent = '[' + timeStr + ']';
   banner.title = list.map(function(e) { return e.cfg.title + ' — ' + e.cfg.desc; }).join('\n');
+
+  // ★ Баннер кликабельный: открывает брифинг события или журнал событий.
+  // Навешиваем один раз — updateEventUI вызывается каждые 250 мс.
+  if (!banner.dataset.evbWired) {
+    banner.dataset.evbWired = '1';
+    banner.addEventListener('click', function() {
+      if (typeof playSFX === 'function') playSFX('ui_click');
+      let opened = false;
+      if (typeof openEventBriefing === 'function') {
+        try { opened = !!openEventBriefing(); } catch (e) { opened = false; }
+      }
+      if (!opened && typeof toggleEventLog === 'function') toggleEventLog();
+    });
+    banner.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        banner.click();
+      }
+    });
+  }
 }
 function saveNickname() {
   const el = document.getElementById('nicknameInput');
@@ -1582,7 +1671,6 @@ async function openLeaderboard() {
 }
 
 // Случайные события вынесены в js/random-events.js
-// (ежедневные + еженедельные world-события).
 // (ежедневные + еженедельные world-события).
 window.openLeaderboard = openLeaderboard;
 

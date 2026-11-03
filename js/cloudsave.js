@@ -383,6 +383,53 @@ async function cloudApi(path, payload) {
   return data;
 }
 
+// ─── keepalive: лимит 64 KiB и ретрай без keepalive ─────────────
+// Chrome / Telegram WebView отклоняют keepalive-запрос с телом больше
+// 64 KiB МГНОВЕННО: fetch реджектится TypeError, в Network видно
+// status 0 / size 0. Поэтому большие сейвы шлём обычным fetch, а если
+// keepalive всё-таки упал на сети — один раз повторяем без него.
+const CLOUD_KEEPALIVE_MAX_BYTES = 60 * 1024; // запас до лимита 64 KiB
+
+function utf8ByteLength(str) {
+  const s = String(str == null ? '' : str);
+  try {
+    if (typeof TextEncoder === 'function') return new TextEncoder().encode(s).length;
+  } catch (e) { /* ниже фолбэк */ }
+  // Фолбэк: UTF-16 code unit в UTF-8 занимает не больше 3 байт.
+  return s.length * 3;
+}
+
+function canUseKeepalive(bodyBytes) {
+  return bodyBytes > 0 && bodyBytes <= CLOUD_KEEPALIVE_MAX_BYTES;
+}
+
+async function postCloudSave(body, keepalive) {
+  const bytes = utf8ByteLength(body);
+  const url = CLOUD_API + '/api/save';
+  function request(withKeepalive) {
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body,
+      keepalive: !!withKeepalive,
+    });
+  }
+  try {
+    const res = await request(keepalive);
+    console.log('[CloudSave] POST /api/save', { bytes: bytes, keepalive: !!keepalive, status: res.status });
+    return res;
+  } catch (e) {
+    console.warn('[CloudSave] POST /api/save failed',
+      { bytes: bytes, keepalive: !!keepalive, error: (e && e.message) || String(e) });
+    if (!keepalive) throw e;
+    // keepalive не должен ломать сохранение — один повтор обычным fetch.
+    console.warn('[CloudSave] повтор POST /api/save без keepalive');
+    const res = await request(false);
+    console.log('[CloudSave] POST /api/save (retry)', { bytes: bytes, keepalive: false, status: res.status });
+    return res;
+  }
+}
+
 // ─── Сохранить в облако ─────────────────────────────────────────
 async function cloudSaveGame(options) {
   if (isResetInProgress()) return { ok: false, error: 'resetting' }; // ★ не сохраняем во время сброса
@@ -392,8 +439,8 @@ async function cloudSaveGame(options) {
   if (_cloudSaveInFlight > 0) return { ok: false, error: 'in-flight' };
 
   // ★ keepalive по умолчанию: запрос дойдёт, даже если вкладку закрывают.
-  const keepalive = !options || options.keepalive !== false;
-
+  // Итоговое решение зависит от размера тела (лимит 64 KiB) — см. ниже.
+  const wantKeepalive = !options || options.keepalive !== false;
   _cloudSaveInFlight++;
   try {
     // ★ saveGame() сам вызовет autoSaveToCloud(true); защита от рекурсии —
@@ -413,15 +460,16 @@ async function cloudSaveGame(options) {
     const saveData = readLocalSave();
     if (!saveData) return { ok: false, error: 'no-save' };
 
-    // ★ keepalive: запрос дойдёт, даже если вкладку закрывают.
     const baseVersion = getCloudVersion();
-    const response = await fetch(CLOUD_API + '/api/save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData, saveData, baseVersion }),
-      keepalive: keepalive,
-    });
-
+    // ★ Тело собираем ОДИН раз: размер нужен, чтобы решить про keepalive.
+    const body = JSON.stringify({ initData, saveData, baseVersion });
+    const bodyBytes = utf8ByteLength(body);
+    const keepalive = wantKeepalive && canUseKeepalive(bodyBytes);
+    if (wantKeepalive && !keepalive) {
+      console.log('[CloudSave] сейв большой (' + bodyBytes + ' B > ' +
+        CLOUD_KEEPALIVE_MAX_BYTES + ' B): keepalive выключен');
+    }
+    const response = await postCloudSave(body, keepalive);
     // ★ КОНФЛИКТ: на сервере уже новее (играли с другого устройства).
     if (response.status === 409) {
       const conflict = await response.json().catch(function() { return null; });
@@ -497,12 +545,21 @@ async function cloudSaveGame(options) {
 
     if (r && typeof r.version === 'number') setCloudVersion(r.version);
     clearCloudDirty(); // сервер подтвердил локальный прогресс
+    _cloudNetworkFailStreak = 0; // успешная запись — ретраи больше не нужны
     // Чистый сейв после сброса успешно записан — снова разрешаем синхронизацию.
     try { sessionStorage.removeItem(CLOUD_RESET_SKIP_KEY); } catch (e) { /* ignore */ }
     return { ok: true, saved_at: r && r.saved_at, clamped: r && r.clamped };
   } catch (e) {
-    console.warn('[cloudSave] save failed:', e.message);
-    return { ok: false, error: e.message, status: e.status };
+    const isNetwork = !e || typeof e.status !== 'number';
+    const status = isNetwork ? 0 : e.status;
+    console.warn('[cloudSave] save failed:', (e && e.message) || String(e),
+      '| status:', status, '| network:', isNetwork);
+    if (isNetwork) {
+      // Прогресс не ушёл в облако — dirty-флаг обязан остаться, чтобы
+      // autoSaveToCloud() повторил отправку позже.
+      try { markCloudDirty(); } catch (markErr) { /* ignore */ }
+    }
+    return { ok: false, error: (e && e.message) || 'network error', status: status, network: isNetwork };
   } finally {
     _cloudSaveInFlight--;
   }
@@ -524,6 +581,23 @@ function scheduleCloudRetry(delayMs) {
   if (_autoCloudRetryTimer && typeof _autoCloudRetryTimer.unref === 'function') {
     _autoCloudRetryTimer.unref();
   }
+}
+
+// ★ Сетевые ошибки повторяем ограниченное число раз с нарастающей паузой,
+// чтобы не зациклить ретраи и не заспамить сервер.
+let _cloudNetworkFailStreak = 0;
+const CLOUD_MAX_NETWORK_RETRIES = 5;
+
+function scheduleNetworkRetry() {
+  _cloudNetworkFailStreak++;
+  if (_cloudNetworkFailStreak > CLOUD_MAX_NETWORK_RETRIES) {
+    console.warn('[CloudSave] сеть недоступна: ретраи приостановлены до следующего действия');
+    return;
+  }
+  const delay = Math.min(60000,
+    CLOUD_SAVE_MIN_INTERVAL_MS * Math.pow(2, _cloudNetworkFailStreak - 1));
+  console.log('[CloudSave] повтор сохранения через', delay, 'мс (попытка', _cloudNetworkFailStreak + ')');
+  scheduleCloudRetry(delay);
 }
 
 function autoSaveToCloud(force) {
@@ -553,8 +627,16 @@ function autoSaveToCloud(force) {
     const p = cloudSaveGame({ keepalive: true });
     if (p && typeof p.then === 'function') {
       p.then(function(res) {
-        if (res && res.status === 429) {
+        if (!res) return;
+        if (res.ok) {
+          _cloudNetworkFailStreak = 0; // успех — счётчик ретраев сброшен
+          return;
+        }
+        if (res.status === 429) {
           scheduleCloudRetry(res.retryAfter || CLOUD_SAVE_MIN_INTERVAL_MS);
+        } else if (res.status === 0 || res.network === true) {
+          // Сеть / отказ keepalive: прогресс остаётся локально, повторим.
+          scheduleNetworkRetry();
         }
       }).catch(function() { /* сеть недоступна */ });
     }
@@ -718,7 +800,10 @@ async function syncCloudOnStart() {
           scheduleCloudRetry((pushed && pushed.retryAfter) || 1500);
           return false;
         }
-        console.warn('[Sync] Локальный прогресс отправить не удалось — облако не применяем, чтобы не потерять данные.');
+        if (pushed && (pushed.network === true || pushed.status === 0)) {
+          // Сеть недоступна: локальный сейв остаётся, повторяем позже.
+          scheduleNetworkRetry();
+        }
         showCloudNotice('__cloudPushErrorShown', '⚠️ Синхронизация',
           'Не удалось сохранить прогресс. Проверьте сеть и попробуйте ещё раз.');
         return false;
@@ -782,6 +867,9 @@ async function syncCloudOnStart() {
         return true;
       }
       if (pushed && pushed.conflict === 'cloud-newer') return true;
+      if (pushed && (pushed.network === true || pushed.status === 0)) {
+        scheduleNetworkRetry();
+      }
       console.warn('[Sync] Локальный прогресс отправить не удалось — облако не применяем.');
       return false;
     }
