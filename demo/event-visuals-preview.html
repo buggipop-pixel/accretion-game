@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Event visuals preview — Accretion</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05030f; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hint {
+    position: fixed; left: 12px; bottom: 10px; z-index: 5;
+    font: 11px/1.4 -apple-system, "Segoe UI", sans-serif; color: #8b7fd4;
+    background: rgba(10,6,24,0.6); padding: 6px 10px; border-radius: 8px;
+    border: 1px solid rgba(139,127,212,0.3);
+  }
+</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+<div id="hint">preview: ?event=boss | tap | choice | good | bad | world</div>
+
+<script src="../js/config.js"></script>
+<script src="../js/state.js"></script>
+<script src="../js/economy.js"></script>
+<script src="../js/random-events.js"></script>
+<script src="../js/event-visuals.js"></script>
+<script>
+(function() {
+  'use strict';
+  const canvas = document.getElementById('sky');
+  const ctx = canvas.getContext('2d');
+
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.clientWidth || window.innerWidth;
+    const H = canvas.clientHeight || window.innerHeight;
+    canvas.width = Math.floor(W * dpr);
+    canvas.height = Math.floor(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    window.CANVAS_W = W;
+    window.CANVAS_H = H;
+    window.CANVAS_CX = W / 2;
+    window.CANVAS_CY = H / 2;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  const params = new URLSearchParams(location.search);
+  const kind = params.get('event') || 'boss';
+
+  S.stage = 'system';
+  S.zoom = Number(params.get('zoom')) || 1;
+  S.panX = 0; S.panY = 0; S.rotation = 0; S.tiltX = 0; S.tiltY = 0;
+  S.primeSystem = null;
+  S.planets = [];
+
+  const ev = (id) => RandomEvents.eventById(id);
+
+  if (kind === 'boss') {
+    RandomEvents.startInteractive(ev('leviathan'));
+    S.activeRandomEvent.hp = S.activeRandomEvent.maxHp * 0.62;
+  } else if (kind === 'tap') {
+    RandomEvents.startInteractive(ev('meteor_shower'));
+    S.activeRandomEvent.taps = 16;
+  } else if (kind === 'choice') {
+    RandomEvents.startInteractive(ev('distress_signal'));
+  } else if (kind === 'good') {
+    playEventCinematic(ev('derelict_ship'), 'positive');
+    S.activeWorldEvents = [{ id: 'golden_hour', tier: 'daily', startedAt: Date.now(), endsAt: Date.now() + 45 * 60000 }];
+  } else if (kind === 'bad') {
+    playEventCinematic(ev('reactor_meltdown'), 'negative');
+  } else if (kind === 'world') {
+    S.activeWorldEvents = [
+      { id: 'golden_hour', tier: 'daily', startedAt: Date.now(), endsAt: Date.now() + 45 * 60000 },
+      { id: 'week_comet', tier: 'weekly', startedAt: Date.now(), endsAt: Date.now() + 5 * 3600000 }
+    ];
+  }
+
+  // Фон-заглушка: звезда с планетарной орбитой — чтобы оценить слои событий.
+  function drawBackdrop(t) {
+    const cx = window.CANVAS_CX, cy = window.CANVAS_CY;
+    const W = window.CANVAS_W, H = window.CANVAS_H;
+    const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.9);
+    bg.addColorStop(0, '#0a0620');
+    bg.addColorStop(1, '#02010a');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 140; i++) {
+      const a = (i * 2.399963 + t * 0.02) % (Math.PI * 2);
+      const r = 20 + ((i * 37) % Math.floor(Math.max(W, H) * 0.7));
+      const x = cx + Math.cos(a) * r;
+      const y = cy + Math.sin(a) * r * 0.7;
+      ctx.globalAlpha = 0.12 + ((i * 13) % 7) / 20;
+      ctx.fillStyle = 'hsl(' + (200 + (i * 7) % 100) + ', 35%, 90%)';
+      ctx.beginPath();
+      ctx.arc(x, y, 0.6 + (i % 3) * 0.35, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, 120);
+    glow.addColorStop(0, 'rgba(255,240,190,0.95)');
+    glow.addColorStop(0.25, 'rgba(255,190,110,0.45)');
+    glow.addColorStop(1, 'rgba(255,150,60,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 120, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.98)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 9 + Math.sin(t * 2) * 0.8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  let last = performance.now();
+  // В headless-скриншотах requestAnimationFrame почти не тикает, поэтому
+  // прогреваем анимацию фиксированным шагом (?warmup=2) перед отрисовкой.
+  const warmupSec = Number(params.get('warmup')) || 0;
+  let simT = performance.now() / 1000;
+  let warmed = false;
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (!warmed) {
+      const steps = Math.max(0, Math.round(warmupSec * 60));
+      for (let i = 0; i < steps; i++) {
+        simT += 1 / 60;
+        updateEventVisuals(1 / 60, simT);
+      }
+      warmed = true;
+    } else {
+      simT += dt;
+      updateEventVisuals(dt, simT);
+    }
+    const t = simT;
+    const since = window.__previewStart || 0;
+
+    if (kind === 'boss' && t - since > 1.4 && typeof tapRandomEvent === 'function') {
+      if (S.activeRandomEvent && Math.random() < 0.35) {
+        const g = EventVisuals.bossGeom(EventVisuals.layout(t), t);
+        tryHitEventVisual(g.x, g.y);
+      }
+    }
+    if (kind === 'tap' && t - since > 1.2 && S.activeRandomEvent && Math.random() < 0.5) {
+      tryHitEventVisual(window.CANVAS_CX + (Math.random() - 0.5) * 160, window.CANVAS_CY + (Math.random() - 0.5) * 100);
+    }
+
+    drawBackdrop(t);
+    drawEventVisuals(ctx, t);
+    if (params.get('debug') === '1') {
+      const L = EventVisuals.layout(t);
+      const g = EventVisuals.bossGeom(L, t);
+      ctx.fillStyle = '#0f0';
+      ctx.font = '12px monospace';
+      ctx.textAlign = 'left';
+      const dbg = EventVisuals.debug();
+      ctx.fillText('t=' + t.toFixed(2) + ' born=' + dbg.bornAt.toFixed(2) + ' particles=' + dbg.particles, 16, 24);
+    }
+    requestAnimationFrame(frame);
+  }
+  window.__previewStart = performance.now() / 1000;
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
