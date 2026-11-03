@@ -312,6 +312,15 @@ function performSupernova(level) {
     dailyClaimed: S.dailyClaimed || {},
     lastDailyReset: S.lastDailyReset || 0,
     dailyReward: S.dailyReward || { day: 0, lastClaimed: 0 },
+    // ★ Мировые события привязаны к реальному времени, а не к прогрессу.
+    //   Вспышка не должна обнулять их таймеры и планировщик: иначе то же
+    //   событие (например «День Раздора») выдаётся заново с новым сроком.
+    activeWorldEvents: (Array.isArray(S.activeWorldEvents) ? S.activeWorldEvents : [])
+      .filter(function(e) { return e && typeof e === 'object' && Number(e.endsAt) > Date.now(); })
+      .map(function(e) { return Object.assign({}, e); }),
+    lastDailyEventDay: Number(S.lastDailyEventDay) || 0,
+    lastWeeklyEventWeek: Number(S.lastWeeklyEventWeek) || 0,
+    weeklyEventPlan: S.weeklyEventPlan ? Object.assign({}, S.weeklyEventPlan) : null,
     firstNightShieldUsed: S.firstNightShieldUsed || false,
     techLevels: S.techLevels || { astro: 0, quantum: 0, cyber: 0, eng: 0 },
     prestigeLevel: level,

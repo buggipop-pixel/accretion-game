@@ -6,7 +6,10 @@ const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..');
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
+const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)]
+  .map(m => m[1])
+  // Внешние CDN-скрипты (eruda и т.п.) не лежат на диске — их не загружаем.
+  .filter(src => !/^(?:https?:)?\/\//i.test(src));
 
 function makeClassList() {
   const set = new Set();

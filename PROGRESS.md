@@ -219,3 +219,19 @@
 **Проверка:** `node --check` изменённых файлов; `node tests/random-events-test.js` — 66/66; `npm run test:all` — без провалов. Визуальный смоук — headless Chrome по превью-странице.
 
 **Известное ограничение:** визуальный слой не хранит состояние и не влияет на экономику — источник правды остаётся `S.activeRandomEvent` / `S.activeWorldEvents`.
+
+## Сессия: вспышка сверхновой больше не обновляет таймеры мировых событий
+
+**Проблема:** после вспышки сверхновой событие «День Раздора» (и любое другое ежедневное/еженедельное мировое событие) получало новый таймер — как будто его выдали заново.
+
+**Причина:** `performSupernova()` вызывает `resetStateValues()`, который обнуляет `activeWorldEvents`, `lastDailyEventDay`, `lastWeeklyEventWeek` и `weeklyEventPlan`. После вспышки планировщик заново выбирал то же (детерминированное по номеру недели) недельное событие и переиздавал его с полной длительностью.
+
+**Что сделано:**
+- `js/prestige.js` — в объект `keep` добавлены `activeWorldEvents` (только неистёкшие), `lastDailyEventDay`, `lastWeeklyEventWeek`, `weeklyEventPlan`. Мировые события живут по реальному времени и переживают вспышку без обновления таймера; уже истёкшие записи отбрасываются.
+- `tests/prestige-world-events-test.js` (новый) — 10 проверок: сохранение еженедельного/ежедневного события, неизменность `endsAt`, отбрасывание истёкших, сохранение маркеров и плана недели, отсутствие переиздания в `checkWeekly`/`checkDaily`.
+- `package.json` — скрипт `test:prestige-events`, тест добавлен в `test:all`.
+- `tools/package.json` (новый) — `"type": "commonjs"`, чтобы утилиты в `tools/` (`smoke-test.js`) запускались без ESM-ошибки `require is not defined`.
+- `tools/smoke-test.js` — внешние CDN-скрипты (eruda) больше не читаются с диска: фильтр по абсолютным URL. Утилита запускается; остающиеся FAIL — устаревшие пороги баланса/частиц, не связаны с этой правкой.
+- `.gitignore` — служебный `.dsh-code-index/`.
+
+**Проверка:** `node tests/prestige-world-events-test.js` — 10/10; `tests/random-events-test.js` — 66/66; `tests/prime-protection-test.js` — 23/23; остальные тесты `tests/` — без провалов.

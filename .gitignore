@@ -17,4 +17,5 @@ Thumbs.db
 
 # Артефакты индексатора DSH
 .dsh/
+.dsh-code-index/
 .npm-cache/
