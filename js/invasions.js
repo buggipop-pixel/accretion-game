@@ -179,11 +179,15 @@ function spawnInvasion() {
       sendPushNotification('⚔️ <b>Вторжение!</b> На вашу систему напали. Срочно зайдите в игру!', 'invasion');
     }
 
-    if (!isActive && S.stage !== 'galaxy') {
-      // Игрок в другой системе — присылаем уведомление
+    // ★ Журнал событий ведём всегда, включая галактическую стадию:
+    // иначе атака на другую систему не видна в игре.
+    if (typeof addEvent === 'function') {
+      addEvent('invasion_spawn', tier.label + ': атакована система «' + sysName + '»', { meta: { systemIdx: targetIdx, tierKey: tierKey } });
+    }
+    // Тост не дублируем, только если игрок уже смотрит на атакованную систему.
+    if (!isActive) {
       toast('⚔️ Вторжение!', 'Атакована система «' + sysName + '»');
       if (typeof playSFX === 'function') playSFX('invasion');
-      if (typeof addEvent === 'function') addEvent('invasion_spawn', tier.label + ' атакует', { meta: { systemIdx: targetIdx } });
     }
     return;
   }
@@ -347,7 +351,10 @@ function tickInvasions(dt) {
         if (repel < 1 && typeof toast === 'function') {
           toast('🛡 Вторжение отбито', 'Шанс отбития ' + repelPct + '%');
         }
-        if (typeof addEvent === 'function') addEvent('invasion_repelled', 'Атака отбита (шанс ' + repelPct + '%)', { meta: { systemIdx: S.activeSystemIdx } });
+        // ★ Показываем вклад Автобороны, чтобы бонус уровня был виден.
+        const defLvl = (typeof activeDefenseLevel === 'function') ? activeDefenseLevel(now) : (S.nightDefenseLevel || 0);
+        const defPct = Math.round(defLvl * (Number(INVASION_CFG.repelDefensePerLevel) || 0.10) * 100);
+        if (typeof addEvent === 'function') addEvent('invasion_repelled', 'Атака отбита: Автоборона ур.' + defLvl + ' (+' + defPct + '% к отбитию), итого ' + repelPct + '%', { meta: { systemIdx: S.activeSystemIdx, defenseLevel: defLvl } });
       } else if (Math.random() < INVASION_CFG.chance) {
         spawnInvasion();
       }

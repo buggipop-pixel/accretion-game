@@ -15,6 +15,7 @@
 const EVENT_ICONS = {
   // Вторжения
   invasion_spawn:     '⚔️',
+  defense_active:     '🛡',
   invasion_deflect:   '🛡️',
   invasion_repelled:  '🛡️',
   invasion_destroy:   '💀',
@@ -53,6 +54,7 @@ const EVENT_ICONS = {
 
 const EVENT_COLORS = {
   invasion_spawn:    '#ff5e5e',
+  defense_active:    '#7ee0a8',
   invasion_deflect:  '#7ee0a8',
   invasion_repelled: '#7ee0a8',
   invasion_destroy:  '#ff2a2a',

@@ -21,8 +21,24 @@ function systemShopCosts() {
   };
 }
 
-function systemShopFill(res) {
+// ★ Цены фиксируются на всю покупку: вливание цивилизации уменьшает
+//   S.civLevel и меняет energyPerSec(), из-за чего цена энергии «скачет».
+//   Снимок хранится в S.systemShopCost и живёт до создания/отмены.
+function systemShopActiveCosts() {
+  const snap = S.systemShopCost;
+  if (snap && typeof snap === 'object' &&
+      Number.isFinite(Number(snap.dust)) && Number(snap.dust) >= 0 &&
+      Number.isFinite(Number(snap.energy)) && Number(snap.energy) >= 0 &&
+      Number.isFinite(Number(snap.civ)) && Number(snap.civ) >= 0) {
+    return snap;
+  }
   const costs = systemShopCosts();
+  S.systemShopCost = { dust: costs.dust, energy: costs.energy, civ: costs.civ };
+  return S.systemShopCost;
+}
+
+function systemShopFill(res) {
+  const costs = systemShopActiveCosts();
   const progress = (S.systemShopProgress && S.systemShopProgress[res]) || 0;
   return Math.max(0, Math.min(1, progress / costs[res]));
 }
@@ -45,7 +61,7 @@ function systemShopOutcome() {
 
 function pourSystemShop(res, part) {
   if (!S.systemShopProgress) S.systemShopProgress = { dust: 0, energy: 0, civ: 0 };
-  const costs = systemShopCosts();
+  const costs = systemShopActiveCosts();
   const cost = costs[res];
   const poured = S.systemShopProgress[res] || 0;
   const remaining = cost - poured;
@@ -113,6 +129,7 @@ function createSystemFromShop() {
 
     const newSys = generateShopSystem(flavor, outcome);
     S.systemShopProgress = { dust: 0, energy: 0, civ: 0 };
+    S.systemShopCost = null;
 
     if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) S.otherSystems[0] = null;
     const newIdx = S.otherSystems.length;
@@ -151,6 +168,7 @@ function createSystemFromShop() {
 }
 
 function cancelSystemCreation() {
+  S.systemShopCost = null;
   if (!S.systemShopProgress) { document.getElementById('modal').classList.remove('show'); return; }
   const p = S.systemShopProgress;
   if (p.dust > 0) S.dust += p.dust;
@@ -166,7 +184,7 @@ function openSystemShop() {
   const card = document.getElementById('modalCard');
   if (!card) return;
   if (!S.systemShopProgress) S.systemShopProgress = { dust: 0, energy: 0, civ: 0 };
-  const costs = systemShopCosts();
+  const costs = systemShopActiveCosts();
   const out = systemShopOutcome();
 
   function row(res, icon, title, cost, hint, pool) {
@@ -207,6 +225,7 @@ function openSystemShop() {
 }
 
 window.systemShopCosts = systemShopCosts;
+window.systemShopActiveCosts = systemShopActiveCosts;
 window.systemShopFill = systemShopFill;
 window.pourSystemShop = pourSystemShop;
 window.openSystemShop = openSystemShop;

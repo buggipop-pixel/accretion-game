@@ -55,17 +55,21 @@
         </span>
       </div>
 
-      <!-- Кнопка назад в галактику -->
-      <button id="backToGalaxyBtn" style="display:none;">🌌 В галактику</button>
-
-      <!-- Индикатор газа -->
-      <div id="gasIndicator"></div>
+      <!-- Левая колонка: газ + возврат в галактику — единый стек без наложений -->
+      <div class="hud-left-stack">
+        <div id="gasIndicator"></div>
+        <button id="backToGalaxyBtn" style="display:none;">🌌 В галактику</button>
+      </div>
 
       <!-- ═══ НИЖНИЙ ДОК: эволюция · фаза и миссии · хранилища ═══ -->
       <div class="hud-dock">
 
       <!-- Кнопка эволюции -->
       <button class="evolve-btn" id="evolveBtn">Эволюция</button>
+
+      <!-- ═══ HUD-ЧИПЫ: подпись галактики и статус Автобороны ═══ -->
+      <div class="galaxy-caption" id="galaxyCaption" style="display:none;"></div>
+      <div class="defense-chip" id="defenseChip" style="display:none;"></div>
 
       <!-- ═══ ХРАНИЛИЩА (под фазой и миссиями) ═══ -->
       <div class="storage-panel" id="storagePanel">

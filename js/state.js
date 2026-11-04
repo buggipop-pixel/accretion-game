@@ -43,6 +43,9 @@ const S = {
   totalSystemsCreated: 1,
   systemIncomeBonus: 0,
   systemShopProgress: { dust: 0, energy: 0, civ: 0 },
+  // ★ Снимок цен покупки системы: фиксируется на время покупки, чтобы
+  //   вливание цивилизации не меняло цену энергии посреди прогресса.
+  systemShopCost: null,
   // ★ Монотонный индекс цены системы: не сбрасывается престижем, чтобы
   //   после Вспышки цена новой системы не откатывалась к ранним значениям.
   systemCostFloor: 0,
@@ -143,6 +146,7 @@ function resetStateValues() {
   S.systems = 1; S.totalSystemsCreated = 1;
   S.systemIncomeBonus = 0;
   S.systemShopProgress = { dust: 0, energy: 0, civ: 0 };
+  S.systemShopCost = null;
   S.systemCostFloor = 0;
   
   S.primeSystem = null;
@@ -336,6 +340,7 @@ function saveGame() {
       otherSystems: S.otherSystems, activeSystemIdx: S.activeSystemIdx,
       systems: S.systems, totalSystemsCreated: S.totalSystemsCreated,
       systemIncomeBonus: S.systemIncomeBonus, systemShopProgress: S.systemShopProgress,
+      systemShopCost: S.systemShopCost,
       systemCostFloor: S.systemCostFloor,
       primeSystem: S.primeSystem, primeCandidates: S.primeCandidates,
       primeLastHealedAt: S.primeLastHealedAt,
@@ -553,6 +558,21 @@ function loadGame() {
     if (typeof S.systemShopProgress.dust !== 'number') S.systemShopProgress.dust = 0;
     if (typeof S.systemShopProgress.energy !== 'number') S.systemShopProgress.energy = 0;
     if (typeof S.systemShopProgress.civ !== 'number') S.systemShopProgress.civ = 0;
+    // ★ Снимок цен покупки системы: валидный объект с тремя неотрицательными
+    //   числами, иначе сбрасываем (миграция старых сейвов).
+    const shopCostSnap = S.systemShopCost;
+    if (shopCostSnap && typeof shopCostSnap === 'object' &&
+        Number.isFinite(Number(shopCostSnap.dust)) && Number(shopCostSnap.dust) >= 0 &&
+        Number.isFinite(Number(shopCostSnap.energy)) && Number(shopCostSnap.energy) >= 0 &&
+        Number.isFinite(Number(shopCostSnap.civ)) && Number(shopCostSnap.civ) >= 0) {
+      S.systemShopCost = {
+        dust: Math.floor(Number(shopCostSnap.dust)),
+        energy: Math.floor(Number(shopCostSnap.energy)),
+        civ: Math.floor(Number(shopCostSnap.civ)),
+      };
+    } else {
+      S.systemShopCost = null;
+    }
     // ★ Миграция старых сейвов: фиксируем максимальный достигнутый индекс цены.
     //   Дальше он только растёт и переживает престиж.
     S.systemCostFloor = Math.max(

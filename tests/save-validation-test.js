@@ -45,6 +45,7 @@ function makeInitData(token, user, authDate) {
     validateSaveData,
     detectSaveAnomalies,
     validateInitData,
+    LIMITS,
     KNOWN_STAGES,
   } = await import('../lib/save-validation.js');
 
@@ -86,6 +87,76 @@ function makeInitData(token, user, authDate) {
   assert('Реалистичный сейв с вложенными объектами проходит',
     realisticRes.ok === true && realisticRes.flags.length === 0);
 
+  // ★ Регресс #7: реальный поздний сейв (~40 систем) не должен получать 400.
+  // Ключи считаем так же, как walk() в lib/save-validation.js.
+  function countKeys(value) {
+    if (value === null || typeof value !== 'object') return 0;
+    if (Array.isArray(value)) return value.reduce((sum, item) => sum + countKeys(item), 0);
+    const keys = Object.keys(value);
+    return keys.length + keys.reduce((sum, k) => sum + countKeys(value[k]), 0);
+  }
+  function makePlanet(seed) {
+    return {
+      type: 'rocky', angle: seed * 0.1, speed: 0.01, baseOrbitR: 90 + seed, orbitR: 90 + seed,
+      driftPhase: 0.5, rotation: seed, seed: seed, forming: false, formUntil: 0,
+      mass: 1.2, diameter: 9000, precession: 0.2, trueAnomaly: seed * 0.3,
+      moons: [
+        { type: 'rocky', angle: seed, seed: seed + 1 },
+        { type: 'ice', angle: seed + 1, seed: seed + 2 },
+      ],
+    };
+  }
+  const lateGame = {
+    stage: 'galaxy',
+    lastTick: now - 60000,
+    dust: 1e12, dustTotal: 1e15, energy: 1e5, metalAmount: 1e7, civLevel: 120,
+    prestigeLevel: 4, galaxies: 2, systems: 1001, totalSystemsCreated: 1000,
+    systemIncomeBonus: 0.5, systemCostFloor: 1,
+    phaseProgress: { cloud: 1, condense: 1, protostar: 1 },
+    storageProgress: { dust: 10, energy: 5, civ: 2 },
+    systemShopProgress: { dust: 0, energy: 0, civ: 0 },
+    storageLevels: { dust: 5, energy: 4, civ: 3 },
+    activeSystemIdx: 0,
+    planets: [makePlanet(1), makePlanet(2)],
+    otherSystems: [null],
+    settings: { brightness: 1, sound: true, music: false },
+    boosters: { incomeUntil: 0 },
+    primeSystem: null,
+    anticheat: { flags: 0, reasons: [], ts: now },
+    eventLogUnread: 0,
+    eventLog: [],
+  };
+  for (let i = 1; i <= 1000; i++) {
+    const planets = [];
+    for (let p = 0; p < 6; p++) planets.push(makePlanet(i * 10 + p));
+    lateGame.otherSystems.push({
+      name: 'Система-' + i, type: 'G', starType: 'G', color: '#fff',
+      seed: i, createdAt: now - i * 1000, planets: planets,
+    });
+  }
+  for (let i = 0; i < 100; i++) {
+    lateGame.eventLog.push({
+      ts: now - i * 60000, type: 'invasion_spawn', text: 'Атака ' + i,
+      icon: '⚔', color: '#f55', meta: { systemIdx: i % 41, tierKey: 'raid' },
+    });
+  }
+  const keyCount = countKeys(lateGame);
+  assert('Поздний сейв (1000 систем, ' + keyCount + ' ключей) проходит',
+    validateSaveData(lateGame, { now }).ok === true);
+  assert('Поздний сейв превышает старый лимит 5000 ключей', keyCount > 5000);
+  assert('Лимит ключей вмещает галактику на 1000+ систем', LIMITS.maxTotalKeys >= 1000000);
+  const lateGameBytes = Buffer.byteLength(JSON.stringify(lateGame));
+  assert('Поздний сейв влезает в 12 МБ сервера (' + (lateGameBytes / 1024 / 1024).toFixed(1) + ' МБ)',
+    lateGameBytes < 12 * 1024 * 1024);
+
+  // ★ Защита не ослаблена: сейв с > maxTotalKeys ключей по-прежнему отклоняется.
+  const bomb = { stage: 'system', lastTick: now, dust: 1 };
+  for (let i = 0; i < 20; i++) bomb['k' + i] = i;
+  // Инжектируем маленький лимит, чтобы не строить миллион ключей в тесте.
+  const bombRes = validateSaveData(bomb, { now, limits: { maxTotalKeys: 5 } });
+  assert('Сейв с > maxTotalKeys ключей отклоняется',
+    bombRes.ok === false && bombRes.error === 'too many keys');
+
   const stringDust = validateSaveData({ ...BASE_SAVE, dust: '1e999' }, { now });
   assert('Строка вместо числа отклоняется', stringDust.ok === false);
 
@@ -101,7 +172,7 @@ function makeInitData(token, user, authDate) {
   const deepRes = validateSaveData({ ...BASE_SAVE, deep }, { now });
   assert('Слишком глубокая вложенность отклоняется', deepRes.ok === false);
 
-  const bigArray = validateSaveData({ ...BASE_SAVE, planets: new Array(6000).fill(1) }, { now });
+  const bigArray = validateSaveData({ ...BASE_SAVE, planets: new Array(60000).fill(1) }, { now });
   assert('Слишком длинный массив отклоняется', bigArray.ok === false);
 
   const noStage = validateSaveData({ lastTick: 1, dust: 1 }, { now });

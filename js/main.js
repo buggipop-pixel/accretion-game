@@ -223,16 +223,74 @@ window.addEventListener('orientationchange', function() {
 
 // ─── Камера ─────────────────────────────────────────────────────
 function applyZoom(factor) {
-  if (!isFinite(factor) || factor <= 0) return;
-  S.zoom = Math.max(0.4, Math.min(3.0, (S.zoom || 1) * factor));
+  S.zoom = clampZoom((S.zoom || 1) * factor);
 }
+window.applyZoom = applyZoom;
+
+// ★ Пределы зума зависят от фазы. В галактике нужно увидеть ВСЮ карту,
+// поэтому минимальный зум считается по реальному радиусу скопления.
+let _galaxyRadiusCache = { key: '', value: 0 };
+function maxGalaxyRadius() {
+  const total = Math.max(1, Number(S.totalSystemsCreated) || 1);
+  const form = S.galaxyForm || 'spiral';
+  const cacheKey = total + '|' + form;
+  if (_galaxyRadiusCache.key === cacheKey) return _galaxyRadiusCache.value;
+  let maxR = 0;
+  for (let i = 0; i < total; i++) {
+    let bx = 0, by = 0;
+    if (form === 'ring') {
+      const angle = (i / total) * Math.PI * 2;
+      const dist = 90 + Math.min(8, Math.floor(i / 10)) * 60;
+      bx = Math.cos(angle) * dist; by = Math.sin(angle) * dist * 0.6;
+    } else if (form === 'elliptical') {
+      const angle = i * 2.399963;
+      const r = 45 + Math.sqrt(i) * 28;
+      bx = Math.cos(angle) * r * 1.5; by = Math.sin(angle) * r * 0.75;
+    } else if (form === 'irregular') {
+      const angle = i * 2.399963 + Math.sin(i * 3.7) * 0.9;
+      const r = 35 + ((i * 47) % 140) + Math.sin(i * 1.7) * 30;
+      bx = Math.cos(angle) * r * 1.3; by = Math.sin(angle) * r * 0.8;
+    } else {
+      const arm = Math.floor(i / 3), idx = i % 3;
+      const angle = arm * Math.PI / 2 + idx * 0.5;
+      const dist = 60 + arm * 80 + idx * 25;
+      bx = Math.cos(angle) * dist; by = Math.sin(angle) * dist * 0.5;
+    }
+    const r = Math.hypot(bx, by);
+    if (r > maxR) maxR = r;
+  }
+  _galaxyRadiusCache = { key: total + '|' + form, value: maxR };
+  return maxR;
+}
+function galaxyFitZoom() {
+  if (S.stage !== 'galaxy') return 1;
+  const vw = (typeof W === 'number' && W > 0) ? W : (window.innerWidth || 360);
+  const vh = (typeof H === 'number' && H > 0) ? H : (window.innerHeight || 640);
+  const viewport = Math.min(vw, vh);
+  const radius = Math.max(160, maxGalaxyRadius());
+  return Math.max(0.00002, Math.min(0.9, (viewport * 0.44) / (radius + 70)));
+}
+// ★ «Почти бесконечное» отдаление: можно уйти далеко за границу карты,
+// чтобы увидеть галактику с тысячами (и более) систем.
+function minZoomForStage() {
+  if (S.stage !== 'galaxy') return 0.4;
+  return Math.max(0.00001, galaxyFitZoom() * 0.01);
+}
+function clampZoom(value) {
+  const z = Number(value);
+  if (!isFinite(z) || z <= 0) return 1;
+  return Math.max(minZoomForStage(), Math.min(3.0, z));
+}
+window.minZoomForStage = minZoomForStage;
+window.galaxyFitZoom = galaxyFitZoom;
+window.clampZoom = clampZoom;
 window.applyZoom = applyZoom;
 window.requestFullscreen = requestFullscreen;
 window.toggleFullscreen = toggleFullscreen;
 
 function sanitizeView() {
   if (!isFinite(S.zoom) || S.zoom <= 0) S.zoom = 1;
-  S.zoom = Math.max(0.4, Math.min(3.0, S.zoom));
+  S.zoom = clampZoom(S.zoom);
   if (!isFinite(S.panX)) S.panX = 0;
   if (!isFinite(S.panY)) S.panY = 0;
   if (!isFinite(S.rotation)) S.rotation = 0;
@@ -240,7 +298,10 @@ function sanitizeView() {
   if (!isFinite(S.tiltY)) S.tiltY = 0;
 
   // Ограничиваем панораму, чтобы не улететь в пустоту
-  const maxPan = 2000;
+  // ★ В галактике панорама должна покрывать всю карту на любом зуме.
+  const maxPan = (S.stage === 'galaxy')
+    ? Math.max(2000, maxGalaxyRadius() * Math.max(1, S.zoom || 1) + 3000)
+    : 2000;
   S.panX = Math.max(-maxPan, Math.min(maxPan, S.panX));
   S.panY = Math.max(-maxPan, Math.min(maxPan, S.panY));
 }
@@ -344,14 +405,30 @@ canvas.addEventListener('pointerdown', function(e) {
     }
 
     if (S.stage === 'galaxy') {
-      const clicked = handleGalaxyClick(pos.x, pos.y);
-      if (!clicked) {
-        isPanning = true;
-        panStartX = pos.x;
-        panStartY = pos.y;
-        panStartPanX = S.panX || 0;
-        panStartPanY = S.panY || 0;
+      const hit = galaxySystemAt(pos.x, pos.y);
+      const nowTap = performance.now();
+      if (hit >= 0) {
+        // ★ Двойной тап по системе — вход. Одиночный — только выбор.
+        if (galaxyTap.idx === hit && nowTap - galaxyTap.at <= GALAXY_DOUBLE_TAP_MS) {
+          galaxyTap.idx = -1;
+          galaxyTap.at = 0;
+          openGalaxySystem(hit);
+          return;
+        }
+        S.galaxySelectedIdx = hit;
+        galaxyTap.idx = hit;
+        galaxyTap.at = nowTap;
+        if (typeof playSFX === 'function') playSFX('ui_click');
+      } else {
+        S.galaxySelectedIdx = -1;
+        galaxyTap.idx = -1;
       }
+      // Свайп от звезды тоже панорамирует — одиночный тап не захватывает жест.
+      isPanning = true;
+      panStartX = pos.x;
+      panStartY = pos.y;
+      panStartPanX = S.panX || 0;
+      panStartPanY = S.panY || 0;
       return;
     }
 
@@ -393,7 +470,7 @@ canvas.addEventListener('pointermove', function(e) {
     e.preventDefault();
     const pts = Array.from(pointers.values());
     const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-    S.zoom = Math.max(0.4, Math.min(3.0, pinchStartZoom * (d / pinchStartDist)));
+    S.zoom = clampZoom(pinchStartZoom * (d / pinchStartDist));
     const angle = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
     S.rotation = (pinchStartRotation || 0) + (angle - pinchStartAngle);
     return;
@@ -496,23 +573,51 @@ x: cx + (S.panX || 0) + x3 * z,
 y: cy + (S.panY || 0) + y3 * z
 };
 }
+// ★ Двойной тап по системе в галактике открывает её. Одиночный — выделяет.
+const GALAXY_DOUBLE_TAP_MS = 380;
+let galaxyTap = { idx: -1, at: 0 };
+
+// Хит-тест систем: радиус задан в экранных пикселях и не зависит от зума.
+function galaxySystemAt(x, y) {
+  if (S.vis && S.vis.prestigeAnim) return -1;
+  const total = S.totalSystemsCreated || 1;
+  const t = performance.now() / 1000;
+  let best = -1, bestD = Infinity;
+  for (let i = 0; i < total; i++) {
+    const p = galaxySystemPos(i, total, t);
+    const d = Math.hypot(p.x - x, p.y - y);
+    if (d <= 26 && d < bestD) { bestD = d; best = i; }
+  }
+  return best;
+}
+
+function galaxySystemNameAt(i) {
+  if (i === 0) {
+    if (S.activeSystemIdx === 0 && S.systemName) return S.systemName;
+    const home = S.otherSystems && S.otherSystems[0];
+    return (home && home.name) || 'Родная';
+  }
+  const sys = S.otherSystems && S.otherSystems[i];
+  return (sys && sys.name) || ('Система ' + (i + 1));
+}
+
+function openGalaxySystem(i) {
+  if (typeof switchToSystem === 'function') switchToSystem(i);
+  S.stage = 'system';
+  S.panX = 0; S.panY = 0; S.zoom = 1; S.rotation = 0;
+  S.galaxySelectedIdx = -1;
+  galaxyTap.idx = -1;
+  galaxyTap.at = 0;
+  if (typeof updateSystemSwitcher === 'function') updateSystemSwitcher();
+  if (typeof updateUI === 'function') updateUI();
+}
+
+// Совместимость: раньше одиночный клик сразу открывал систему.
 function handleGalaxyClick(x, y) {
-if (S.vis && S.vis.prestigeAnim) return false;
-const total = S.totalSystemsCreated || 1;
-const t = performance.now() / 1000;
-const hitR = 30 * (S.zoom || 1);
-for (let i = 0; i < total; i++) {
-const p = galaxySystemPos(i, total, t);
-if (Math.hypot(p.x - x, p.y - y) < hitR) {
-if (typeof switchToSystem === 'function') switchToSystem(i);
-S.stage = 'system';
-S.panX = 0; S.panY = 0; S.zoom = 1; S.rotation = 0;
-if (typeof updateSystemSwitcher === 'function') updateSystemSwitcher();
-if (typeof updateUI === 'function') updateUI();
-return true;
-}
-}
-return false;
+  const i = galaxySystemAt(x, y);
+  if (i < 0) return false;
+  openGalaxySystem(i);
+  return true;
 }
 function drawGalaxyView(time) {
 const t = time;
@@ -526,7 +631,7 @@ positions.push({ x: p.x, y: p.y, idx: i });
 ctx.save();
 ctx.strokeStyle = 'rgba(139, 127, 212, 0.3)';
 ctx.lineWidth = 1.5;
-for (let i = 0; i < positions.length; i += 3) {
+for (let i = 0; total <= 300 && i < positions.length; i += 3) {
 for (let j = i; j < i + 3 && j < positions.length - 1; j++) {
 ctx.beginPath();
 ctx.moveTo(positions[j].x, positions[j].y);
@@ -537,7 +642,7 @@ ctx.stroke();
 ctx.restore();
 // Названия созвездий
 const constellationNames = ['Орион', 'Дракон', 'Лиры', 'Феникс', 'Центавр', 'Гидра', 'Кит', 'Пегас', 'Андромеда', 'Орёл', 'Волопас', 'Лебедь'];
-for (let i = 0; i < positions.length; i += 3) {
+for (let i = 0; (S.zoom || 1) >= 0.45 && i < positions.length; i += 3) {
 let cxA = 0, cyA = 0, count = 0;
 for (let j = i; j < i + 3 && j < positions.length; j++) {
 cxA += positions[j].x; cyA += positions[j].y; count++;
@@ -552,6 +657,7 @@ ctx.fillText(constellationNames[Math.floor(i / 3) % constellationNames.length], 
 ctx.restore();
 }
 // ★ СИСТЕМЫ (С ОПТИМИЗАЦИЕЙ LOD)
+const labelCandidates = [];
 for (let i = 0; i < positions.length; i++) {
 const pos = positions[i];
 // Отсечение за пределами экрана
@@ -569,7 +675,7 @@ isPrime = true;
 primeData = S.otherSystems[pos.idx].primeData || S.otherSystems[pos.idx].primeSystem || null;
 }
 // Упрощение графики (LOD) при >50 систем
-const isLowDetail = (total > 50 && !isActive && !isPrime);
+const isLowDetail = (total > 50 && !isActive && !isPrime && pos.idx !== S.galaxySelectedIdx);
 if (isLowDetail) {
 ctx.fillStyle = 'rgba(200, 190, 255, 0.4)';
 ctx.beginPath();
@@ -614,8 +720,18 @@ ctx.beginPath();
 ctx.arc(pos.x, pos.y, size * 0.4, 0, Math.PI * 2);
 ctx.fill();
 }
-// Подпись
-if (total <= 50 || isActive || isPrime) {
+// ★ Выделенная (одиночный тап) система — золотое кольцо, вход только двойным тапом.
+if (pos.idx === S.galaxySelectedIdx) {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,215,106,0.95)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, size * 2.6 + 5, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+// Подпись — во втором проходе, чтобы тексты не наезжали друг на друга
+if (total <= 250) {
 let nm;
 if (pos.idx === 0) {
 nm = (S.activeSystemIdx === 0) ? S.systemName : (S.otherSystems && S.otherSystems[0] ? S.otherSystems[0].name : 'Родная');
@@ -623,12 +739,47 @@ nm = (S.activeSystemIdx === 0) ? S.systemName : (S.otherSystems && S.otherSystem
 nm = (S.otherSystems && S.otherSystems[pos.idx]) ? S.otherSystems[pos.idx].name : 'С-ма ' + (pos.idx + 1);
 }
 if (isPrime) nm = '👑 ' + nm;
-ctx.fillStyle = isPrime ? '#ffe8a0' : (isActive ? '#fff' : 'rgba(200, 190, 255, 0.7)');
-ctx.font = (isActive || isPrime ? 'bold ' : '') + (isPrime ? '13px' : '11px') + ' -apple-system, sans-serif';
+const dvx = pos.x - (cx || 0), dvy = pos.y - (cy || 0);
+labelCandidates.push({
+x: pos.x, y: pos.y + size * 2.5 + 2, name: nm,
+isActive: isActive, isPrime: isPrime, isSelected: pos.idx === S.galaxySelectedIdx,
+dist2: dvx * dvx + dvy * dvy
+});
+}
+}
+// ★ Подписи: важные — всегда, остальные — без наложений (и не в слишком мелком масштабе).
+(function drawGalaxyLabels() {
+const zoomNow = S.zoom || 1;
+const placed = [];
+function prio(l) {
+  if (l.isActive) return 5;
+  if (l.isSelected) return 4;
+  if (l.isPrime) return 3;
+  return 1;
+}
+labelCandidates.sort(function(a, b) {
+  const dp = prio(b) - prio(a);
+  return dp !== 0 ? dp : (a.dist2 - b.dist2);
+});
 ctx.textAlign = 'center';
-ctx.fillText(nm, pos.x, pos.y + size * 2.5);
+for (let i = 0; i < labelCandidates.length; i++) {
+  const l = labelCandidates[i];
+  const important = l.isActive || l.isPrime || l.isSelected;
+  if (zoomNow < 0.28 && !important) continue;
+  const w = Math.max(36, l.name.length * 6.2);
+  const box = { l: l.x - w / 2, r: l.x + w / 2, t: l.y - 9, b: l.y + 4 };
+  let overlaps = false;
+  for (let j = 0; j < placed.length; j++) {
+    const q = placed[j];
+    if (box.l < q.r && box.r > q.l && box.t < q.b && box.b > q.t) { overlaps = true; break; }
+  }
+  if (overlaps) continue;
+  placed.push(box);
+  ctx.fillStyle = l.isPrime ? '#ffe8a0' : (l.isActive || l.isSelected ? '#fff' : 'rgba(200, 190, 255, 0.7)');
+  ctx.font = (l.isActive || l.isPrime || l.isSelected ? 'bold ' : '') + (l.isPrime ? '13px' : '11px') + ' -apple-system, sans-serif';
+  ctx.fillText(l.name, l.x, l.y);
 }
-}
+})();
 // Вспышка при взрыве престижа
 if (S.vis && S.vis.prestigeAnim && S.vis.prestigeAnim.phase === 'explode') {
 const el = performance.now() - S.vis.prestigeAnim.start - 1500;
@@ -638,19 +789,76 @@ ctx.beginPath();
 ctx.arc(cx, cy, Math.max(W, H) * p, 0, Math.PI * 2);
 ctx.fill();
 }
-// Подпись галактики
-const formLabel = {
-spiral: 'Спиральная', elliptical: 'Эллиптическая',
-irregular: 'Иррегулярная', ring: 'Кольцевая',
-}[S.galaxyForm || 'spiral'];
-ctx.save();
-ctx.fillStyle = 'rgba(185, 168, 255, 0.8)';
-ctx.font = 'bold 12px -apple-system, sans-serif';
-ctx.textAlign = 'center';
-ctx.fillText('Галактика ' + (S.galaxies || 1) + ' · ' + formLabel +
-' · доход ×' + (S.galaxyMultiplier || 1).toFixed(1), cx, H - 134);
-ctx.restore();
+// Подпись галактики теперь DOM-чипом #galaxyCaption: canvas-текст перекрывался доком.
 }
+// ─── HUD-чипы: подпись галактики и статус Автобороны ────────────
+function galaxyFormLabel() {
+  return {
+    spiral: 'Спиральная',
+    elliptical: 'Эллиптическая',
+    irregular: 'Иррегулярная',
+    ring: 'Кольцевая',
+  }[S.galaxyForm || 'spiral'] || 'Спиральная';
+}
+
+function activeDefenseChipText(now) {
+  const lvl = (typeof activeDefenseLevel === 'function') ? activeDefenseLevel(now) : 0;
+  if (lvl > 0) {
+    const leftH = Math.max(0, Math.ceil(((S.nightDefenseExpiresAt || 0) - now) / 3600000));
+    const totalPct = (typeof invasionRepelChance === 'function')
+      ? Math.round(invasionRepelChance(now) * 100)
+      : Math.round(lvl * (Number(INVASION_CFG.repelDefensePerLevel) || 0.10) * 100);
+    return '🛡 Автоборона ур.' + lvl + ' · +' + totalPct + '% к отбитию' + (leftH > 0 ? ' · ' + leftH + ' ч' : '');
+  }
+  if ((Number(S.nightDefenseLevel) || 0) > 0) return '🛡 Автоборона истекла — включите снова';
+  return '';
+}
+
+function updateHudChips() {
+  const now = Date.now();
+  const capEl = document.getElementById('galaxyCaption');
+  if (capEl) {
+    if (S.stage === 'galaxy') {
+      let text = '🌌 Галактика ' + (S.galaxies || 1) + ' · ' + galaxyFormLabel() +
+        ' · доход ×' + (Number(S.galaxyMultiplier) || 1).toFixed(1);
+      const sel = Number(S.galaxySelectedIdx);
+      if (sel >= 0) text += ' · ' + galaxySystemNameAt(sel) + ' — двойной тап, чтобы войти';
+      else text += ' · двойной тап по системе — войти';
+      if (capEl.textContent !== text) capEl.textContent = text;
+      if (capEl.style.display !== 'block') capEl.style.display = 'block';
+    } else if (capEl.style.display !== 'none') {
+      capEl.style.display = 'none';
+    }
+  }
+  const defEl = document.getElementById('defenseChip');
+  if (defEl) {
+    const txt = activeDefenseChipText(now);
+    if (txt) {
+      if (defEl.textContent !== txt) defEl.textContent = txt;
+      if (defEl.style.display !== 'block') defEl.style.display = 'block';
+    } else if (defEl.style.display !== 'none') {
+      defEl.style.display = 'none';
+    }
+  }
+}
+
+// При переходе в галактику подгоняем зум, чтобы карта влезла целиком.
+function syncStageZoom() {
+  const stage = S.stage;
+  const prev = window.__lastZoomStage;
+  window.__lastZoomStage = stage;
+  if (prev === stage) return;
+  if (stage === 'galaxy') {
+    S.panX = 0;
+    S.panY = 0;
+    S.zoom = clampZoom(galaxyFitZoom());
+  } else if (prev === 'galaxy' && stage === 'system') {
+    S.galaxySelectedIdx = -1;
+    S.zoom = clampZoom(1);
+  }
+}
+window.updateHudChips = updateHudChips;
+
 // ─── Вспомогательные безопасные геттеры ресурсов ────────────────
 function safeGetResourceCap(type) {
 return typeof getResourceCap === 'function' ? getResourceCap(type) : Infinity;
@@ -835,6 +1043,9 @@ lastSave = now;
     if (typeof updateUI === 'function') updateUI();
     if (typeof updateQuestPanel === 'function') updateQuestPanel();
     if (typeof renderMissionButtons === 'function') renderMissionButtons();
+    // ★ Чипы HUD: подпись галактики и статус Автобороны (аддитивно, не перекрывают док)
+    updateHudChips();
+    syncStageZoom();
   }
 }
 // ─── Фон ────────────────────────────────────────────────────────

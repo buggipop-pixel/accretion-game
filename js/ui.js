@@ -284,7 +284,7 @@ function updateUI() {
   const gasEl = document.getElementById('gasIndicator');
   if (gasEl && typeof gasPercent === 'function') {
     const pct = gasPercent();
-    if (pct > 1 && S.starType) {
+    if (pct > 1 && S.starType && S.stage === 'system') {
       gasEl.style.display = 'block';
       gasEl.textContent = '💨 Газ: ' + pct + '%';
       gasEl.style.color = pct > 50 ? '#7ec8e3' : (pct > 20 ? '#ff9500' : '#ff5e5e');
@@ -1316,6 +1316,11 @@ function saveNightConfig() {
     S.nightDefenseLevel = selDefLvl;
     const hours = Number(INVASION_CFG.defenseHours) || 10;
     S.nightDefenseExpiresAt = Date.now() + hours * 3600 * 1000;
+    // ★ Пишем активацию в журнал: иначе бонус к отбитию остаётся невидимым.
+    if (typeof addEvent === 'function') {
+      const addPct = Math.round(selDefLvl * (Number(INVASION_CFG.repelDefensePerLevel) || 0.10) * 100);
+      addEvent('defense_active', 'Автоборона ур.' + selDefLvl + ' включена на ' + hours + ' ч (+' + addPct + '% к отбитию)', { meta: { defenseLevel: selDefLvl, hours: hours, repelPercent: addPct } });
+    }
   }
 
   S.nightConfig = {
