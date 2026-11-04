@@ -588,6 +588,7 @@ function scheduleCloudRetry(delayMs) {
 // ★ Сетевые ошибки повторяем ограниченное число раз с нарастающей паузой,
 // чтобы не зациклить ретраи и не заспамить сервер.
 let _cloudNetworkFailStreak = 0;
+let _cloudPushFailStreak = 0;
 const CLOUD_MAX_NETWORK_RETRIES = 5;
 
 function scheduleNetworkRetry() {
@@ -792,6 +793,7 @@ async function syncCloudOnStart() {
         console.log('[Sync] Есть несохранённый локальный прогресс — сначала отправляем его в облако.');
         const pushed = await cloudSaveGame();
         if (pushed && pushed.ok) {
+          _cloudPushFailStreak = 0;
           if (typeof toast === 'function') toast('💾 Сохранено', 'Локальный прогресс отправлен в облако');
           return true;
         }
@@ -803,9 +805,15 @@ async function syncCloudOnStart() {
           return false;
         }
         if (pushed && (pushed.network === true || pushed.status === 0 || (pushed.status >= 500 && pushed.status <= 599))) {
-          // Сеть/сервер недоступен: локальный сейв остаётся, повторяем тихо.
-          console.warn('[Sync] сохранение отложено (сеть/сервер ' + (pushed.status || 0) + '), повторяем позже.');
+          // Сеть/сервер недоступен: локальный сейв остаётся, повторяем.
+          _cloudPushFailStreak = (_cloudPushFailStreak || 0) + 1;
+          console.warn('[Sync] сохранение отложено (попытка ' + _cloudPushFailStreak + ', статус ' + (pushed.status || 0) + ').');
           scheduleNetworkRetry();
+          if (_cloudPushFailStreak >= 3) {
+            // Сбой повторяется — сообщаем и подсказываем, где взять логи.
+            showCloudNotice('__cloudPushPersistShown', '⚠️ Синхронизация',
+              'Не удаётся сохранить прогресс (код ' + (pushed.status || 'сеть') + '). Прогресс остаётся на устройстве. Настройки → 📄 Логи.');
+          }
           return false;
         }
         if (pushed && pushed.status === 401) {

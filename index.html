@@ -223,6 +223,10 @@
         ⛶ Полный экран
       </button>
 
+      <button class="pour-btn" style="width:100%; margin-top:8px;" onclick="document.getElementById('settingsModal').classList.remove('show'); openDebugLog && openDebugLog();">
+        📄 Логи и диагностика
+      </button>
+
       <div class="info-box" style="margin-top: 15px;">
         <div class="row-stat" style="align-items: center;">
           <span>☀️ Яркость</span>
@@ -248,6 +252,23 @@
       <button class="pour-btn" style="width: 100%; margin-top: 10px;" onclick="document.getElementById('settingsModal').classList.remove('show');">
         Закрыть
       </button>
+    </div>
+  </div>
+
+  <!-- Модалка диагностических логов -->
+  <div class="modal" id="debugLogModal">
+    <div class="modal-card" style="max-height: 86vh; display: flex; flex-direction: column;">
+      <div class="modal-title">📄 Логи игры</div>
+      <div class="modal-sub">Последние ошибки и сетевые запросы. Пришлите текст разработчику.</div>
+      <textarea id="debugLogText" readonly style="flex: 1; min-height: 45vh; width: 100%; box-sizing: border-box; background: rgba(10,6,24,0.92); color: #cfe; border: 1px solid #8b5cf6; border-radius: 10px; padding: 10px; font-size: 11px; font-family: monospace; white-space: pre; resize: none;"></textarea>
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button class="pour-btn" style="flex:1;" onclick="copyGameLog()">📋 Копировать</button>
+        <button class="pour-btn" style="flex:1;" onclick="downloadGameLog()">💾 Файл</button>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button class="pour-btn" style="flex:1;" onclick="document.getElementById('debugLogText').value = getGameLog();">🔄 Обновить</button>
+        <button class="pour-btn" style="flex:1;" onclick="document.getElementById('debugLogModal').classList.remove('show');">Закрыть</button>
+      </div>
     </div>
   </div>
 
@@ -279,6 +300,8 @@
   <!-- ═══════════════════════════════════════════════════════════════
        ПОДКЛЮЧЕНИЕ МОДУЛЕЙ (Порядок очень важен!)
        ═══════════════════════════════════════════════════════════════ -->
+  <!-- Диагностический лог: грузим ПЕРВЫМ, чтобы поймать все ошибки/запросы -->
+  <script src="js/debug-log.js"></script>
   <script src="js/config.js"></script>
   <script src="js/state.js"></script>
   <script src="js/physics.js"></script>
