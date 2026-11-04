@@ -66,17 +66,48 @@ try {
 const bot = new TelegramBot(BOT_TOKEN, { polling: false });
 
 // ─── Upstash Redis (REST) ───────────────────────────────────────
+// ★ Запись через командный API (POST-тело), а не через URL-путь /set/{key}/{value}:
+//   сейвы в сотни КБ/МБ (тысячи систем) не влезают в URL и молча терялись.
 async function redisSet(key, value) {
   try {
-    const url = `${UPSTASH_REDIS_REST_URL}/set/${encodeURIComponent(key)}/${encodeURIComponent(value)}`;
-    const r = await fetch(url, { headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` } });
-    if (!r.ok) return false;
-    const data = await r.json().catch(() => null);
-    if (data && data.error) { console.warn('[redisSet] Upstash error:', data.error); return false; }
+    await redisCommand('SET', key, value);
     return true;
   } catch (e) {
-    console.warn('[redisSet] ошибка сети:', e.message);
+    console.warn('[redisSet] ошибка записи:', e.message);
     return false;
+  }
+}
+
+// ★ Атомарная запись с проверкой версии (CAS через Lua EVAL):
+//   пишем только если текущая версия сейва в Redis ещё равна expectedVersion.
+//   Устраняет TOCTOU-гонку: два конкурентных /api/save с одинаковым
+//   baseVersion больше не затирают друг друга (второй получит 409).
+async function redisSetIfVersion(key, newValue, expectedVersion) {
+  const script = [
+    'local current = redis.call("GET", KEYS[1])',
+    'local curVersion = 0',
+    'if current then',
+    '  local ok, decoded = pcall(cjson.decode, current)',
+    '  if ok and type(decoded) == "table" and type(decoded.version) == "number" then',
+    '    curVersion = decoded.version',
+    '  end',
+    'end',
+    'if curVersion ~= tonumber(ARGV[1]) then',
+    '  return {0, tostring(curVersion), current or ""}',
+    'end',
+    'redis.call("SET", KEYS[1], ARGV[2])',
+    'return {1, tostring(curVersion + 1)}',
+  ].join('\n');
+
+  try {
+    const r = await redisCommand('EVAL', script, '1', key, String(expectedVersion), newValue);
+    const arr = Array.isArray(r) ? r : [r];
+    return { ok: Number(arr[0]) === 1, version: Number(arr[1]) || 0, currentRaw: arr[2] || null };
+  } catch (e) {
+    // EVAL может быть недоступен в старых окружениях — откат на неатомарную запись
+    console.warn('[redisSetIfVersion] EVAL недоступен, откат на redisSet:', e.message);
+    const ok = await redisSet(key, newValue);
+    return { ok, version: 0, currentRaw: null };
   }
 }
 
@@ -279,6 +310,8 @@ function withCoreState(save, fn) {
 function ensureWallet(wallet, save, now) {
   const w = wallet || walletFromSave(save, now);
   if (!Number.isFinite(Number(w.lastRewardAt))) w.lastRewardAt = Number(now) || Date.now();
+  // Миграция: старые кошельки без металлов — инициализируем из сейва один раз.
+  if (!Number.isFinite(Number(w.metalAmount))) w.metalAmount = Number(save && save.metalAmount) || 0;
   return w;
 }
 
@@ -298,7 +331,7 @@ async function writeWallet(userId, wallet) {
 function accrueWalletPassive(wallet, save, now) {
   const since = Number(wallet.updatedAt) || now;
   const elapsedSec = Math.max(0, (now - since) / 1000);
-  const earned = { dust: 0, energy: 0, civ: 0 };
+  const earned = { dust: 0, energy: 0, civ: 0, metals: 0 };
 
   if (!gameCore || elapsedSec <= 0) {
     wallet.updatedAt = now;
@@ -312,6 +345,7 @@ function accrueWalletPassive(wallet, save, now) {
       earned.dust = acc.earned.dust;
       earned.energy = acc.earned.energy;
       earned.civ = acc.earned.civ;
+      earned.metals = acc.earned.metals || 0;
       Object.assign(wallet, walletFromSave(acc.data, now));
       return earned;
     }
@@ -640,7 +674,7 @@ app.post('/api/save', async (req, res) => {
         const wallet = ensureWallet(await readWallet(user.id), safeSave, Date.now());
 
         const now = Date.now();
-        accrueWalletPassive(wallet, safeSave, now);
+        const earned = accrueWalletPassive(wallet, safeSave, now);
 
         // ★ Возможности (планеты/системы) должны быть оплачены.
         // Потраченное считаем по своим балансам, а не по словам клиента.
@@ -649,9 +683,9 @@ app.post('/api/save', async (req, res) => {
         const capNext = withCoreState(safeSave, function() { return gameCore.capability(); }) || 0;
 
         const spentValue =
-          Math.max(0, wallet.dust - Number(safeSave.dust)) +
-          Math.max(0, wallet.energy - Number(safeSave.energy)) * ENERGY_TO_DUST +
-          Math.max(0, wallet.civLevel - Number(safeSave.civLevel)) * CIV_TO_DUST;
+          Math.max(0, (wallet.dust - earned.dust) - Number(safeSave.dust)) +
+          Math.max(0, (wallet.energy - earned.energy) - Number(safeSave.energy)) * ENERGY_TO_DUST +
+          Math.max(0, (wallet.civLevel - earned.civ) - Number(safeSave.civLevel)) * CIV_TO_DUST;
 
         const capAudit = capabilityAudit({
           prevCost: capPrev, nextCost: capNext,
@@ -705,9 +739,14 @@ app.post('/api/save', async (req, res) => {
       user_id: user.id,
       version: curVersion + 1, // ★ Монотонный номер: по нему, а не по часам, сравниваем сейвы
     };
-    const saved = await redisSet(cloudKey, JSON.stringify(payload));
-    if (!saved) {
-      return res.status(503).json({ error: 'Не удалось сохранить на сервер (хранилище недоступно)' });
+    const cas = await redisSetIfVersion(cloudKey, JSON.stringify(payload), curVersion);
+    if (!cas.ok) {
+      // Кто-то успел записать раньше — отдаём актуальный сейв, чтобы клиент не затёр прогресс.
+      const latest = cas.currentRaw ? parseRedisJson(cas.currentRaw) : null;
+      return res.status(409).json({
+        ok: false, conflict: true,
+        data: latest && latest.data, saved_at: latest && latest.saved_at, version: cas.version,
+      });
     }
     res.json({
       ok: true, saved_at: payload.saved_at, version: payload.version,
@@ -1015,9 +1054,12 @@ app.post('/api/buy-booster', async (req, res) => {
       return res.status(503).json({ error: 'Booster is not configured' });
     }
 
-    const metals = Number(payload.data.metalAmount) || 0;
+    // ★ Металлы списываем из СЕРВЕРНОГО кошелька, а не из клиентского сейва —
+    // иначе читер подделывает metalAmount и покупает бустеры бесконечно.
+    const wallet = ensureWallet(await readWallet(user.id), payload.data, now);
+    const metals = Number(wallet.metalAmount) || 0;
     if (metals < cfg.costMetals) {
-      return res.status(400).json({ error: 'Not enough metals', required: cfg.costMetals });
+      return res.status(400).json({ error: 'Not enough metals', required: cfg.costMetals, have: metals });
     }
 
     const entKey = `entitlement:booster:${user.id}`;
@@ -1025,8 +1067,12 @@ app.post('/api/buy-booster', async (req, res) => {
     const incomeUntil = nextBoosterUntil(prevUntil, now, cfg.hours * 3600 * 1000);
     await redisSet(entKey, String(incomeUntil));
 
+    wallet.metalAmount = metals - cfg.costMetals;
+    wallet.updatedAt = now;
+    await writeWallet(user.id, wallet);
+
     const data = Object.assign({}, payload.data);
-    data.metalAmount = metals - cfg.costMetals;
+    data.metalAmount = wallet.metalAmount;
     data.boosters = Object.assign({}, payload.data.boosters || {}, { incomeUntil });
 
     payload.data = data;

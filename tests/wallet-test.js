@@ -29,15 +29,15 @@ function assert(name, cond, extra) {
   const now = 1700000000000;
 
   // ── Инициализация ──────────────────────────────────────────
-  const w = walletFromSave({ dust: 100, dustTotal: 500, energy: 10, civLevel: 3 }, now);
+  const w = walletFromSave({ dust: 100, dustTotal: 500, energy: 10, civLevel: 3, metalAmount: 42 }, now);
   assert('Кошелёк берёт баланс из сейва',
-    w.dust === 100 && w.energy === 10 && w.civLevel === 3 && w.dustTotal === 500);
+    w.dust === 100 && w.energy === 10 && w.civLevel === 3 && w.dustTotal === 500 && w.metalAmount === 42);
   assert('Кошелёк помнит время', w.updatedAt === now);
   assert('Кошелёк не берёт мусор', walletFromSave({ dust: 'abc', energy: null }, now).dust === 0);
 
   const patch = walletToSavePatch(w);
   assert('Патч содержит все валютные поля',
-    patch.dust === 100 && patch.dustTotal === 500 && patch.energy === 10 && patch.civLevel === 3);
+    patch.dust === 100 && patch.dustTotal === 500 && patch.energy === 10 && patch.civLevel === 3 && patch.metalAmount === 42);
 
   // ── Пассивное начисление ──────────────────────────────────
   const w2 = walletFromSave({ dust: 0, energy: 0, civLevel: 0 }, now);
@@ -68,31 +68,40 @@ function assert(name, cond, extra) {
   // ── Сверка сейва ──────────────────────────────────────────
   const allowance = { dust: 100, energy: 10, civ: 1 };
 
-  const walletA = { dust: 1000, dustTotal: 5000, energy: 100, civLevel: 5, updatedAt: now };
-  const ok = reconcileWallet(walletA, { dust: 1050, dustTotal: 5050, energy: 100, civLevel: 5 }, allowance);
+  const walletA = { dust: 1000, dustTotal: 5000, energy: 100, civLevel: 5, metalAmount: 0, updatedAt: now };
+  const ok = reconcileWallet(walletA, { dust: 1050, dustTotal: 5050, energy: 100, civLevel: 5, metalAmount: 0 }, allowance);
   assert('Небольшой честный прирост принимается', ok.clamped.length === 0 && walletA.dust === 1050);
 
-  const walletB = { dust: 1000, dustTotal: 5000, energy: 100, civLevel: 5, updatedAt: now };
-  const cheat = reconcileWallet(walletB, { dust: 1e9, dustTotal: 1e9, energy: 100, civLevel: 5 }, allowance);
+  const walletB = { dust: 1000, dustTotal: 5000, energy: 100, civLevel: 5, metalAmount: 0, updatedAt: now };
+  const cheat = reconcileWallet(walletB, { dust: 1e9, dustTotal: 1e9, energy: 100, civLevel: 5, metalAmount: 0 }, allowance);
   assert('Нарисованный баланс обрезается',
     cheat.clamped.indexOf('dust') >= 0 && walletB.dust === 1100);
   assert('В сейв попадает обрезанное значение', cheat.data.dust === 1100);
 
-  const walletC = { dust: 1000, dustTotal: 5000, energy: 100, civLevel: 5, updatedAt: now };
-  const spend = reconcileWallet(walletC, { dust: 200, dustTotal: 5000, energy: 10, civLevel: 5 }, allowance);
+  const walletC = { dust: 1000, dustTotal: 5000, energy: 100, civLevel: 5, metalAmount: 0, updatedAt: now };
+  const spend = reconcileWallet(walletC, { dust: 200, dustTotal: 5000, energy: 10, civLevel: 5, metalAmount: 0 }, allowance);
   assert('Траты принимаются как есть',
     spend.clamped.length === 0 && walletC.dust === 200 && spend.spent.indexOf('dust') >= 0);
 
-  const walletD = { dust: 1000, dustTotal: 5000, energy: 100, civLevel: 5, updatedAt: now };
-  const bad = reconcileWallet(walletD, { dust: -50, dustTotal: 4000, energy: 100, civLevel: 5 }, allowance);
+  const walletD = { dust: 1000, dustTotal: 5000, energy: 100, civLevel: 5, metalAmount: 0, updatedAt: now };
+  const bad = reconcileWallet(walletD, { dust: -50, dustTotal: 4000, energy: 100, civLevel: 5, metalAmount: 0 }, allowance);
   assert('Отрицательный баланс заменяется серверным',
     bad.clamped.indexOf('dust') >= 0 && bad.data.dust === 1000);
   assert('dustTotal не уменьшается', bad.data.dustTotal === 5000);
 
-  const walletE = { dust: 1000, dustTotal: 5000, energy: 100, civLevel: 5, updatedAt: now };
-  const totalCheat = reconcileWallet(walletE, { dust: 1000, dustTotal: 1e12, energy: 100, civLevel: 5 }, allowance);
+  const walletE = { dust: 1000, dustTotal: 5000, energy: 100, civLevel: 5, metalAmount: 0, updatedAt: now };
+  const totalCheat = reconcileWallet(walletE, { dust: 1000, dustTotal: 1e12, energy: 100, civLevel: 5, metalAmount: 0 }, allowance);
   assert('dustTotal обрезается по допуску',
     totalCheat.data.dustTotal === 5100 && totalCheat.clamped.indexOf('dustTotal') >= 0);
+
+  // ── Металлы: отдельная проверка сверки ────────────────────
+  const walletM = { dust: 1000, dustTotal: 5000, energy: 100, civLevel: 5, metalAmount: 200, updatedAt: now };
+  const mSpend = reconcileWallet(walletM, { dust: 1000, dustTotal: 5000, energy: 100, civLevel: 5, metalAmount: 150 }, allowance);
+  assert('Металлы: трата принимается', mSpend.clamped.length === 0 && walletM.metalAmount === 150 && mSpend.spent.indexOf('metalAmount') >= 0);
+
+  const walletM2 = { dust: 1000, dustTotal: 5000, energy: 100, civLevel: 5, metalAmount: 200, updatedAt: now };
+  const mCheat = reconcileWallet(walletM2, { dust: 1000, dustTotal: 5000, energy: 100, civLevel: 5, metalAmount: 1e9 }, allowance);
+  assert('Металлы: подделка обрезается', mCheat.clamped.indexOf('metalAmount') >= 0);
 
   // ── Допуск на награды ─────────────────────────────────────
   const allow = rewardAllowance({ dust: 10000, energy: 2000, civ: 100 }, 0.05);
