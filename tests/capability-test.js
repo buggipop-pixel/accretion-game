@@ -65,7 +65,7 @@ function assert(name, cond, extra) {
   assert('Бюджета не хватило — обнуляется', remain3 === 0);
 
   // ── Ценность сундука ──────────────────────────────────────
-  assert('Сундук = 8 планет + система', chestCapabilityValue(1000, 50000) === 58000);
+  assert('Сундук = скидка 50% (4 планеты + полсистемы)', chestCapabilityValue(1000, 50000) === 29000);
   assert('Мусор в цене сундука — ноль', chestCapabilityValue(null, undefined) === 0);
   assert('Отрицательные цены не идут в минус', chestCapabilityValue(-100, -5) === 0);
 

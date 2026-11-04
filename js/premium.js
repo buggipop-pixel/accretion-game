@@ -200,7 +200,7 @@ async function buyPrimeChest() {
   }
 
   // Заглушка для браузера (вне Telegram)
-  if (confirm('Вы вне Telegram. Симулировать оплату 100 ⭐ и открыть сундук?')) {
+  if (confirm('Вы вне Telegram. Симулировать оплату 200 ⭐ и открыть сундук?')) {
     startChestRoulette();
   }
 }
@@ -229,7 +229,7 @@ async function buyPremiumShield() {
   }
 
   // Заглушка для браузера
-  if (confirm('Вы вне Telegram. Симулировать оплату 50 ⭐ и получить щит?')) {
+  if (confirm('Вы вне Telegram. Симулировать оплату 100 ⭐ и получить щит?')) {
     activatePremiumShieldReward();
   }
 }
@@ -388,6 +388,11 @@ function showChestResult(prime) {
   }
 
   if (!isUpgrade) {
+    // ★ Скидка вместо бесплатной системы: игрок платит 50% стоимости системы
+    // пылью. Сервер субсидирует вторую половину (chestCapabilityValue).
+    const sysCost = (typeof systemCost === 'function') ? systemCost(S.systems || 1) : 0;
+    const pay = Math.floor(sysCost * 0.5);
+    if (pay > 0) S.dust = Math.max(0, (S.dust || 0) - pay);
     const newSys = generatePerfectPrimeSystem(prime);
     if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) S.otherSystems[0] = null;
     S.otherSystems.push(newSys);
