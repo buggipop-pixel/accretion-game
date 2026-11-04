@@ -19,3 +19,6 @@ Thumbs.db
 .dsh/
 .dsh-code-index/
 .npm-cache/
+
+# Артефакт сломанного os.tmpdir() (не относится к игре)
+undefined/

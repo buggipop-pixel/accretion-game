@@ -69,13 +69,18 @@ const bot = new TelegramBot(BOT_TOKEN, { polling: false });
 // ★ Запись через командный API (POST-тело), а не через URL-путь /set/{key}/{value}:
 //   сейвы в сотни КБ/МБ (тысячи систем) не влезают в URL и молча терялись.
 async function redisSet(key, value) {
-  try {
-    await redisCommand('SET', key, value);
-    return true;
-  } catch (e) {
-    console.warn('[redisSet] ошибка записи:', e.message);
-    return false;
+  // Один ретрай: сеть до Upstash иногда сбрасывает соединение (ECONNRESET).
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await redisCommand('SET', key, value);
+      return true;
+    } catch (e) {
+      if (attempt === 0) { console.warn('[redisSet] повтор после ошибки:', e.message); continue; }
+      console.warn('[redisSet] ошибка записи:', e.message);
+      return false;
+    }
   }
+  return false;
 }
 
 // ★ Атомарная запись с проверкой версии (CAS через Lua EVAL):
@@ -628,11 +633,15 @@ app.post('/api/save', async (req, res) => {
     // ★ Скачок ресурсов за секунды — это не игра, а подмена сейва.
     // Не блокируем (можно и ошибиться), но фиксируем для админки.
     if (existing && existing.data) {
-      const anomalies = detectSaveAnomalies(existing.data, safeSave, existing.saved_at);
-      if (anomalies.length) {
-        console.warn(`[save] подозрительный прогресс user=${user.id}: ${anomalies.join(',')}`);
-        redisSet(`save_flag:${user.id}`, JSON.stringify({ flags: anomalies, at: Date.now() }))
-          .catch(function() { /* некритично */ });
+      try {
+        const anomalies = detectSaveAnomalies(existing.data, safeSave, existing.saved_at);
+        if (anomalies.length) {
+          console.warn(`[save] подозрительный прогресс user=${user.id}: ${anomalies.join(',')}`);
+          redisSet(`save_flag:${user.id}`, JSON.stringify({ flags: anomalies, at: Date.now() }))
+            .catch(function() { /* некритично */ });
+        }
+      } catch (e) {
+        console.warn('[save] проверка аномалий не удалась:', e.message);
       }
     }
 
@@ -1643,4 +1652,12 @@ const server = app.listen(PORT, () => {
 
 server.on('error', (err) => {
   console.error("[ERROR] Ошибка сервера:", err);
+});
+
+// ★ Не даём одной асинхронной ошибке уронить процесс (иначе клиенты получают 502).
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason && reason.stack ? reason.stack : reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err && err.stack ? err.stack : err);
 });

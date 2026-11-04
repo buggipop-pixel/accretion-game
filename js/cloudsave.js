@@ -531,7 +531,9 @@ async function cloudSaveGame(options) {
       try { errData = await response.json(); } catch (e) { errData = null; }
       const errMsg = (errData && errData.error) ? errData.error : ('HTTP ' + response.status);
       console.warn('[CloudSave] save rejected:', response.status, errMsg);
-      return { ok: false, error: errMsg, status: response.status };
+      // 5xx — временный сбой сервера/хостинга: не пугаем игрока, повторяем тихо.
+      const transient = response.status >= 500 && response.status <= 599;
+      return { ok: false, error: errMsg, status: response.status, network: transient };
     }
 
     const r = await response.json();
@@ -800,12 +802,20 @@ async function syncCloudOnStart() {
           scheduleCloudRetry((pushed && pushed.retryAfter) || 1500);
           return false;
         }
-        if (pushed && (pushed.network === true || pushed.status === 0)) {
-          // Сеть недоступна: локальный сейв остаётся, повторяем позже.
+        if (pushed && (pushed.network === true || pushed.status === 0 || (pushed.status >= 500 && pushed.status <= 599))) {
+          // Сеть/сервер недоступен: локальный сейв остаётся, повторяем тихо.
+          console.warn('[Sync] сохранение отложено (сеть/сервер ' + (pushed.status || 0) + '), повторяем позже.');
           scheduleNetworkRetry();
+          return false;
+        }
+        if (pushed && pushed.status === 401) {
+          // Может протухнуть initData при очень долгой сессии — просим перезапуск.
+          showCloudNotice('__cloudAuthErrorShown', '⛔ Ошибка входа',
+            'Telegram отклонил данные. Перезапустите мини-приложение.');
+          return false;
         }
         showCloudNotice('__cloudPushErrorShown', '⚠️ Синхронизация',
-          'Не удалось сохранить прогресс. Проверьте сеть и попробуйте ещё раз.');
+          'Не удалось сохранить прогресс' + (pushed && pushed.status ? ' (' + pushed.status + ')' : '') + '. Попробуйте ещё раз.');
         return false;
       }
     }
