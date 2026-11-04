@@ -102,12 +102,26 @@ async function redisSetIfVersion(key, newValue, expectedVersion) {
   try {
     const r = await redisCommand('EVAL', script, '1', key, String(expectedVersion), newValue);
     const arr = Array.isArray(r) ? r : [r];
-    return { ok: Number(arr[0]) === 1, version: Number(arr[1]) || 0, currentRaw: arr[2] || null };
+    if (Number(arr[0]) === 1) {
+      return { ok: true, conflict: false, failed: false, version: Number(arr[1]) || 0, currentRaw: null };
+    }
+    return { ok: false, conflict: true, failed: false, version: Number(arr[1]) || 0, currentRaw: arr[2] || null };
   } catch (e) {
-    // EVAL может быть недоступен в старых окружениях — откат на неатомарную запись
-    console.warn('[redisSetIfVersion] EVAL недоступен, откат на redisSet:', e.message);
-    const ok = await redisSet(key, newValue);
-    return { ok, version: 0, currentRaw: null };
+    // EVAL может быть недоступен в старых окружениях — неатомарный откат:
+    // перечитываем версию и пишем, только если она не изменилась.
+    console.warn('[redisSetIfVersion] EVAL недоступен, неатомарный откат:', e.message);
+    try {
+      const current = parseRedisJson(await redisGet(key));
+      const curVer = (current && typeof current.version === 'number') ? current.version : 0;
+      if (curVer !== expectedVersion) {
+        return { ok: false, conflict: true, failed: false, version: curVer, currentRaw: JSON.stringify(current) };
+      }
+      const saved = await redisSet(key, newValue);
+      return { ok: saved, conflict: false, failed: !saved, version: expectedVersion + 1, currentRaw: null };
+    } catch (e2) {
+      console.warn('[redisSetIfVersion] откат не удался:', e2.message);
+      return { ok: false, conflict: false, failed: true, version: 0, currentRaw: null };
+    }
   }
 }
 
@@ -740,7 +754,10 @@ app.post('/api/save', async (req, res) => {
       version: curVersion + 1, // ★ Монотонный номер: по нему, а не по часам, сравниваем сейвы
     };
     const cas = await redisSetIfVersion(cloudKey, JSON.stringify(payload), curVersion);
-    if (!cas.ok) {
+    if (cas.failed) {
+      return res.status(503).json({ error: 'Не удалось сохранить на сервер (хранилище недоступно)' });
+    }
+    if (cas.conflict) {
       // Кто-то успел записать раньше — отдаём актуальный сейв, чтобы клиент не затёр прогресс.
       const latest = cas.currentRaw ? parseRedisJson(cas.currentRaw) : null;
       return res.status(409).json({
@@ -814,6 +831,7 @@ app.post('/api/load', async (req, res) => {
             dustEarned: acc.earned.dust,
             energyEarned: acc.earned.energy,
             civEarned: acc.earned.civ,
+            metalsEarned: acc.earned.metals || 0,
           };
         }
       } catch (e) {
@@ -836,12 +854,13 @@ app.post('/api/load', async (req, res) => {
         const earned = accrueWalletPassive(wallet, data, now);
         await writeWallet(user.id, wallet);
 
-        if (earned.dust || earned.energy || earned.civ) {
+        if (earned.dust || earned.energy || earned.civ || earned.metals) {
           offline = {
             seconds: Math.max(0, Math.floor((now - beforeUpdate) / 1000)),
             dustEarned: earned.dust,
             energyEarned: earned.energy,
             civEarned: earned.civ,
+            metalsEarned: earned.metals || 0,
           };
         }
 
