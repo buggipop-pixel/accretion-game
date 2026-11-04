@@ -284,7 +284,6 @@ function clampZoom(value) {
 window.minZoomForStage = minZoomForStage;
 window.galaxyFitZoom = galaxyFitZoom;
 window.clampZoom = clampZoom;
-window.applyZoom = applyZoom;
 window.requestFullscreen = requestFullscreen;
 window.toggleFullscreen = toggleFullscreen;
 

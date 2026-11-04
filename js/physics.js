@@ -50,7 +50,7 @@ function safronovAccretion(planet) {
   const R = planet.diameter * 8;
   const sigma = Math.pow(100 / Math.max(1, r), 1.5);
   const omega = 1 / (PHYS.refPeriod * Math.pow(r / 100, 1.5));
-  const vRel = Math.max(0.1, 1);
+  const vRel = 1; // раньше Math.max(0.1, 1) — всегда 1, упрощено
   const vEsc = escapeVelocity(planet.mass, planet.diameter);
   const focus = 1 + (vEsc * vEsc) / (vRel * vRel);
   return Math.PI * R * R * sigma * omega * focus * 0.001;

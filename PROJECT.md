@@ -39,7 +39,7 @@ Telegram Mini App — idle-игра про формирование солнеч
 - `js/main.js` — цикл, canvas, ввод, зум, панорама, поворот камеры на 360°,
   setupTelegram (полный экран + запрет свайпов), sanitizeView, galaxySystemPos
   (4 формы), обработка исключений в цикле (защита от чёрного экрана)
-- `tools/smoke-test.js` — headless-тест, 52 проверки без браузера
+- `tests/smoke-test.js` — headless-тест без браузера (30 проверок, `npm test`)
 - `PROGRESS.md` — журнал сессий (создать, если ещё нет)
 
 ## ✅ Что реализовано

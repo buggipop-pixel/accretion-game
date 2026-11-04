@@ -32,7 +32,6 @@ console.log("BOT_TOKEN задан:", !!process.env.BOT_TOKEN);
 console.log("UPSTASH_URL задан:", !!process.env.UPSTASH_REDIS_REST_URL);
 const {
   BOT_TOKEN,
-  WEBAPP_URL,
   UPSTASH_REDIS_REST_URL,
   UPSTASH_REDIS_REST_TOKEN,
   WEBHOOK_SECRET,
@@ -42,6 +41,9 @@ const {
 if (!BOT_TOKEN || !UPSTASH_REDIS_REST_URL || !UPSTASH_REDIS_REST_TOKEN) {
   console.error('[FATAL] Не хватает переменных окружения');
   process.exit(1);
+}
+if (!WEBHOOK_SECRET) {
+  console.warn('[WARN] WEBHOOK_SECRET не задан — вебхук оплаты будет отклонять все запросы (fail-closed)');
 }
 
 // ─── Товары ─────────────────────────────────────────────────────
@@ -65,9 +67,17 @@ const bot = new TelegramBot(BOT_TOKEN, { polling: false });
 
 // ─── Upstash Redis (REST) ───────────────────────────────────────
 async function redisSet(key, value) {
-  const url = `${UPSTASH_REDIS_REST_URL}/set/${encodeURIComponent(key)}/${encodeURIComponent(value)}`;
-  const r = await fetch(url, { headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` } });
-  return r.ok;
+  try {
+    const url = `${UPSTASH_REDIS_REST_URL}/set/${encodeURIComponent(key)}/${encodeURIComponent(value)}`;
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` } });
+    if (!r.ok) return false;
+    const data = await r.json().catch(() => null);
+    if (data && data.error) { console.warn('[redisSet] Upstash error:', data.error); return false; }
+    return true;
+  } catch (e) {
+    console.warn('[redisSet] ошибка сети:', e.message);
+    return false;
+  }
 }
 
 // ─── Push-уведомления в Telegram ────────────────────────────────
@@ -278,7 +288,9 @@ async function readWallet(userId) {
 }
 
 async function writeWallet(userId, wallet) {
-  await redisSet(`wallet:${userId}`, JSON.stringify(wallet));
+  const ok = await redisSet(`wallet:${userId}`, JSON.stringify(wallet));
+  if (!ok) console.warn('[writeWallet] не удалось записать кошелёк', userId);
+  return ok;
 }
 
 // Начисляет кошельку пассивный доход за прошедшее время:
@@ -693,7 +705,10 @@ app.post('/api/save', async (req, res) => {
       user_id: user.id,
       version: curVersion + 1, // ★ Монотонный номер: по нему, а не по часам, сравниваем сейвы
     };
-    await redisSet(cloudKey, JSON.stringify(payload));
+    const saved = await redisSet(cloudKey, JSON.stringify(payload));
+    if (!saved) {
+      return res.status(503).json({ error: 'Не удалось сохранить на сервер (хранилище недоступно)' });
+    }
     res.json({
       ok: true, saved_at: payload.saved_at, version: payload.version,
       authoritative: SERVER_AUTHORITATIVE,
@@ -1034,7 +1049,10 @@ app.post('/api/buy-booster', async (req, res) => {
 app.post('/webhook', async (req, res) => {
   try {
     const secret = req.headers['x-telegram-bot-api-secret-token'];
-    if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) return res.sendStatus(403);
+    if (!WEBHOOK_SECRET || secret !== WEBHOOK_SECRET) {
+      console.warn('[webhook] отклонён: WEBHOOK_SECRET не задан или не совпал');
+      return res.sendStatus(403);
+    }
 
     const update = req.body;
 
@@ -1067,6 +1085,10 @@ app.post('/webhook', async (req, res) => {
       try { payload = JSON.parse(sp.invoice_payload || '{}'); } catch {}
       const product = payload.product;
       if (!product || !PRODUCTS[product]) return res.sendStatus(200);
+      if (payload.user_id !== userId) {
+        console.warn('[webhook] несоответствие user_id: payload=', payload.user_id, 'from=', userId);
+        return res.sendStatus(200);
+      }
 
       if (sp.currency !== 'XTR' || sp.total_amount !== PRODUCTS[product].stars) {
         console.warn('[webhook] Сумма/валюта не совпали', sp);
