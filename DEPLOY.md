@@ -98,3 +98,38 @@
 3. При регистрации вебхука у Telegram укажите тот же секрет в поле
    `secret_token` (bot.setWebhook / BotFather / API).
 4. Проверьте лог старта: не должно быть `[WARN] WEBHOOK_SECRET не задан…`.
+
+
+## 8. Если облачные сохранения не работают у части игроков
+
+Диагностика по логам (Настройки → 📄 Логи):
+
+```
+[net] POST https://accretion-game.onrender.com/api/save → ERROR Load failed 80ms
+```
+
+- `Load failed` за десятки миллисекунд, статус 0, `network: true` — это **обрыв на уровне
+  соединения**, а не ответ сервера. HTTP-код и CORS тут ни при чём.
+- Если сервер при этом **снаружи доступен** (проверка сторонним сервисом,
+  например `api.hackertarget.com/httpheaders/?q=...` возвращает `200 OK`),
+  значит сервер жив, а **домен `onrender.com` заблокирован в сети игрока**
+  (частая ситуация в РФ).
+- В таком случае игра играбельна (локальный сейв в localStorage), но облако
+  не синхронизируется.
+
+### Как чинить
+
+1. **Свой домен через Cloudflare (быстро и без правок сервера).**
+   - Домен на Cloudflare → CNAME `api.ваш-домен` → `accretion-game.onrender.com`,
+     **Proxy status: Proxied** (оранжевое облако).
+   - В Render → Settings → Custom Domain добавить `api.ваш-домен`.
+   - В `js/cloudsave.js` заменить адрес по умолчанию на новый, либо задать игрокам
+     без правки кода: `localStorage.setItem('accretion_cloud_api','https://api.ваш-домен')`
+     (адрес читается из `accretion_cloud_api` / `window.__CLOUD_API__`).
+   - Трафик идёт через Cloudflare, поэтому блокировка `*.onrender.com` перестаёт мешать.
+
+2. **Перенести API на хост, доступный в регионе** (Cloudflare Workers, Deno Deploy,
+   Vercel, VPS). Сервер — обычный Node/Express, переносится почти без изменений.
+
+3. После смены адреса — проверить в логе строку
+   `[CloudSave] API base: https://...` и успешный `POST /api/save → 200`.

@@ -11,8 +11,21 @@
 //   3. При старте, если на сервере есть сейв, он применяется всегда.
 // ═══════════════════════════════════════════════════════════════
 
-// Адрес сервера (Render)
-const CLOUD_API = 'https://accretion-game.onrender.com';
+// Адрес сервера. По умолчанию — Render.
+// ★ Можно перенастроить БЕЗ правки кода (например, если onrender.com
+//   заблокирован в сети игрока — нужен свой домен/другой хост):
+//   localStorage.setItem('accretion_cloud_api', 'https://api.ваш-домен.ru')
+//   или window.__CLOUD_API__ = '...' перед загрузкой.
+const CLOUD_API = (function () {
+  try {
+    if (window.__CLOUD_API__) return String(window.__CLOUD_API__);
+    const saved = localStorage.getItem('accretion_cloud_api');
+    if (saved) return String(saved);
+  } catch (e) { /* localStorage недоступен */ }
+  return 'https://accretion-game.onrender.com';
+})();
+window.__cloudApiBase = CLOUD_API;
+try { console.log('[CloudSave] API base:', CLOUD_API); } catch (e) { /* ignore */ }
 
 // Автосинхронизация при старте и автосохранение в облако
 const CLOUD_AUTOSYNC = true;
