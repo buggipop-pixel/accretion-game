@@ -100,7 +100,7 @@ function openPremiumShop() {
         <span>100% защита от всех угроз</span>
       </div>
       <button class="stars-btn" style="margin-top:8px; background:linear-gradient(135deg,#ffb347,#ffcc00); color:#1a0f35;" onclick="buyPremiumShield()">
-        ⭐ Купить за 50 Stars
+        ⭐ Купить за ${CHEST_CFG.shieldStars} Stars
       </button>
     </div>
 
@@ -108,10 +108,6 @@ function openPremiumShop() {
       onclick="document.getElementById('modal').classList.remove('show');">
       ✕ Закрыть
     </button>
-        <div style="text-align:center; margin-top:15px; opacity:0.6;">
-      <button class="pour-btn" style="font-size:10px; padding:4px 8px;" onclick="testTelegramInvoice('chest')">🧪 Тест: Оплатить Сундук</button>
-      <button class="pour-btn" style="font-size:10px; padding:4px 8px;" onclick="testTelegramInvoice('shield')">🧪 Тест: Оплатить Щит</button>
-    </div>
   `;
   document.getElementById('modal').classList.add('show');
 }
@@ -518,15 +514,6 @@ async function buyIncomeBooster() {
   S.boosters.incomeUntil = Math.max(S.boosters.incomeUntil || 0, Date.now()) + PREMIUM_CFG.booster.hours * 3600 * 1000;
   toast('🚀 Бустер активирован', 'Доход ×' + PREMIUM_CFG.booster.incomeMult + ' на ' + PREMIUM_CFG.booster.hours + ' ч');
   saveGame(); updateUI(); openPremiumShop();
-}
-function testTelegramInvoice(type) {
-  toast('🧪 Симуляция', 'Оплата 100 ⭐ прошла успешно!');
-  if (type === 'chest') {
-    document.getElementById('modal').classList.remove('show');
-    startChestRoulette();
-  } else if (type === 'shield') {
-    activatePremiumShieldReward();
-  }
 }
 window.openPremiumShop = openPremiumShop;
 window.buyPrimeChest = buyPrimeChest;

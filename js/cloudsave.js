@@ -438,9 +438,9 @@ async function cloudSaveGame(options) {
   // Параллельные сохранения не нужны: сервер всё равно ответит 409/429.
   if (_cloudSaveInFlight > 0) return { ok: false, error: 'in-flight' };
 
-  // ★ keepalive по умолчанию: запрос дойдёт, даже если вкладку закрывают.
-  // Итоговое решение зависит от размера тела (лимит 64 KiB) — см. ниже.
-  const wantKeepalive = !options || options.keepalive !== false;
+  // ★ keepalive ТОЛЬКО при явном запросе (beforeunload / закрытие вкладки).
+  // Обычное автосохранение идёт без keepalive, чтобы не падать на лимите 64 KiB.
+  const wantKeepalive = !!(options && options.keepalive === true);
   _cloudSaveInFlight++;
   try {
     // ★ saveGame() сам вызовет autoSaveToCloud(true); защита от рекурсии —
@@ -600,7 +600,7 @@ function scheduleNetworkRetry() {
   scheduleCloudRetry(delay);
 }
 
-function autoSaveToCloud(force) {
+function autoSaveToCloud(force, useKeepalive) {
   try {
     if (isResetInProgress()) return false;
     // Вне Telegram ничего не сохраняем — никаких 401 и «фантомных» сейвов.
@@ -623,8 +623,8 @@ function autoSaveToCloud(force) {
     }
     _autoCloudLastAt = now;
 
-    // ★ Принудительное сохранение с keepalive: true — переживает закрытие вкладки.
-    const p = cloudSaveGame({ keepalive: true });
+    // ★ keepalive только при закрытии вкладки (beforeunload). Обычный автосейв — без него.
+    const p = cloudSaveGame({ keepalive: !!useKeepalive });
     if (p && typeof p.then === 'function') {
       p.then(function(res) {
         if (!res) return;
@@ -1123,7 +1123,7 @@ document.addEventListener('visibilitychange', function() {
 });
 window.addEventListener('beforeunload', function() {
   if (typeof saveGame === 'function') saveGame();
-  if (typeof autoSaveToCloud === 'function') autoSaveToCloud(true);
+  if (typeof autoSaveToCloud === 'function') autoSaveToCloud(true, true);
 });
 
 // ═══════════════════════════════════════════════════════════════

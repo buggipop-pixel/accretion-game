@@ -282,7 +282,7 @@ const ECONOMY_CFG = {
   // Прайм-бонусы (dustMult/allMult/energyMult) складываются со ВСЕХ
   // прайм-систем, но с затуханием:
   //   итог = 1 + min(primeBonusCap, Σбонусов × primeBonusWeight)
-  primeBonusWeight: 0.40,
+  primeBonusWeight: 0.20,   // ★ нерф -50%: прайм-бонус вдвое слабее (аудит монетизации)
   primeBonusCap: 1.50,          // потолок: +150% (т.е. максимум ×2.5)
 
   // Кап металлов = max(750 × 2^(ур.хранилища-1), доход × 3600 × metalsCapHours)
@@ -333,7 +333,8 @@ const STAR_WEIGHTS = { M: 60, K: 15, G: 10, A: 10, B: 5 };
 
 // ─── СУНДУКИ ───
 const CHEST_CFG = {
-  costStars: 100,
+  costStars: 200,
+  shieldStars: 100,
   lootTable: [
     { key: 'blackHole', weight: 20 }, { key: 'pulsar', weight: 20 }, { key: 'wormhole', weight: 20 },
     { key: 'quasar', weight: 10 }, { key: 'magnetar', weight: 10 }, { key: 'gravLens', weight: 10 },

@@ -176,7 +176,7 @@ function settle() {
   assert('ПК: версия сервера сохранена локально',
     A.localStorage.getItem('accretion_cloud_version') === '1');
   const saveReq = server.requests.filter((r) => r.url.endsWith('/api/save')).pop();
-  assert('ПК: keepalive включён', !!(saveReq && saveReq.init && saveReq.init.keepalive === true));
+  assert('ПК: keepalive выключен при обычном автосейве', !!(saveReq && saveReq.init && saveReq.init.keepalive === false));
 
   // 2. Телефон с часами на 2 часа вперёд: облако применяется всегда
   const B = makeDevice(server, {
@@ -541,7 +541,7 @@ function settle() {
     initialSave: { stage: 'star', lastTick: 1, dust: 5 },
   });
   Fallback.S.dust = 11;
-  const fbRes = await Fallback.context.window.cloudSaveGame();
+  const fbRes = await Fallback.context.window.cloudSaveGame({ keepalive: true });
   const fbSaveReqs = fallbackServer.requests.filter((r) => r.url.endsWith('/api/save'));
   assert('Fallback: keepalive-попытка отклонена', Fallback.fetchStats.keepaliveRejected === 1);
   assert('Fallback: повтор без keepalive сохранён',

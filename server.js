@@ -46,8 +46,8 @@ if (!BOT_TOKEN || !UPSTASH_REDIS_REST_URL || !UPSTASH_REDIS_REST_TOKEN) {
 
 // ─── Товары ─────────────────────────────────────────────────────
 const PRODUCTS = {
-  chest:  { label: 'Космический сундук', stars: 100 },
-  shield: { label: 'Премиум Щит (24ч)',  stars: 50  },
+  chest:  { label: 'Космический сундук', stars: 200 },
+  shield: { label: 'Премиум Щит (24ч)',  stars: 100 },
 };
 
 // ─── Игровые формулы (для серверного офлайн-дохода) ─────────────
@@ -399,6 +399,15 @@ app.post('/api/claim', async (req, res) => {
     if (!purchase || typeof purchase !== 'object') return res.status(500).json({ error: 'Corrupted purchase record' });
     if (purchase.granted) return res.status(409).json({ error: 'Already granted' });
     if (Date.now() - purchase.paid_at > 24 * 3600 * 1000) return res.status(410).json({ error: 'Expired' });
+
+    // ★ Атомарная защита от двойной выдачи: SET NX пропускает только первый
+    // параллельный запрос /api/claim. Без этого два одновременных запроса
+    // оба прошли бы проверку purchase.granted и выдали бы награду дважды.
+    const claimLockKey = `claim:${user.id}:${product}`;
+    const locked = await redisCommand('SET', claimLockKey, '1', 'NX', 'EX', '3600');
+    if (locked !== 'OK') {
+      return res.status(409).json({ error: 'Already granted' });
+    }
 
     purchase.granted = true;
     purchase.granted_at = Date.now();

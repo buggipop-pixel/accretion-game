@@ -315,6 +315,21 @@ function switchToSystem(idx) {
 // ═══════════════════════════════════════════════════════════════
 //  СОХРАНЕНИЕ И ЗАГРУЗКА
 // ═══════════════════════════════════════════════════════════════
+// ★ Оптимизация сейва: убираем пустые массивы/null/пустые объекты,
+// чтобы гигантские галактики (тысячи планет) не раздували localStorage.
+// Все поля имеют фолбэки в loadGame(), поэтому удаление безопасно.
+function stripEmptyForSave(data) {
+  const out = {};
+  for (const key in data) {
+    const v = data[key];
+    if (v === null || v === undefined) continue;
+    if (Array.isArray(v) && v.length === 0) continue;
+    if (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) continue;
+    out[key] = v;
+  }
+  return out;
+}
+
 function saveGame() {
   if (isResetting) return;
   try {
@@ -388,7 +403,7 @@ function saveGame() {
       missLastCometAt: (typeof MISS !== 'undefined') ? MISS.lastCometAt : 0,
       missLastExpeditionAt: (typeof MISS !== 'undefined') ? MISS.lastExpeditionAt : 0,
     };
-    localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    localStorage.setItem(SAVE_KEY, JSON.stringify(stripEmptyForSave(data)));
   } catch (e) { console.warn('save error', e); }
 
   // ★ Локальные изменения ещё не подтверждены сервером. Если save упадёт,

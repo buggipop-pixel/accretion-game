@@ -200,7 +200,7 @@ const pm = w.primeBonusMult('dust');
 assert('потолок прайм-бонуса = ×2.5 (cap 150%)', Math.abs(pm - 2.5) < 1e-9, pm);
 resetGalaxy();
 S.primeSystem = { objectKey: 'blackHole', bonus: { dustMult: 0.25 } };
-assert('один прайм: 1 + 0.25×0.4 = 1.1', Math.abs(w.primeBonusMult('dust') - 1.1) < 1e-9, w.primeBonusMult('dust'));
+assert('один прайм: 1 + 0.25×0.2 = 1.05', Math.abs(w.primeBonusMult('dust') - 1.05) < 1e-9, w.primeBonusMult('dust'));
 
 console.log('\n─── 7. Доход не зависит от открытой системы ───');
 resetGalaxy();
