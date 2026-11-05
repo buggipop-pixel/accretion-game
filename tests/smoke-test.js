@@ -360,6 +360,23 @@ try {
   console.error('   prestige ladder: ' + e.message);
   assert('Престиж: лестница продолжается после 5-й вспышки', false);
 }
+// Тест 10: мягкая кривая множителя престижа (было ×2 за вспышку → ×2048)
+// Новый шаг ×1.3: на 12-й галактике ≈ ×23 вместо ×2048.
+try {
+  const fn = context.prestigeMultiplierFor;
+  assert('Престиж: множитель начинается с ×1', Math.abs(fn(0) - 1) < 1e-9);
+  assert(
+    'Престиж: на 12-й галактике множитель мягкий (< ×100)',
+    fn(11) > 10 && fn(11) < 100 && fn(11) < 2048 / 20
+  );
+  assert(
+    'Престиж: множитель растёт и упирается в потолок',
+    fn(20) > fn(11) && fn(500) <= 1e6 && fn(500) > fn(20)
+  );
+} catch (e) {
+  console.error('   prestige multiplier: ' + e.message);
+  assert('Престиж: мягкая кривая множителя', false);
+}
 // Тест 8: кнопка полного экрана присутствует и подключена
 try {
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');

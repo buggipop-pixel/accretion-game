@@ -20,5 +20,8 @@ Thumbs.db
 .dsh-code-index/
 .npm-cache/
 
+# Скриншоты локальных проверок UI (не часть игры)
+browser-screenshots/
+
 # Артефакт сломанного os.tmpdir() (не относится к игре)
 undefined/

@@ -43,6 +43,8 @@ const S = {
   totalSystemsCreated: 1,
   systemIncomeBonus: 0,
   systemShopProgress: { dust: 0, energy: 0, civ: 0 },
+  // ★ Сколько систем выбрано ползунком в магазине (1..N по пыли).
+  systemShopBatch: 1,
   // ★ Снимок цен покупки системы: фиксируется на время покупки, чтобы
   //   вливание цивилизации не меняло цену энергии посреди прогресса.
   systemShopCost: null,
@@ -146,6 +148,7 @@ function resetStateValues() {
   S.systems = 1; S.totalSystemsCreated = 1;
   S.systemIncomeBonus = 0;
   S.systemShopProgress = { dust: 0, energy: 0, civ: 0 };
+  S.systemShopBatch = 1;
   S.systemShopCost = null;
   S.systemCostFloor = 0;
   
@@ -488,6 +491,14 @@ function loadGame() {
     if (typeof S.galaxies !== 'number') S.galaxies = 1;
     if (!S.galaxyForm) S.galaxyForm = 'spiral';
     if (typeof S.galaxyMultiplier !== 'number') S.galaxyMultiplier = 1;
+    // ★ Кривая множителя престижа изменилась (было ×2 за вспышку).
+    //   Приводим старый сейв к новой формуле — иначе ×2048 останется навсегда.
+    if (typeof prestigeMultiplierFor === 'function') {
+      const targetMult = prestigeMultiplierFor(S.prestigeLevel || 0);
+      if (!isFinite(S.galaxyMultiplier) || S.galaxyMultiplier > targetMult) {
+        S.galaxyMultiplier = targetMult;
+      }
+    }
     if (!Array.isArray(S.achievements)) S.achievements = [];
 
     // ─── 4. Достижения и Ежедневки ───
@@ -573,6 +584,7 @@ function loadGame() {
     if (typeof S.systemShopProgress.dust !== 'number') S.systemShopProgress.dust = 0;
     if (typeof S.systemShopProgress.energy !== 'number') S.systemShopProgress.energy = 0;
     if (typeof S.systemShopProgress.civ !== 'number') S.systemShopProgress.civ = 0;
+    if (typeof S.systemShopBatch !== 'number' || !isFinite(S.systemShopBatch)) S.systemShopBatch = 1;
     // ★ Снимок цен покупки системы: валидный объект с тремя неотрицательными
     //   числами, иначе сбрасываем (миграция старых сейвов).
     const shopCostSnap = S.systemShopCost;

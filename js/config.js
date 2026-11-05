@@ -263,12 +263,34 @@ const MISSIONS_CFG = {
 const SYSTEM_SHOP_CFG = {
   dustSeconds: 1800, energyCapShare: 0.5, civCapShare: 0.4,
   shopEnergySeconds: 1800, shopCivSeconds: 900, // ★ цена шкал = 30/15 мин дохода, а не % капа
-  energyBonusPlanets: 2, energyBonusIncome: 0.5,
-  colonyChanceFull: 0.60, gasChance: 0.30,
+  // ★ Энергия и цивилизация больше не дают планет/дохода: только шанс,
+  //   что система окажется «живой». Полный залив двух шкал = 100% от этого.
+  lifeChanceFull: 0.60,
+  colonyChanceFull: 0.60, // алиас для старых вызовов
+  gasChance: 0.30,
+  batchMax: 50, // максимум систем за одну покупку (ползунок)
   primeChance: 0,
 };
+// ★ Множитель престижа: раньше ×2.0 за вспышку — на 12-й галактике
+//   получалось ×2048, и доход улетал в космос. Теперь шаг мягче (×1.3)
+//   плюс потолок: 12-я галактика ≈ ×23, 20-я ≈ ×190, 30-я ≈ ×2.6К.
+const PRESTIGE_CFG = {
+  firstRequirement: 5,
+  stepMultiplier: 1.4,
+  multiplierPerGalaxy: 1.3,
+  multiplierCap: 1e6,
+  requirements: [5, 8, 11, 14, 18]
+};
 
-const PRESTIGE_CFG = { firstRequirement: 5, stepMultiplier: 1.4, multiplierPerGalaxy: 2.0, requirements: [5, 8, 11, 14, 18] };
+// Множитель дохода за уровень вспышки (0 — вспышек ещё не было).
+// Единственный источник истины: и сейв, и окно престижа считают отсюда.
+function prestigeMultiplierFor(level) {
+  const lvl = Math.max(0, Math.floor(Number(level) || 0));
+  const step = Number(PRESTIGE_CFG.multiplierPerGalaxy) || 1.3;
+  const cap = Number(PRESTIGE_CFG.multiplierCap) || 1e6;
+  const mult = Math.pow(step, lvl);
+  return isFinite(mult) ? Math.min(cap, mult) : cap;
+}
 const METALS_CFG = { expeditionCostMetals: 200, cometBoostCostMetals: 100, cometBoostSurvival: 0.3, colonyCostMetals: 500,
   capBase: 750, capGrowth: 2.0,            // ★ кап металлов: 750 x 2^(уровень хранилища-1)
   capStorage: 'energy' };
@@ -606,6 +628,7 @@ window.PREMIUM_CFG = PREMIUM_CFG;
 window.MISSIONS_CFG = MISSIONS_CFG;
 window.SYSTEM_SHOP_CFG = SYSTEM_SHOP_CFG;
 window.PRESTIGE_CFG = PRESTIGE_CFG;
+window.prestigeMultiplierFor = prestigeMultiplierFor;
 window.METALS_CFG = METALS_CFG;
 window.ECONOMY_CFG = ECONOMY_CFG;
 window.STAR_WEIGHTS = STAR_WEIGHTS;

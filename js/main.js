@@ -518,59 +518,211 @@ canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
 // ═══════════════════════════════════════════════════════════════
 //  ГАЛАКТИКА (Позиции и отрисовка)
 // ═══════════════════════════════════════════════════════════════
-function galaxySystemPos(i, total, time) {
+// ═══════════════════════════════════════════════════════════════
+//  ГАЛАКТИКА: созвездия
+//  Каждая группа из CONSTELLATION_SIZE систем — отдельное созвездие.
+//  Связи рисуются только внутри группы, поэтому карта читается как
+//  набор фигур, а не как одна длинная нить.
+// ═══════════════════════════════════════════════════════════════
+const CONSTELLATION_SIZE = 7;
+
+// Базовые координаты системы в плоскости галактики (до камеры).
+function galaxyLayoutPos(i, total, t) {
   const form = S.galaxyForm || 'spiral';
-  const t = time || 0;
-  let bx = 0, by = 0;
   if (form === 'ring') {
-const angle = (i / Math.max(1, total)) * Math.PI * 2 + t * 0.02;
-const dist = 90 + Math.min(8, Math.floor(i / 10)) * 60;
-bx = Math.cos(angle) * dist; by = Math.sin(angle) * dist * 0.6;
-} else if (form === 'elliptical') {
-const angle = i * 2.399963 + t * 0.01;
-const r = 45 + Math.sqrt(i) * 28;
-bx = Math.cos(angle) * r * 1.5; by = Math.sin(angle) * r * 0.75;
-} else if (form === 'irregular') {
-const angle = i * 2.399963 + Math.sin(i * 3.7) * 0.9 + t * 0.005;
-const r = 35 + ((i * 47) % 140) + Math.sin(i * 1.7) * 30;
-bx = Math.cos(angle) * r * 1.3; by = Math.sin(angle) * r * 0.8;
-} else {
-// Спиральная
-const arm = Math.floor(i / 3), idx = i % 3;
-const angle = arm * Math.PI / 2 + idx * 0.5 + t * 0.02;
-const dist = 60 + arm * 80 + idx * 25;
-bx = Math.cos(angle) * dist; by = Math.sin(angle) * dist * 0.5;
+    const angle = (i / Math.max(1, total)) * Math.PI * 2 + t * 0.02;
+    const dist = 90 + Math.min(8, Math.floor(i / 10)) * 60;
+    return { x: Math.cos(angle) * dist, y: Math.sin(angle) * dist * 0.6 };
+  }
+  if (form === 'elliptical') {
+    const angle = i * 2.399963 + t * 0.01;
+    const r = 45 + Math.sqrt(i) * 28;
+    return { x: Math.cos(angle) * r * 1.5, y: Math.sin(angle) * r * 0.75 };
+  }
+  if (form === 'irregular') {
+    const angle = i * 2.399963 + Math.sin(i * 3.7) * 0.9 + t * 0.005;
+    const r = 35 + ((i * 47) % 140) + Math.sin(i * 1.7) * 30;
+    return { x: Math.cos(angle) * r * 1.3, y: Math.sin(angle) * r * 0.8 };
+  }
+  // Спиральная
+  const arm = Math.floor(i / 3), idx = i % 3;
+  const angle = arm * Math.PI / 2 + idx * 0.5 + t * 0.02;
+  const dist = 60 + arm * 80 + idx * 25;
+  return { x: Math.cos(angle) * dist, y: Math.sin(angle) * dist * 0.5 };
 }
-// Анимация престижа
-if (S.vis && S.vis.prestigeAnim) {
-const el = performance.now() - S.vis.prestigeAnim.start;
-if (S.vis.prestigeAnim.phase === 'pull') {
-const p = Math.min(1, el / 1500);
-const ease = p * p * (3 - 2 * p);
-bx *= (1 - ease); by *= (1 - ease);
-} else if (S.vis.prestigeAnim.phase === 'explode') {
-bx = 0; by = 0;
-} else if (S.vis.prestigeAnim.phase === 'push') {
-const p = Math.min(1, (el - 2000) / 1500);
-const ease = p * p * (3 - 2 * p);
-bx *= ease; by *= ease;
+
+function galaxySystemPos(i, total, time) {
+  const t = time || 0;
+  const base = galaxyLayoutPos(i, total, t);
+  let bx = base.x, by = base.y;
+  // Анимация престижа
+  if (S.vis && S.vis.prestigeAnim) {
+    const el = performance.now() - S.vis.prestigeAnim.start;
+    if (S.vis.prestigeAnim.phase === 'pull') {
+      const p = Math.min(1, el / 1500);
+      const ease = p * p * (3 - 2 * p);
+      bx *= (1 - ease); by *= (1 - ease);
+    } else if (S.vis.prestigeAnim.phase === 'explode') {
+      bx = 0; by = 0;
+    } else if (S.vis.prestigeAnim.phase === 'push') {
+      const p = Math.min(1, (el - 2000) / 1500);
+      const ease = p * p * (3 - 2 * p);
+      bx *= ease; by *= ease;
+    }
+  }
+  const rot = S.rotation || 0;
+  const cosR = Math.cos(rot), sinR = Math.sin(rot);
+  const x1 = bx * cosR - by * sinR;
+  const y1 = bx * sinR + by * cosR;
+  const yaw = S.tiltY || 0;
+  const pitch = S.tiltX || 0;
+  const cyw = Math.cos(yaw), syw = Math.sin(yaw);
+  const cpi = Math.cos(pitch), spi = Math.sin(pitch);
+  const x3 = x1 * cyw;
+  const y3 = y1 * cpi - x1 * syw * spi;
+  const z = S.zoom || 1;
+  return {
+    x: cx + (S.panX || 0) + x3 * z,
+    y: cy + (S.panY || 0) + y3 * z
+  };
 }
+
+// ─── Кэш созвездий ──────────────────────────────────────────────
+// Группируем звёзды по близости на карте, а не по порядку индексов:
+// так фигуры остаются компактными при любой форме галактики.
+let _constellationCache = { key: '', groups: [] };
+
+// Минимальное остовное дерево внутри группы: соединяем только близких
+// соседей — без «паутины» через всю галактику.
+function constellationMst(pts, members) {
+  const n = members.length;
+  const inTree = new Array(n).fill(false);
+  const dist = new Array(n).fill(Infinity);
+  const from = new Array(n).fill(-1);
+  const edges = [];
+  dist[0] = 0;
+  for (let step = 0; step < n; step++) {
+    let u = -1;
+    for (let k = 0; k < n; k++) {
+      if (!inTree[k] && (u < 0 || dist[k] < dist[u])) u = k;
+    }
+    if (u < 0) break;
+    inTree[u] = true;
+    if (from[u] >= 0) edges.push([from[u], u]);
+    const pu = pts[members[u]];
+    for (let v = 0; v < n; v++) {
+      if (inTree[v]) continue;
+      const pv = pts[members[v]];
+      const d = (pv.x - pu.x) * (pv.x - pu.x) + (pv.y - pu.y) * (pv.y - pu.y);
+      if (d < dist[v]) { dist[v] = d; from[v] = u; }
+    }
+  }
+  return edges;
 }
-const rot = S.rotation || 0;
-const cosR = Math.cos(rot), sinR = Math.sin(rot);
-const x1 = bx * cosR - by * sinR;
-const y1 = bx * sinR + by * cosR;
-const yaw = S.tiltY || 0;
-const pitch = S.tiltX || 0;
-const cyw = Math.cos(yaw), syw = Math.sin(yaw);
-const cpi = Math.cos(pitch), spi = Math.sin(pitch);
-const x3 = x1 * cyw;
-const y3 = y1 * cpi - x1 * syw * spi;
-const z = S.zoom || 1;
-return {
-x: cx + (S.panX || 0) + x3 * z,
-y: cy + (S.panY || 0) + y3 * z
-};
+
+function galaxyConstellationGroups(total) {
+  const form = S.galaxyForm || 'spiral';
+  const key = total + '|' + form;
+  if (_constellationCache.key === key) return _constellationCache.groups;
+
+  const pts = [];
+  for (let i = 0; i < total; i++) {
+    const p = galaxyLayoutPos(i, total, 0);
+    pts.push({ x: p.x, y: p.y });
+  }
+
+  const groups = [];
+  if (total > 900) {
+    // Очень большая галактика: не тратим кадр на поиск соседей.
+    for (let start = 0; start < total; start += CONSTELLATION_SIZE) {
+      const members = [];
+      const stop = Math.min(total, start + CONSTELLATION_SIZE);
+      for (let i = start; i < stop; i++) members.push(i);
+      const edges = [];
+      for (let k = 0; k + 1 < members.length; k++) edges.push([k, k + 1]);
+      groups.push({ members: members, edges: edges });
+    }
+  } else {
+    // ★ Масштаб созвездия: соединяем только звёзды, которые реально рядом.
+    //   Среднее расстояние до ближайшего соседа не даёт «паутине» растянуться
+    //   через всю галактику, когда систем много.
+    let nnSum = 0, nnCount = 0;
+    const nnSample = Math.min(total, 120);
+    for (let i = 0; i < nnSample; i++) {
+      let nearest = Infinity;
+      for (let j = 0; j < total; j++) {
+        if (j === i) continue;
+        const dx = pts[j].x - pts[i].x, dy = pts[j].y - pts[i].y;
+        const d = dx * dx + dy * dy;
+        if (d < nearest) nearest = d;
+      }
+      if (isFinite(nearest)) { nnSum += Math.sqrt(nearest); nnCount++; }
+    }
+    const nnAvg = nnCount ? (nnSum / nnCount) : 0;
+    const maxEdge = Math.max(60, nnAvg * 2.4); // предел длины связи
+    const maxEdge2 = maxEdge * maxEdge;
+
+    const used = new Array(total).fill(false);
+    for (let seed = 0; seed < total; seed++) {
+      if (used[seed]) continue;
+      used[seed] = true;
+      const members = [seed];
+      while (members.length < CONSTELLATION_SIZE) {
+        let best = -1, bestD = maxEdge2;
+        for (let a = 0; a < members.length; a++) {
+          const pa = pts[members[a]];
+          for (let j = 0; j < total; j++) {
+            if (used[j]) continue;
+            const pj = pts[j];
+            const d = (pj.x - pa.x) * (pj.x - pa.x) + (pj.y - pa.y) * (pj.y - pa.y);
+            if (d < bestD) { bestD = d; best = j; }
+          }
+        }
+        if (best < 0) break;
+        used[best] = true;
+        members.push(best);
+      }
+      const edges = constellationMst(pts, members).filter(function (e) {
+        const a = pts[members[e[0]]], b = pts[members[e[1]]];
+        return (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) <= maxEdge2;
+      });
+      groups.push({ members: members, edges: edges });
+    }
+  }
+
+  _constellationCache = { key: key, groups: groups };
+  return groups;
+}
+
+// ─── Свечение звёзд ─────────────────────────────────────────────
+// Один заранее отрисованный спрайт вместо createRadialGradient на
+// каждую звезду: свечение получают ВСЕ системы, даже когда их сотни.
+let _starGlowSprite = null;
+function getStarGlowSprite() {
+  if (_starGlowSprite) return _starGlowSprite;
+  const SZ = 64;
+  const off = document.createElement('canvas');
+  off.width = SZ; off.height = SZ;
+  const g = off.getContext('2d');
+  const grad = g.createRadialGradient(SZ / 2, SZ / 2, 0, SZ / 2, SZ / 2, SZ / 2);
+  grad.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+  grad.addColorStop(0.22, 'rgba(214, 205, 255, 0.5)');
+  grad.addColorStop(0.55, 'rgba(150, 140, 230, 0.16)');
+  grad.addColorStop(1, 'rgba(130, 120, 210, 0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, SZ, SZ);
+  _starGlowSprite = off;
+  return off;
+}
+
+function drawStarGlow(x, y, size, isActive, total) {
+  const sprite = getStarGlowSprite();
+  const r = size * (isActive ? 3.6 : 3.2);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = isActive ? 0.85 : (total > 400 ? 0.42 : 0.6);
+  ctx.drawImage(sprite, x - r, y - r, r * 2, r * 2);
+  ctx.restore();
 }
 // ★ Двойной тап по системе в галактике открывает её. Одиночный — выделяет.
 const GALAXY_DOUBLE_TAP_MS = 380;
@@ -626,36 +778,50 @@ for (let i = 0; i < total; i++) {
 const p = galaxySystemPos(i, total, t);
 positions.push({ x: p.x, y: p.y, idx: i });
 }
-// Созвездия (линии между близкими звёздами)
+// ─── Созвездия: только внутренние связи ─────────────────────────
+// Между группами связей нет, поэтому созвездия читаются отдельно.
+const constellationGroups = galaxyConstellationGroups(total);
 ctx.save();
-ctx.strokeStyle = 'rgba(139, 127, 212, 0.3)';
-ctx.lineWidth = 1.5;
-for (let i = 0; total <= 300 && i < positions.length; i += 3) {
-for (let j = i; j < i + 3 && j < positions.length - 1; j++) {
-ctx.beginPath();
-ctx.moveTo(positions[j].x, positions[j].y);
-ctx.lineTo(positions[j + 1].x, positions[j + 1].y);
-ctx.stroke();
-}
+ctx.strokeStyle = 'rgba(150, 140, 215, 0.14)';
+ctx.lineWidth = 1;
+for (let gi = 0; gi < constellationGroups.length; gi++) {
+  const group = constellationGroups[gi];
+  for (let e = 0; e < group.edges.length; e++) {
+    const a = positions[group.members[group.edges[e][0]]];
+    const b = positions[group.members[group.edges[e][1]]];
+    if (!a || !b) continue;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    if (dx * dx + dy * dy > 140000) continue; // слишком длинная — не рисуем
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  }
 }
 ctx.restore();
 // Названия созвездий
 const constellationNames = ['Орион', 'Дракон', 'Лиры', 'Феникс', 'Центавр', 'Гидра', 'Кит', 'Пегас', 'Андромеда', 'Орёл', 'Волопас', 'Лебедь'];
-for (let i = 0; (S.zoom || 1) >= 0.45 && i < positions.length; i += 3) {
-let cxA = 0, cyA = 0, count = 0;
-for (let j = i; j < i + 3 && j < positions.length; j++) {
-cxA += positions[j].x; cyA += positions[j].y; count++;
-}
-if (count === 0) continue;
-cxA /= count; cyA /= count;
+if ((S.zoom || 1) >= 0.45 && constellationGroups.length <= 40) {
 ctx.save();
-ctx.fillStyle = 'rgba(180, 160, 255, 0.6)';
+ctx.fillStyle = 'rgba(180, 160, 255, 0.55)';
 ctx.font = 'italic 10px -apple-system, sans-serif';
 ctx.textAlign = 'center';
-ctx.fillText(constellationNames[Math.floor(i / 3) % constellationNames.length], cxA, cyA - 20);
+for (let gi = 0; gi < constellationGroups.length; gi++) {
+const group = constellationGroups[gi];
+if (group.members.length < 3) continue;
+let sxA = 0, syA = 0;
+for (let k = 0; k < group.members.length; k++) {
+const p = positions[group.members[k]];
+sxA += p.x; syA += p.y;
+}
+sxA /= group.members.length; syA /= group.members.length;
+if (sxA < -60 || sxA > (window.CANVAS_W || 400) + 60 ||
+syA < -60 || syA > (window.CANVAS_H || 700) + 60) continue;
+ctx.fillText(constellationNames[gi % constellationNames.length], sxA, syA - 26);
+}
 ctx.restore();
 }
-// ★ СИСТЕМЫ (С ОПТИМИЗАЦИЕЙ LOD)
+// ★ СИСТЕМЫ: у каждой звезды мягкое свечение (спрайт, без LOD-провала)
 const labelCandidates = [];
 for (let i = 0; i < positions.length; i++) {
 const pos = positions[i];
@@ -673,15 +839,7 @@ if (S.primeSystem) { isPrime = true; primeData = S.primeSystem; }
 isPrime = true;
 primeData = S.otherSystems[pos.idx].primeData || S.otherSystems[pos.idx].primeSystem || null;
 }
-// Упрощение графики (LOD) при >50 систем
-const isLowDetail = (total > 50 && !isActive && !isPrime && pos.idx !== S.galaxySelectedIdx);
-if (isLowDetail) {
-ctx.fillStyle = 'rgba(200, 190, 255, 0.4)';
-ctx.beginPath();
-ctx.arc(pos.x, pos.y, 2, 0, Math.PI * 2);
-ctx.fill();
-continue;
-}
+// ★ Свечение есть у всех звёзд: спрайт дешёвый даже при сотнях систем.
 const hue = isPrime ? 45 : (50 + (pos.idx * 37) % 100);
 if (isPrime) {
 const pulse = 1 + 0.1 * Math.sin(time * 2);
@@ -706,17 +864,10 @@ ctx.arc(pos.x, pos.y, size * 0.4, 0, Math.PI * 2);
 ctx.fill();
 }
 } else {
-const g = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, size * 3);
-g.addColorStop(0, 'hsla(' + hue + ', 90%, 80%, 1)');
-g.addColorStop(0.5, 'hsla(' + hue + ', 80%, 60%, 0.5)');
-g.addColorStop(1, 'hsla(' + hue + ', 80%, 50%, 0)');
-ctx.fillStyle = g;
+drawStarGlow(pos.x, pos.y, size, isActive, total);
+ctx.fillStyle = isActive ? '#fff' : 'hsla(' + hue + ', 85%, 84%, 0.95)';
 ctx.beginPath();
-ctx.arc(pos.x, pos.y, size * 3, 0, Math.PI * 2);
-ctx.fill();
-ctx.fillStyle = isActive ? '#fff' : '#d0c8ff';
-ctx.beginPath();
-ctx.arc(pos.x, pos.y, size * 0.4, 0, Math.PI * 2);
+ctx.arc(pos.x, pos.y, size * 0.42, 0, Math.PI * 2);
 ctx.fill();
 }
 // ★ Выделенная (одиночный тап) система — золотое кольцо, вход только двойным тапом.

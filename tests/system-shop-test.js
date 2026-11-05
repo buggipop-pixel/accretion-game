@@ -78,6 +78,13 @@ function makeClientContext() {
       openSystemShop: openSystemShop,
       cancelSystemCreation: cancelSystemCreation,
       createSystemFromShop: createSystemFromShop,
+      systemShopUnitCost: systemShopUnitCost,
+      systemShopBatchTotal: systemShopBatchTotal,
+      systemShopMaxSystems: systemShopMaxSystems,
+      systemShopBatchCount: systemShopBatchCount,
+      systemShopLifeChance: systemShopLifeChance,
+      onSystemShopSlider: onSystemShopSlider,
+      nextSystemCostIndex: nextSystemCostIndex,
       energyPerSec: energyPerSec,
     };
   `, context, { filename: 'test-bridge.js' });
@@ -196,23 +203,60 @@ api.openSystemShop();
 assert('Старый сейв без снимка: снимок создаётся при открытии',
   sameCosts(api.S.systemShopCost, oldSaveCosts));
 
-// ─── 5. Создание без снимка не падает и очищает снимок ─────────
+// ─── 5. Партия: ползунок, максимум по пыли, суммарная цена ────
 setupGame(api);
+api.S.dust = 1e15;
 api.openSystemShop();
-const createCosts = api.S.systemShopCost;
-api.S.systemShopProgress = {
-  dust: createCosts.dust,
-  energy: createCosts.energy,
-  civ: createCosts.civ,
-};
-api.S.systemShopCost = null;
+const startIdx = api.nextSystemCostIndex();
+const unit0 = api.systemShopUnitCost(startIdx);
+const unit1 = api.systemShopUnitCost(startIdx + 1);
+assert('Партия: сумма двух систем = сумма цен подряд',
+  api.systemShopBatchTotal(2) === unit0 + unit1);
+
+// Ровно на две системы
+api.S.dust = unit0 + unit1;
+api.openSystemShop();
+assert('Партия: максимум по пыли = 2', api.systemShopMaxSystems() === 2);
+api.onSystemShopSlider(2);
+assert('Партия: ползунок сохраняет выбор', api.S.systemShopBatch === 2);
+
+const systemsBefore = api.S.systems;
+const dustBefore = api.S.dust;
 const created = api.createSystemFromShop();
-assert('Создание системы без снимка не падает', created === true);
-assert('Снимок очищается после успешного создания', api.S.systemShopCost === null);
-assert('Прогресс обнуляется после создания',
+assert('Партия: создаётся N систем за раз',
+  created === true && api.S.systems === systemsBefore + 2);
+assert('Партия: списана суммарная цена',
+  dustBefore - api.S.dust === unit0 + unit1);
+assert('Партия: прогресс, снимок и ползунок очищены',
+  api.S.systemShopCost === null && api.S.systemShopBatch === 1 &&
   api.S.systemShopProgress.dust === 0 &&
   api.S.systemShopProgress.energy === 0 &&
   api.S.systemShopProgress.civ === 0);
+
+// ─── 6. Энергия и цивилизация дают только шанс жизни ──────────
+setupGame(api);
+api.openSystemShop();
+const lifeEmpty = api.systemShopLifeChance();
+api.pourSystemShop('energy', 'max');
+const lifeEnergy = api.systemShopLifeChance();
+api.pourSystemShop('civ', 'max');
+const lifeBoth = api.systemShopLifeChance();
+assert('Жизнь: без вливаний шанс 0', lifeEmpty === 0);
+assert('Жизнь: энергия реально повышает шанс',
+  lifeEnergy > 0 && lifeEnergy < lifeBoth, 'e=' + lifeEnergy + ' both=' + lifeBoth);
+assert('Жизнь: полный залив двух шкал = максимум 60%',
+  Math.abs(lifeBoth - 0.6) < 1e-9, 'life=' + lifeBoth);
+const outcome = api.systemShopOutcome();
+assert('Жизнь: энергия больше не даёт планет и дохода',
+  outcome.extraPlanets === 0 && outcome.incomeBonus === 0);
+
+// ─── 7. Без пыли партия не создаётся ──────────────────────────
+setupGame(api);
+api.S.dust = 0;
+api.openSystemShop();
+const dustZero = api.S.dust;
+assert('Пыль: без денег система не создаётся',
+  api.createSystemFromShop() === false && api.S.dust === dustZero);
 
 console.log('========================================');
 console.log(`ИТОГО: Пройдено ${passed}, Провалено ${failed}`);

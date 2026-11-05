@@ -141,8 +141,15 @@ function activateSupernova() {
     ring: 'Кольцевая',
   };
   const order = ['первая', 'вторая', 'третья', 'четвёртая', 'пятая'];
-  const curMult = S.galaxyMultiplier || 1;
-  const nextMult = curMult * (PRESTIGE_CFG.multiplierPerGalaxy || 2);
+  // ★ Множитель считается от уровня, а не домножается на старый сейв:
+  //   так кривая сама «лечит» сохранения, сделанные до ребаланса.
+  const curLevel = S.prestigeLevel || 0;
+  const curMult = (typeof prestigeMultiplierFor === 'function')
+    ? prestigeMultiplierFor(curLevel)
+    : (S.galaxyMultiplier || 1);
+  const nextMult = (typeof prestigeMultiplierFor === 'function')
+    ? prestigeMultiplierFor(curLevel + 1)
+    : curMult * (PRESTIGE_CFG.multiplierPerGalaxy || 1.3);
   const curForm = S.galaxyForm || 'spiral';
   const nextForm = GALAXY_FORMS[(GALAXY_FORMS.indexOf(curForm) + 1) % GALAXY_FORMS.length];
 
@@ -302,7 +309,9 @@ function performSupernova(level) {
   // 6. Что переносится между галактиками
   const keep = {
     galaxies: (S.galaxies || 1) + 1,
-    galaxyMultiplier: (S.galaxyMultiplier || 1) * (PRESTIGE_CFG.multiplierPerGalaxy || 2),
+    galaxyMultiplier: (typeof prestigeMultiplierFor === 'function')
+      ? prestigeMultiplierFor(level)
+      : (S.galaxyMultiplier || 1) * (PRESTIGE_CFG.multiplierPerGalaxy || 1.3),
     galaxyForm: GALAXY_FORMS[(GALAXY_FORMS.indexOf(S.galaxyForm || 'spiral') + 1) % GALAXY_FORMS.length],
     achievements: S.achievements || [],
     metalAmount: Math.floor((S.metalAmount || 0) * 0.5),
