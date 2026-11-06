@@ -16,7 +16,11 @@ const CFG = {
 
   // ─── Экономика планет и систем ───
   planetBaseCost: 3530000, planetCostGrowth: 2.0, planetCostExp: 2.0,
-  systemBaseCost: 71000000, systemGrowth: 1.5, systemCostExp: 1.5, systemCostMin: 1000000,
+  // ★ systemCostExp 1.5 → 1.3: цена ~ N^1.3, доход ~ N, поэтому время до
+  //   следующей системы растёт как N^0.3, а не N^0.5 (на 125 системах
+  //   ожидание сокращается примерно в 2.6 раза). Раннюю игру не трогает:
+  //   при N=1 цена та же.
+  systemBaseCost: 71000000, systemGrowth: 1.5, systemCostExp: 1.3, systemCostMin: 1000000,
   systemIncomeMultPerSystem: 1.0,
   storageInstantStars: 50,
 

@@ -610,8 +610,8 @@ function loadGame() {
     } else {
       S.systemShopCost = null;
     }
-    // ★ Миграция старых сейвов: фиксируем максимальный достигнутый индекс цены.
-    //   Дальше он только растёт и переживает престиж.
+    // ★ Миграция старых сейвов: поднимаем индекс цены до текущего размера
+    //   империи. После престижа prestige.js пересчитывает его от выживших.
     S.systemCostFloor = Math.max(
       0,
       Number.isFinite(Number(S.systemCostFloor)) ? Math.floor(Number(S.systemCostFloor)) : 0,

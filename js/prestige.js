@@ -335,9 +335,11 @@ function performSupernova(level) {
     prestigeLevel: level,
     storageLevels: Object.assign({ dust: 1, energy: 1, civ: 1 }, S.storageLevels),
     storageProgress: Object.assign({ dust: 0, energy: 0, civ: 0 }, S.storageProgress),
-    // ★ Цена систем не должна откатываться после Вспышки: переносим
-    //   максимальный достигнутый индекс (включая текущее число систем).
-    systemCostFloor: Math.max(0, Number(S.systemCostFloor) || 0, (Number(S.systems) || 1) - 1),
+    // ★ Цена систем после Вспышки считается от ВЫЖИВШИХ систем, а не от пика
+    //   до сброса. Иначе игрок платит за систему по цене бывшей империи,
+    //   имея доход в 2-6 раз меньше: престиж превращался в ловушку.
+    //   Выжившие системы уже оплачены — их номер и есть новая нижняя граница.
+    systemCostFloor: Math.max(0, kept.length),
     primeSystem: null,
     primeCandidates: S.primeCandidates || [],
     seenLore: S.seenLore || [],

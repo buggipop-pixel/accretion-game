@@ -9,8 +9,8 @@
 
 function systemShopCosts() {
   const cfg = SYSTEM_SHOP_CFG || {};
-  // ★ Цена растёт от накопленного прогресса, а не только от текущего числа
-  // систем: после престижа S.systems падает, но systemCostFloor остаётся.
+  // ★ Цена берётся по индексу систем: внутри галактики он не откатывается,
+  // а после престижа пересчитывается от выживших систем (см. prestige.js).
   const systemsOwned = (typeof nextSystemCostIndex === 'function')
     ? nextSystemCostIndex()
     : Math.max(0, (S.systems || 1) - 1);

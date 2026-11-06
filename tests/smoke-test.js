@@ -261,12 +261,12 @@ assert('Индекс цены системы растёт с числом сис
 const priceBeforePrestige = context.systemCost(context.nextSystemCostIndex());
 context.S.systems = 7; // имитация performSupernova: часть систем сгорела
 context.S.totalSystemsCreated = 7;
-context.S.systemCostFloor = 22; // сохраняется в keep престижа
-assert('После престижа цена системы не откатывается',
-  context.nextSystemCostIndex() === 22 && context.systemCost(context.nextSystemCostIndex()) === priceBeforePrestige);
+context.S.systemCostFloor = 6; // keep престижа: индекс = выжившие - 1
+assert('После престижа цена считается от выживших систем',
+  context.nextSystemCostIndex() === 6 && context.systemCost(context.nextSystemCostIndex()) < priceBeforePrestige);
 context.S.systems = 8; // купили новую систему после престижа
 context.bumpSystemCostFloor();
-assert('Новая система после престижа повышает цену', context.nextSystemCostIndex() === 23);
+assert('Новая система после престижа повышает цену', context.nextSystemCostIndex() === 7);
 // Тест 3: Прайм-объекты
 const prime = context.createPrimeSystem('blackHole');
 assert('Создание Прайм-объекта работает', prime !== null && prime.objectKey === 'blackHole');

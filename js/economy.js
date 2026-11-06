@@ -460,9 +460,10 @@ function systemCost(n) {
   return Math.max(min, Math.floor(cost * discount));
 }
 
-// ★ Индекс цены следующей системы. Берём максимум из текущего числа систем
-// и «пола» (S.systemCostFloor), который переживает престиж. Благодаря этому
-// после Вспышки Сверхновой цена не откатывается к ранним системам.
+// ★ Индекс цены следующей системы = максимум из текущего числа систем
+// и «пола» (S.systemCostFloor). Пол не даёт цене откатываться внутри
+// галактики, но после Вспышки пересчитывается от выживших систем
+// (см. prestige.js): иначе цена остаётся «пиковой» при упавшем доходе.
 function nextSystemCostIndex() {
   const owned = Math.max(1, Number(S.systems) || 1);
   const floor = Math.max(0, Number(S.systemCostFloor) || 0);
