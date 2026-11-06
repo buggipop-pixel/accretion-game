@@ -224,8 +224,8 @@ const INVASION_CFG = {
   // выше кап потерь, дольше простой планет и системы целиком.
   // Это осознанное наказание за «забыл про галактику», а не просто кража.
   neglect: {
-    thresholdHours: 4,             // до 4 ч отсутствия — обычные правила
-    hoursPerLevel: 4,              // +1 уровень каждые 4 ч сверх порога (ночь ≈ ур.2)
+    thresholdHours: 72,            // до 3 суток отсутствия — обычные правила, штраф не начисляется
+    hoursPerLevel: 24,             // +1 уровень за каждые следующие сутки (3 дня = ур.1, 7 дней = ур.5)
     maxLevel: 5,
     attacksPerLevel: 1,            // +1 атака за уровень запустения
     maxAttacks: 12,                // жёсткий потолок, чтобы длинный отпуск не убивал всё
@@ -234,7 +234,7 @@ const INVASION_CFG = {
     lossCapSharePerLevel: 0.08,    // 40% -> до 80% каждой валюты
     lossCapShareMax: 0.80,
     planetDisablePerLevel: 1,      // дополнительные планеты в простой
-    systemDamageFromLevel: 2,      // с ур.2 (≈8 ч) начинают выводиться из строя целые системы
+    systemDamageFromLevel: 2,      // с ур.2 (≈4 суток) начинают выводиться из строя целые системы
     systemsDamagedPerLevel: 1,     // N повреждённых систем = уровень запустения
     systemDamageHoursBase: 2,
     systemDamageHoursPerLevel: 2,

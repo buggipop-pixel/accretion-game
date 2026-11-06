@@ -1117,7 +1117,10 @@ function openNightMode() {
   const neglectCfg = INVASION_CFG.neglect || {};
   const offlineIntervalH = (Number(INVASION_CFG.offlineAttackInterval) || 3 * 3600 * 1000) / 3600000;
   const offlineMax = Number(neglectCfg.maxAttacks) || Number(INVASION_CFG.offlineAttackMax) || 5;
-  const neglectFromH = Number(neglectCfg.thresholdHours) || 4;
+  const neglectFromH = Number(neglectCfg.thresholdHours) || 72;
+  const neglectFromLabel = neglectFromH >= 24 && neglectFromH % 24 === 0
+    ? (neglectFromH / 24) + ' сут'
+    : neglectFromH + ' ч';
   const neglectTheftBonus = (Number(neglectCfg.maxLevel) || 5) * (Number(neglectCfg.theftMinutesPerLevel) || 0);
   maxTheftMin = Math.min(Number(neglectCfg.theftMinutesCap) || 180, maxTheftMin + neglectTheftBonus);
   const debuffCapPct = Math.round((Number(INVASION_CFG.debuffStackCap) || 0.8) * 100);
@@ -1229,7 +1232,7 @@ function openNightMode() {
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Оборона +${Math.round(defChancePct)}% · Флот +${Math.round(previewFleetPct)}%${expPenalty > 0 ? ' · Экспедиция −' + expPenalty.toFixed(1) + '%' : ''}</span></div>
       ${shieldActive ? `<div class="row-stat"><span>⭐ Премиум-щит:</span><span style="color:#7ee0a8">100%</span></div>` : ''}
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Офлайн-атаки:</span><span>раз в ${offlineIntervalH} ч, до ${offlineMax} при запустении</span></div>
-      <div class="row-stat" style="font-size:10px;color:#ff8a8a;"><span>☠️ Запустение:</span><span>с ${neglectFromH} ч отсутствия — больше атак</span></div>
+      <div class="row-stat" style="font-size:10px;color:#ff8a8a;"><span>☠️ Запустение:</span><span>с ${neglectFromLabel} отсутствия — больше атак</span></div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Кража за атаку:</span><span>до ${maxTheftMin} мин каждого ресурса</span></div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Штраф к доходу:</span><span>до −${debuffCapPct}% (все ресурсы)</span></div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Кап потерь за офлайн:</span><span>${offlineCapPct}% → до ${offlineMaxCapPct}% каждого ресурса</span></div>

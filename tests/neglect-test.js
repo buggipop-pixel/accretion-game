@@ -161,11 +161,12 @@ function withRandom(g, value, fn) {
 function testLevels() {
   const g = createGame();
   const L = g.invasionNeglectLevel;
-  assert('Запустение: 3 ч — ещё 0', L(3) === 0);
-  assert('Запустение: 4 ч — порог, 0', L(4) === 0);
-  assert('Запустение: 8 ч — ур.2', L(8) === 2);
-  assert('Запустение: 12 ч — ур.3', L(12) === 3);
-  assert('Запустение: 24 ч — ур.5', L(24) === 5);
+  assert('Запустение: 24 ч — ещё 0', L(24) === 0);
+  assert('Запустение: 72 ч (3 сут) — порог, 0', L(72) === 0);
+  assert('Запустение: 73 ч — ур.1', L(73) === 1);
+  assert('Запустение: 96 ч (4 сут) — ур.2', L(96) === 2);
+  assert('Запустение: 120 ч (5 сут) — ур.3', L(120) === 3);
+  assert('Запустение: 168 ч (7 сут) — ур.5', L(168) === 5);
 }
 
 function testShortAbsence() {
@@ -188,17 +189,17 @@ function testLongAbsence() {
   const S = prepare(g);
   withRandom(g, 0.99, () => {
     const out = makeOut();
-    g.simulateOfflineInvasions(8 * 3600, out);
-    assert('8 ч: запустение ур.2', out.neglectLevel === 2);
-    assert('8 ч: волн больше базовых', out.invasionAttacks > Math.floor(8 / 3));
-    assert('8 ч: украдена пыль', out.invasionLostDust > 0);
-    assert('8 ч: украдена энергия', out.invasionDrainE > 0);
-    assert('8 ч: украдена цивилизация', out.invasionDrainC > 0);
-    assert('8 ч: украдены металлы', out.invasionLostMetals > 0);
-    assert('8 ч: есть выведенные из строя системы', out.invasionSystemsDamaged > 0);
+    g.simulateOfflineInvasions(96 * 3600, out);
+    assert('96 ч: запустение ур.2', out.neglectLevel === 2);
+    assert('96 ч: волн по потолку', out.invasionAttacks === 12);
+    assert('96 ч: украдена пыль', out.invasionLostDust > 0);
+    assert('96 ч: украдена энергия', out.invasionDrainE > 0);
+    assert('96 ч: украдена цивилизация', out.invasionDrainC > 0);
+    assert('96 ч: украдены металлы', out.invasionLostMetals > 0);
+    assert('96 ч: есть выведенные из строя системы', out.invasionSystemsDamaged > 0);
     const damaged = S.otherSystems.slice(1).filter((s) => s && s.damagedUntil > Date.now()).length;
-    assert('8 ч: damagedUntil выставлен обычным системам', damaged > 0);
-    assert('8 ч: штраф к доходу наложен', S.invasionDebuff && S.invasionDebuff.pct > 0);
+    assert('96 ч: damagedUntil выставлен обычным системам', damaged > 0);
+    assert('96 ч: штраф к доходу наложен', S.invasionDebuff && S.invasionDebuff.pct > 0);
   });
 }
 
@@ -207,12 +208,12 @@ function testDeepNeglect() {
   const S = prepare(g);
   withRandom(g, 0.99, () => {
     const out = makeOut();
-    g.simulateOfflineInvasions(24 * 3600, out);
-    assert('24 ч: запустение ур.5', out.neglectLevel === 5);
-    assert('24 ч: волн максимум', out.invasionAttacks === 12);
-    assert('24 ч: повреждено несколько систем', out.invasionSystemsDamaged >= 3);
-    assert('24 ч: планет в простое больше', out.invasionLost > 0);
-    assert('24 ч: кап потерь усилен', out.invasionLostDust > 0);
+    g.simulateOfflineInvasions(168 * 3600, out);
+    assert('168 ч: запустение ур.5', out.neglectLevel === 5);
+    assert('168 ч: волн максимум', out.invasionAttacks === 12);
+    assert('168 ч: повреждено несколько систем', out.invasionSystemsDamaged >= 3);
+    assert('168 ч: планет в простое больше', out.invasionLost > 0);
+    assert('168 ч: кап потерь усилен', out.invasionLostDust > 0);
   });
 }
 
@@ -222,7 +223,7 @@ function testPrimeActiveProtected() {
   const primeSeeds = S.planets.map((p) => p.seed);
   withRandom(g, 0.99, () => {
     const out = makeOut();
-    g.simulateOfflineInvasions(12 * 3600, out);
+    g.simulateOfflineInvasions(96 * 3600, out);
     assert('Активный Прайм: его планеты не простаивают', S.planets.every((p) => !(p.disabledUntil > Date.now())));
     assert('Активный Прайм: но обычные системы получают урон', out.invasionSystemsDamaged > 0);
     assert('Активный Прайм: его seed не тронут', S.planets.map((p) => p.seed).join() === primeSeeds.join());
@@ -298,7 +299,7 @@ function testApplyOfflineProgressOnce() {
 function testBootAwaySnapshot() {
   const g = createGame();
   const S = prepare(g);
-  const away = Date.now() - 8 * 3600 * 1000;
+  const away = Date.now() - 96 * 3600 * 1000;
   S.lastTick = Date.now(); // как будто saveGame() уже перезаписал время
   withRandom(g, 0.99, () => {
     const out = g.applyOfflineProgress(away);

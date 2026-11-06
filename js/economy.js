@@ -855,8 +855,8 @@ window.calcExpeditionPenalty = calcExpeditionPenalty;
 // Порог и шаг вынесены в INVASION_CFG.neglect, чтобы баланс правился в одном месте.
 function invasionNeglectLevel(hours) {
   const n = (INVASION_CFG && INVASION_CFG.neglect) || {};
-  const th = isFinite(Number(n.thresholdHours)) ? Number(n.thresholdHours) : 4;
-  const step = (isFinite(Number(n.hoursPerLevel)) && Number(n.hoursPerLevel) > 0) ? Number(n.hoursPerLevel) : 4;
+  const th = isFinite(Number(n.thresholdHours)) ? Number(n.thresholdHours) : 72;
+  const step = (isFinite(Number(n.hoursPerLevel)) && Number(n.hoursPerLevel) > 0) ? Number(n.hoursPerLevel) : 24;
   const cap = isFinite(Number(n.maxLevel)) ? Math.max(0, Math.floor(Number(n.maxLevel))) : 5;
   if (!(hours > th)) return 0;
   return Math.min(cap, 1 + Math.floor((hours - th) / step));
@@ -954,7 +954,7 @@ function simulateOfflineInvasions(elapsedSec, out) {
     caps.metals = Math.max(0, caps.metals - hit.metals);
   }
 
-  // ★ С уровня запустения 2 (≈8 ч) целые системы выпадают из экономики.
+  // ★ С уровня запустения 2 (≈4 суток) целые системы выпадают из экономики.
   let systemsDamaged = 0;
   if (level >= (Number(n.systemDamageFromLevel) || 2)) {
     const count = Math.min(6, Math.max(1, Math.ceil(level * (Number(n.systemsDamagedPerLevel) || 1))));
