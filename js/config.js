@@ -209,12 +209,36 @@ const INVASION_CFG = {
   nightCapHours: 4,                // и не более 4 часов прогресса
   planetDisabledHours: 2,          // сколько планета простаивает после повреждения
   repairCostShare: 0.15,           // ремонт планеты стоит 15% её цены в пыли
-  offlineAttackMax: 4,
   defenseHours: 10,                // ★ активная Автоборона живёт 10 ч (щит за Stars — отдельно, 24 ч)
   defenseCost: [0, 150, 350, 750, 1500, 3000],
   defenseCostMultiplierPerSystem: 0.15, // +15% к цене за каждую систему свыше 1
   expeditionDefensePenalty: 0.15,
   offlineAttackInterval: 3 * 60 * 60 * 1000, offlineAttackMax: 5, offlineAttackPerSystems: 3,
+
+  // ★ ЗАПУСТЕНИЕ ГАЛАКТИКИ.
+  // Чем дольше игрок не заходит, тем жёстче офлайн-атаки: больше волн,
+  // выше кап потерь, дольше простой планет и системы целиком.
+  // Это осознанное наказание за «забыл про галактику», а не просто кража.
+  neglect: {
+    thresholdHours: 4,             // до 4 ч отсутствия — обычные правила
+    hoursPerLevel: 4,              // +1 уровень каждые 4 ч сверх порога (ночь ≈ ур.2)
+    maxLevel: 5,
+    attacksPerLevel: 1,            // +1 атака за уровень запустения
+    maxAttacks: 12,                // жёсткий потолок, чтобы длинный отпуск не убивал всё
+    theftMinutesPerLevel: 25,      // +25 минут экономики к краже за уровень
+    theftMinutesCap: 180,          // но не больше 3 часов экономики за один удар
+    lossCapSharePerLevel: 0.08,    // 40% -> до 80% каждой валюты
+    lossCapShareMax: 0.80,
+    planetDisablePerLevel: 1,      // дополнительные планеты в простой
+    systemDamageFromLevel: 2,      // с ур.2 (≈8 ч) начинают выводиться из строя целые системы
+    systemsDamagedPerLevel: 1,     // N повреждённых систем = уровень запустения
+    systemDamageHoursBase: 2,
+    systemDamageHoursPerLevel: 2,
+    systemDamageHoursMax: 24,      // максимум сутки простоя системы
+    debuffPctPerLevel: 0.03,       // дополнительный штраф к доходу
+    debuffHoursPerLevel: 2,
+    debuffHoursMax: 12,
+  },
 };
 
 // ─── НОЧНОЙ РЕЖИМ ───

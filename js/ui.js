@@ -670,20 +670,26 @@ function updateSystemSwitcher() {
   btn.style.display = 'flex';
 
   const list = [];
+  const now = Date.now();
+  const _damagedOf = (idx) => {
+    if (idx === S.activeSystemIdx) return !!(S.activeSystemDamagedUntil && S.activeSystemDamagedUntil > now);
+    const sys = S.otherSystems && S.otherSystems[idx];
+    return !!(sys && sys.damagedUntil > now);
+  };
   // ★ Прайм определяется и по isPrime, и по primeData (старые сейвы)
   const _primeOf = (sys) => (typeof primeDataOfSystem === 'function' ? primeDataOfSystem(sys) : (sys && sys.primeData) || null);
   if (S.activeSystemIdx === 0) {
     const pd = S.primeSystem || _primeOf(S.otherSystems[0]);
-    list.push({ idx: 0, name: S.systemName, isPrime: !!pd, primeData: pd });
+    list.push({ idx: 0, name: S.systemName, isPrime: !!pd, primeData: pd, damaged: _damagedOf(0) });
   } else if (S.otherSystems[0]) {
     const pd = _primeOf(S.otherSystems[0]);
-    list.push({ idx: 0, name: S.otherSystems[0].name, isPrime: !!(pd || S.otherSystems[0].isPrime), primeData: pd });
-  } else list.push({ idx: 0, name: 'Родная', isPrime: false });
+    list.push({ idx: 0, name: S.otherSystems[0].name, isPrime: !!(pd || S.otherSystems[0].isPrime), primeData: pd, damaged: _damagedOf(0) });
+  } else list.push({ idx: 0, name: 'Родная', isPrime: false, damaged: false });
 
   for (let i = 1; i < S.otherSystems.length; i++) {
     if (S.otherSystems[i]) {
       const pd = _primeOf(S.otherSystems[i]);
-      list.push({ idx: i, name: S.otherSystems[i].name, isPrime: !!(pd || S.otherSystems[i].isPrime), primeData: pd });
+      list.push({ idx: i, name: S.otherSystems[i].name, isPrime: !!(pd || S.otherSystems[i].isPrime), primeData: pd, damaged: _damagedOf(i) });
     }
   }
   // ★ Убираем дублирующиеся короны из названий (для старых сейвов)
@@ -710,7 +716,7 @@ function updateSystemSwitcher() {
 
     html += `<button class="sys-dropdown-item ${S.activeSystemIdx === s.idx && S.stage === 'system' ? 'active' : ''}" onclick="${action}">
       ${iconHTML}
-      <span style="flex:1; text-align:left;">${s.name}</span>
+      <span style="flex:1; text-align:left;">${s.name}${s.damaged ? ' <span style="color:#ff5e5e;">☠️</span>' : ''}</span>
     </button>`;
   }
 
@@ -1108,10 +1114,15 @@ function openNightMode() {
     maxDisablePlanets = Math.max(maxDisablePlanets, Number(tr.disablePlanets) || 0);
     maxDisableHours = Math.max(maxDisableHours, Number(tr.disableHours) || 0);
   }
+  const neglectCfg = INVASION_CFG.neglect || {};
   const offlineIntervalH = (Number(INVASION_CFG.offlineAttackInterval) || 3 * 3600 * 1000) / 3600000;
-  const offlineMax = Number(INVASION_CFG.offlineAttackMax) || 5;
+  const offlineMax = Number(neglectCfg.maxAttacks) || Number(INVASION_CFG.offlineAttackMax) || 5;
+  const neglectFromH = Number(neglectCfg.thresholdHours) || 4;
+  const neglectTheftBonus = (Number(neglectCfg.maxLevel) || 5) * (Number(neglectCfg.theftMinutesPerLevel) || 0);
+  maxTheftMin = Math.min(Number(neglectCfg.theftMinutesCap) || 180, maxTheftMin + neglectTheftBonus);
   const debuffCapPct = Math.round((Number(INVASION_CFG.debuffStackCap) || 0.8) * 100);
   const offlineCapPct = Math.round((Number(INVASION_CFG.nightLossCapShare) || 0.4) * 100);
+  const offlineMaxCapPct = Math.round((Number(neglectCfg.lossCapShareMax) || 0.8) * 100);
   const defenseHours = Number(INVASION_CFG.defenseHours) || 10;
   // Кнопки уровней обороны
   const defenseButtons = [1, 2, 3, 4, 5].map(lvl => {
@@ -1217,11 +1228,13 @@ function openNightMode() {
       <div class="row-stat"><span>Шанс отбития:</span><span style="color:${chanceColor}">${Math.round(totalChancePct)}%</span></div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Оборона +${Math.round(defChancePct)}% · Флот +${Math.round(previewFleetPct)}%${expPenalty > 0 ? ' · Экспедиция −' + expPenalty.toFixed(1) + '%' : ''}</span></div>
       ${shieldActive ? `<div class="row-stat"><span>⭐ Премиум-щит:</span><span style="color:#7ee0a8">100%</span></div>` : ''}
-      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Офлайн-атаки:</span><span>раз в ${offlineIntervalH} ч, до ${offlineMax} за сессию</span></div>
+      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Офлайн-атаки:</span><span>раз в ${offlineIntervalH} ч, до ${offlineMax} при запустении</span></div>
+      <div class="row-stat" style="font-size:10px;color:#ff8a8a;"><span>☠️ Запустение:</span><span>с ${neglectFromH} ч отсутствия — больше атак</span></div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Кража за атаку:</span><span>до ${maxTheftMin} мин каждого ресурса</span></div>
-      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Штраф к доходу:</span><span>до −${debuffCapPct}%</span></div>
-      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Кап потерь за офлайн:</span><span>${offlineCapPct}% каждого ресурса</span></div>
-      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Планеты:</span><span>до ${maxDisablePlanets} в простой на ${maxDisableHours} ч</span></div>
+      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Штраф к доходу:</span><span>до −${debuffCapPct}% (все ресурсы)</span></div>
+      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Кап потерь за офлайн:</span><span>${offlineCapPct}% → до ${offlineMaxCapPct}% каждого ресурса</span></div>
+      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Планеты:</span><span>до ${maxDisablePlanets} в простой на ${maxDisableHours} ч (дольше при запустении)</span></div>
+      <div class="row-stat" style="font-size:10px;color:#ffb347;"><span>Системы:</span><span>при запустении выводятся из строя на часы</span></div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Длительность обороны:</span><span>${defenseHours} ч (щит 24 ч)</span></div>
     </div>
 
@@ -1508,6 +1521,72 @@ function closeDailyAndWait() {
 window.closeDailyAndWait = closeDailyAndWait;
 
 // ═══════════════════════════════════════════════════════════════
+//  ОТЧЁТ О ЗАПУСТЕНИИ ГАЛАКТИКИ
+// ═══════════════════════════════════════════════════════════════
+function _neglectFmt(n) {
+  const v = Math.max(0, Math.floor(Number(n) || 0));
+  return (typeof fmt === 'function') ? fmt(v) : String(v);
+}
+
+function showNeglectReport(res) {
+  if (!res) return;
+  const modal = document.getElementById('neglectModal');
+  if (!modal) return;
+  const body = document.getElementById('neglectBody');
+  const title = document.getElementById('neglectTitle');
+  const hours = Math.max(0, Number(res.awayHours) || 0);
+  const totalHours = Math.max(hours, (Number(res.seconds) || 0) / 3600);
+  const level = Math.max(0, Math.min(5, Number(res.neglectLevel) || 0));
+  const rows = [];
+
+  rows.push('Вас не было <b>' + (totalHours >= 1 ? totalHours.toFixed(1) + ' ч' : Math.round(totalHours * 60) + ' мин') + '</b>. Галактика осталась без присмотра.');
+  rows.push('☠️ Уровень запустения: <b>' + level + ' / 5</b>');
+  if (res.invasionAttacks > 0) {
+    rows.push('⚔️ Атак: <b>' + res.invasionAttacks + '</b>' + (res.invasionDefended > 0 ? ' · отбито: ' + res.invasionDefended : ''));
+  }
+  const stolen = [];
+  if (res.invasionLostDust > 0) stolen.push('✦ ' + _neglectFmt(res.invasionLostDust));
+  if (res.invasionDrainE > 0) stolen.push('⚡ ' + _neglectFmt(res.invasionDrainE));
+  if (res.invasionDrainC > 0) stolen.push('🧬 ' + _neglectFmt(res.invasionDrainC));
+  if (res.invasionLostMetals > 0) stolen.push('⚙ ' + _neglectFmt(res.invasionLostMetals));
+  if (stolen.length) rows.push('💰 Украдено: ' + stolen.join(' · '));
+  if (res.invasionSystemsDamaged > 0) rows.push('🌫️ Повреждено систем: <b>' + res.invasionSystemsDamaged + '</b>');
+  if (res.invasionLost > 0) rows.push('🪐 Планет в простое: <b>' + res.invasionLost + '</b>');
+  const debuffPct = (typeof S !== 'undefined' && S.invasionDebuff && S.invasionDebuff.until > Date.now())
+    ? Math.round((Number(S.invasionDebuff.pct) || 0) * 100) : 0;
+  if (debuffPct > 0) rows.push('📉 Штраф к доходу: <b>−' + debuffPct + '%</b>');
+  if (res.shieldProtected && totalHours > hours) {
+    const protectedHours = Math.max(0, totalHours - hours);
+    rows.push('🛡️ Щит покрыл ' + (protectedHours >= 1 ? protectedHours.toFixed(1) + ' ч' : Math.round(protectedHours * 60) + ' мин') + ' отсутствия, но не всё время.');
+  }
+  rows.push('<span style="color:#ff8a8a;">Если галактика снова останется без активной обороны, атаки станут ещё жёстче: больше волн, больше украденного и целые системы в простое.</span>');
+
+  if (title) title.textContent = '☠️ Галактика в запустении';
+  if (body) body.innerHTML = rows.join('<br><br>');
+  modal.classList.add('show');
+}
+window.showNeglectReport = showNeglectReport;
+
+// Короткий статус для HUD: штраф к доходу + число выведенных из строя систем.
+function galaxyNeglectChipText() {
+  const now = Date.now();
+  const pct = (S.invasionDebuff && S.invasionDebuff.until > now)
+    ? Math.round((Number(S.invasionDebuff.pct) || 0) * 100) : 0;
+  let damaged = (S.activeSystemDamagedUntil && S.activeSystemDamagedUntil > now) ? 1 : 0;
+  const list = Array.isArray(S.otherSystems) ? S.otherSystems : [];
+  for (let i = 0; i < list.length; i++) {
+    if (i === S.activeSystemIdx) continue;
+    if (list[i] && list[i].damagedUntil > now) damaged++;
+  }
+  if (!pct && !damaged) return '';
+  let text = '☠️ Запустение';
+  if (pct > 0) text += ' · доход −' + pct + '%';
+  if (damaged > 0) text += ' · систем ' + damaged;
+  return text;
+}
+window.galaxyNeglectChipText = galaxyNeglectChipText;
+
+// ═══════════════════════════════════════════════════════════════
 //  ПЕРВЫЙ ЩИТ
 // ═══════════════════════════════════════════════════════════════
 function checkFirstNightShield(offlineSec) {
@@ -1518,6 +1597,12 @@ function checkFirstNightShield(offlineSec) {
     saveGame();
     
     setTimeout(() => {
+      // Не наслаиваем два модальных окна: отчёт о запустении важнее.
+      const neglect = document.getElementById('neglectModal');
+      if (neglect && neglect.classList.contains('show')) {
+        if (typeof toast === 'function') toast('🛡 Первый щит', 'Выдан щит на 8 часов. Следующая ночь без обороны будет жёстче.');
+        return;
+      }
       document.getElementById('welcomeShieldModal').classList.add('show');
     }, 2000);
   }

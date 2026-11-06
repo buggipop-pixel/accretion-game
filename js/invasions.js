@@ -182,7 +182,7 @@ function spawnInvasion() {
     // ★ Журнал событий ведём всегда, включая галактическую стадию:
     // иначе атака на другую систему не видна в игре.
     if (typeof addEvent === 'function') {
-      addEvent('invasion_spawn', tier.label + ': атакована система «' + sysName + '»', { meta: { systemIdx: targetIdx, tierKey: tierKey } });
+      addEvent('invasion_spawn', tier.label + ': атакована система «' + sysName + '»', { meta: { systemIdx: targetIdx, tierKey: tierKey, tierLabel: tier.label, ships: shipCount, systemName: sysName, robberyMinutes: Math.round(INVASION_CFG.robberyDuration / 60000), destructionMinutes: Math.round(INVASION_CFG.destructionDuration / 60000), source: 'live' } });
     }
     // Тост не дублируем, только если игрок уже смотрит на атакованную систему.
     if (!isActive) {
@@ -238,7 +238,7 @@ function spawnInvasion() {
   }
   toast('⚔️ ' + tier.label + '!', wantTargets > 1 ? ('Атаковано планет: ' + wantTargets) : (victimNames[0] + ' атакована'));
   if (typeof playSFX === 'function') playSFX('invasion');
-  if (typeof addEvent === 'function') addEvent('invasion_spawn', tier.label + ': ' + victimNames.join(', '), { meta: { systemIdx: S.activeSystemIdx, planetSeed: victimSeeds[0] } });
+  if (typeof addEvent === 'function') addEvent('invasion_spawn', tier.label + ': ' + victimNames.join(', '), { meta: { systemIdx: S.activeSystemIdx, planetSeed: victimSeeds[0], tierKey: tierKey, tierLabel: tier.label, planetNames: victimNames.join(', '), source: 'live' } });
 }
 
 // ─── Урон второго порядка: оккупация и простой планет ───────────
@@ -354,7 +354,8 @@ function tickInvasions(dt) {
         // ★ Показываем вклад Автобороны, чтобы бонус уровня был виден.
         const defLvl = (typeof activeDefenseLevel === 'function') ? activeDefenseLevel(now) : (S.nightDefenseLevel || 0);
         const defPct = Math.round(defLvl * (Number(INVASION_CFG.repelDefensePerLevel) || 0.10) * 100);
-        if (typeof addEvent === 'function') addEvent('invasion_repelled', 'Атака отбита: Автоборона ур.' + defLvl + ' (+' + defPct + '% к отбитию), итого ' + repelPct + '%', { meta: { systemIdx: S.activeSystemIdx, defenseLevel: defLvl } });
+        const fleetPct = (typeof fleetRepelChance === 'function') ? Math.round(fleetRepelChance(now) * 100) : 0;
+        if (typeof addEvent === 'function') addEvent('invasion_repelled', 'Атака отбита: Автоборона ур.' + defLvl + ' (+' + defPct + '% к отбитию), итого ' + repelPct + '%', { meta: { systemIdx: S.activeSystemIdx, defenseLevel: defLvl, defensePct: defPct, fleetPct: fleetPct, repelPercent: repelPct, systemName: S.systemName || 'Родная' } });
       } else if (Math.random() < INVASION_CFG.chance) {
         spawnInvasion();
       }
@@ -495,7 +496,7 @@ function destroyPlanetByInvasion(victim) {
   if (!victim) return;
   victim.disabledUntil = Date.now() + (INVASION_CFG.planetDisabledHours || 2) * 3600 * 1000;
   toast('⚠️ Планета повреждена', PLANET_TYPES[victim.type].name);
-  if (typeof addEvent === 'function') addEvent('invasion_destroy', PLANET_TYPES[victim.type].name + ' повреждена', { meta: { systemIdx: S.activeSystemIdx, planetSeed: victim.seed } });
+  if (typeof addEvent === 'function') addEvent('invasion_destroy', PLANET_TYPES[victim.type].name + ' повреждена', { meta: { systemIdx: S.activeSystemIdx, planetSeed: victim.seed, planetName: PLANET_TYPES[victim.type].name, planetType: victim.type, source: 'live' } });
 }
 
 // ─── Клик по кораблю ────────────────────────────────────────────

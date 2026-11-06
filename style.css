@@ -304,6 +304,8 @@ html, body {
   backdrop-filter: blur(10px);
 }
 .modal.show { display: flex; animation: modalIn 0.35s ease; }
+/* Отчёт о запустении важнее случайных событий и должен быть поверх них. */
+#neglectModal { z-index: 80; }
 @keyframes modalIn { from { opacity: 0; } to { opacity: 1; } }
 
 .modal-card {
@@ -1070,14 +1072,64 @@ body.mg-active .toasts {
   touch-action: pan-y;
   padding-right: 4px;
 }
-.event-row {
-  display: flex;
-  gap: 10px;
-  padding: 8px 10px;
-  border-left: 3px solid #b9a8ff;
+.event-item {
   background: rgba(15, 10, 32, 0.5);
   border-radius: 6px;
   margin-bottom: 6px;
+  overflow: hidden;
+}
+.event-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border-left: 3px solid #b9a8ff;
+  cursor: pointer;
+  outline: none;
+}
+.event-summary:hover { background: rgba(139, 127, 212, 0.08); }
+.event-summary:focus-visible { box-shadow: inset 0 0 0 1px rgba(185, 168, 255, 0.65); }
+.event-chevron {
+  flex-shrink: 0;
+  align-self: center;
+  color: #8b7fd4;
+  font-size: 14px;
+  line-height: 1;
+  transition: transform 0.18s ease;
+}
+.event-item.open .event-chevron { transform: rotate(180deg); }
+.event-expand-hint { color: #b9a8ff; }
+.event-details {
+  display: none;
+  padding: 9px 12px 11px 12px;
+  border-left: 3px solid rgba(139, 127, 212, 0.45);
+  background: rgba(8, 5, 20, 0.45);
+}
+.event-item.open .event-details { display: block; }
+.event-detail-grid { display: flex; flex-direction: column; gap: 4px; }
+.event-detail-row {
+  display: grid;
+  grid-template-columns: 118px 1fr;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+.event-detail-label { color: #8b7fd4; }
+.event-detail-value { color: #e5defa; word-break: break-word; }
+.event-nav-btn {
+  margin-top: 9px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(139, 127, 212, 0.5);
+  background: rgba(139, 127, 212, 0.16);
+  color: #cfc4ff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.event-nav-btn:hover { background: rgba(139, 127, 212, 0.28); }
+@media (max-width: 420px) {
+  .event-detail-row { grid-template-columns: 96px 1fr; font-size: 10.5px; }
 }
 .event-icon {
   font-size: 18px;
@@ -2374,7 +2426,8 @@ body.tg-fullscreen #app { max-width: none; }
 
 /* Подпись галактики и статус Автобороны — внутри дока, над хранилищами */
 .galaxy-caption,
-.defense-chip {
+.defense-chip,
+.neglect-chip {
   flex: 0 0 auto;
   pointer-events: none;
   align-self: center;
@@ -2402,8 +2455,17 @@ body.tg-fullscreen #app { max-width: none; }
   border: 1px solid rgba(110, 231, 168, 0.35);
   background: rgba(12, 40, 28, 0.55);
 }
+.neglect-chip {
+  align-self: stretch;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #ff9d9d;
+  border: 1px solid rgba(255, 94, 94, 0.45);
+  background: rgba(48, 12, 20, 0.62);
+}
 @media (max-width: 420px) {
   .galaxy-caption,
-  .defense-chip { font-size: 8.5px; padding: 3px 8px; }
+  .defense-chip,
+  .neglect-chip { font-size: 8.5px; padding: 3px 8px; }
   .hud-left-stack { top: calc(var(--hud-safe-top) + var(--hud-top-extra) + 80px); gap: 4px; }
 }

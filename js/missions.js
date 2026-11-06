@@ -240,7 +240,7 @@ function launchComet(sizePct) {
   if (typeof addEvent === 'function') {
     addEvent('comet_spawn',
       'Запущена комета (' + Math.round(sizePct * 100) + '%) · возврат через ' +
-      fmtTime(flightMs / 1000), { meta: { systemIdx: S.activeSystemIdx } });
+      fmtTime(flightMs / 1000), { meta: { systemIdx: S.activeSystemIdx, missionType: 'Комета', flightTime: flightMs, sizePct: Math.round(sizePct * 100), rewardAmount: reward, failChance: Math.round((cfg.cometFailChance || 0) * 100), source: 'launch' } });
   }
   if (typeof trackDaily === 'function') trackDaily('d_dust', 100000); // Условно
   if (!S.stats) S.stats = {};
@@ -336,7 +336,7 @@ function launchExpedition(distanceMultiplier) {
   if (typeof playSFX === 'function') playSFX('sfx_expedition');
   if (typeof addEvent === 'function') {
     addEvent('comet_spawn',
-      'Запущена экспедиция · возврат через ' + fmtTime(flightMs / 1000), { meta: { systemIdx: S.activeSystemIdx } });
+      'Запущена экспедиция · возврат через ' + fmtTime(flightMs / 1000), { meta: { systemIdx: S.activeSystemIdx, missionType: 'Экспедиция', flightTime: flightMs, rewardAmount: reward, distance: mult, failChance: Math.round((cfg.expeditionFailChance || 0) * 100), source: 'launch' } });
   }
   if (!S.stats) S.stats = {};
   S.stats.expeditions = (S.stats.expeditions || 0) + 1;
@@ -406,12 +406,12 @@ function updateMissions() {
     if (now - c.startAt >= c.flightTime) {
       if (c.fail) {
         toast('☄️ Комета потеряна', 'Не вернулась');
-        if (typeof addEvent === 'function') addEvent('comet_lost', 'Комета потеряна в пути', { meta: { systemIdx: (typeof c.systemIdx === 'number' ? c.systemIdx : S.activeSystemIdx) } });
+        if (typeof addEvent === 'function') addEvent('comet_lost', 'Комета потеряна в пути', { meta: { systemIdx: (typeof c.systemIdx === 'number' ? c.systemIdx : S.activeSystemIdx), missionType: 'Комета', flightTime: c.flightTime, source: 'arrival' } });
       } else {
         S.dust += c.reward; S.dustTotal += c.reward;
         toast('☄️ Комета вернулась', '+' + fmt(c.reward));
         if (typeof playSFX === 'function') playSFX('sfx_comet');
-        if (typeof addEvent === 'function') addEvent('comet_arrive', 'Комета вернулась · +' + fmt(c.reward) + ' ✦', { meta: { systemIdx: (typeof c.systemIdx === 'number' ? c.systemIdx : S.activeSystemIdx), rewardAmount: c.reward } });
+        if (typeof addEvent === 'function') addEvent('comet_arrive', 'Комета вернулась · +' + fmt(c.reward) + ' ✦', { meta: { systemIdx: (typeof c.systemIdx === 'number' ? c.systemIdx : S.activeSystemIdx), missionType: 'Комета', flightTime: c.flightTime, rewardAmount: c.reward, source: 'arrival' } });
       }
       MISS.comets.splice(i, 1);
     }
@@ -421,12 +421,12 @@ function updateMissions() {
     if (now - e.startAt >= e.flightTime) {
       if (e.fail) {
         toast('🚀 Экспедиция потеряна', 'Корабль не вернулся');
-        if (typeof addEvent === 'function') addEvent('comet_lost', 'Экспедиция потеряна', { meta: { systemIdx: (typeof e.systemIdx === 'number' ? e.systemIdx : S.activeSystemIdx) } });
+        if (typeof addEvent === 'function') addEvent('comet_lost', 'Экспедиция потеряна', { meta: { systemIdx: (typeof e.systemIdx === 'number' ? e.systemIdx : S.activeSystemIdx), missionType: 'Экспедиция', flightTime: e.flightTime, source: 'arrival' } });
       } else {
         S.dust += e.reward; S.dustTotal += e.reward;
         toast('🚀 Экспедиция вернулась', '+' + fmt(e.reward));
         if (typeof playSFX === 'function') playSFX('sfx_system_form');
-        if (typeof addEvent === 'function') addEvent('comet_arrive', 'Экспедиция вернулась · +' + fmt(e.reward) + ' ✦', { meta: { systemIdx: (typeof e.systemIdx === 'number' ? e.systemIdx : S.activeSystemIdx), rewardAmount: e.reward } });
+        if (typeof addEvent === 'function') addEvent('comet_arrive', 'Экспедиция вернулась · +' + fmt(e.reward) + ' ✦', { meta: { systemIdx: (typeof e.systemIdx === 'number' ? e.systemIdx : S.activeSystemIdx), missionType: 'Экспедиция', flightTime: e.flightTime, rewardAmount: e.reward, source: 'arrival' } });
         if (e.hasColony) setTimeout(offerColony, 800);
       }
       // Ролл на трофейный контракт

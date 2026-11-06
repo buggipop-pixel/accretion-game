@@ -42,7 +42,7 @@ function forEachOwnedSystem(cb) {
      S.systemType || 'single',
      Number(S.systemIncomeBonus) || 0,
      S.primeSystem || null,
-     false,
+     !!(S.activeSystemDamagedUntil && S.activeSystemDamagedUntil > Date.now()),
      true);
 
   const list = Array.isArray(S.otherSystems) ? S.otherSystems : [];
@@ -163,7 +163,7 @@ function invasionDebuffMult() {
   if (!S.invasionDebuff) return 1;
   const d = S.invasionDebuff;
   if (!d.until || Date.now() >= d.until) return 1;
-  const pct = Math.max(0, Math.min(INVASION_CFG.debuffStackCap || 0.6, Number(d.pct) || 0));
+  const pct = Math.max(0, Math.min(INVASION_CFG.debuffStackCap || 0.8, Number(d.pct) || 0));
   return 1 - pct;
 }
 window.invasionDebuffMult = invasionDebuffMult;
@@ -191,6 +191,8 @@ function metalsPerSec() {
   if (hasLava && S.civLevel > 100) {
     sum *= 1 + Math.floor(S.civLevel / 1000) * 0.1;
   }
+  // ★ Оккупация после вторжения режет и металлы.
+  sum *= invasionDebuffMult();
   return isFinite(sum) ? sum : 0;
 }
 
@@ -214,7 +216,7 @@ function dustPerSec() {
   if (typeof achIncomeMult === 'function') achMult = Number(achIncomeMult()) || 1;
 
   let finalRate = (base + pRate) * gMult * galMult * primeMultiplier * boostMult * techMult * achMult;
-  finalRate *= invasionDebuffMult();   // ★ штраф после вторжения (−до 60%)
+  finalRate *= invasionDebuffMult();   // ★ штраф после вторжения (до −80%)
   if (typeof eventMult === 'function') finalRate *= eventMult('dust');
   return (isFinite(finalRate) && !isNaN(finalRate)) ? Math.max(0, finalRate) : 0;
 }
@@ -409,6 +411,8 @@ function civPerSec() {
 
   let finalRate = total;
   if (typeof eventMult === 'function') finalRate *= eventMult('civ');
+  // ★ Оккупация после вторжения бьёт по ВСЕМ доходам, а не только по пыли.
+  finalRate *= invasionDebuffMult();
   return isFinite(finalRate) ? finalRate : 0;
 }
 
@@ -418,7 +422,7 @@ function energyPerSec() {
 
   if (S.civLevel < 4) {
     // ★ Фоллбек: если цив < 4, но планеты есть, даем минимальный приток энергии
-    return c > 0 ? 0.1 : 0;
+    return c > 0 ? 0.1 * invasionDebuffMult() : 0;
   }
   if (c === 0) return 0;
 
@@ -432,6 +436,7 @@ function energyPerSec() {
 
   let finalRate = (base - 3) * c * 0.5 * lvlMult * techMult * primeMultiplier;
   if (typeof eventMult === 'function') finalRate *= eventMult('energy');
+  finalRate *= invasionDebuffMult();
   return (isFinite(finalRate) && !isNaN(finalRate)) ? Math.max(0, finalRate) : 0;
 }
 window.energyPerSec = energyPerSec;
@@ -571,10 +576,18 @@ function tickCiv(dt) {
 // ═══════════════════════════════════════════════════════════════
 //  ОФЛАЙН-ПРОГРЕСС
 // ═══════════════════════════════════════════════════════════════
-function applyOfflineProgress() {
+function applyOfflineProgress(fromTick) {
   const now = Date.now();
-  const elapsedSec = Math.max(0, (now - S.lastTick) / 1000);
-  if (elapsedSec < 30) return null;
+  // ★ fromTick позволяет зафиксировать время отсутствия ДО ежедневного сброса
+  //   и проверки достижений: они могут вызвать saveGame(), но lastTick уже снят.
+  const baseTick = (typeof fromTick === 'number' && isFinite(fromTick)) ? fromTick : S.lastTick;
+  const elapsedSec = Math.max(0, (now - baseTick) / 1000);
+  if (elapsedSec < 30) {
+    // ★ Даже короткий пропуск «съедаем»: иначе loop будет пытаться
+    //   досчитать его каждый кадр и начислять доход задним числом.
+    S.lastTick = now;
+    return null;
+  }
 
   const levels = S.storageLevels || { dust: 1, energy: 1, civ: 1 };
   const out = {
@@ -582,7 +595,9 @@ function applyOfflineProgress() {
     dustEarned: 0, energyEarned: 0, civEarned: 0, metalsEarned: 0,
     cometEarned: 0, expEarned: 0, nightEnded: false,
     invasionAttacks: 0, invasionDefended: 0, invasionLost: 0,
-    invasionDrainE: 0, invasionDrainC: 0, shieldProtected: false,
+    invasionDrainE: 0, invasionDrainC: 0, invasionLostDust: 0, invasionLostMetals: 0,
+    invasionSystemsDamaged: 0, neglectLevel: 0, awayHours: 0,
+    shieldProtected: false,
     fleetUpkeep: 0, fleetDeactivated: false,
   };
 
@@ -686,9 +701,15 @@ function applyOfflineProgress() {
     }
   }
 
+  // ★ Отмечаем время, до которого прогресс уже досчитан. Без этого
+  //   возврат в открытую вкладку/пробуждение ПК запускал бы офлайн-расчёт
+  //   повторно, а обычный автосейв «съедал» бы всё время отсутствия.
+  S.lastTick = now;
+
   if (out.dustEarned > 0 || out.energyEarned > 0 || out.civEarned > 0 || out.metalsEarned > 0 ||
       out.fleetUpkeep > 0 ||
-      out.invasionAttacks > 0 || out.cometEarned > 0 || out.expEarned > 0 || out.nightEnded) {
+      out.invasionAttacks > 0 || out.invasionLost > 0 || out.invasionSystemsDamaged > 0 ||
+      out.cometEarned > 0 || out.expEarned > 0 || out.nightEnded) {
     return out;
   }
   return null;
@@ -704,13 +725,12 @@ function processOfflineMissions(out) {
     let complete = false, reward = 0;
 
     if (c.isNight) {
-      out.nightEnded = true;
+      // ★ Ночная миссия завершается только по реальному времени полёта.
+      //   Раньше частичная награда после 60 с «съедала» ночной бюджет
+      //   при любом возврате на вкладку.
       if (elapsedMs >= c.flightTime) {
+        out.nightEnded = true;
         complete = true; reward = c.fail ? 0 : c.reward;
-      } else if (elapsedMs > 60000) {
-        complete = true;
-        const ratio = elapsedMs / c.flightTime;
-        reward = c.fail ? 0 : Math.floor(c.reward * ratio);
       }
     } else {
       if (elapsedMs >= c.flightTime) {
@@ -733,13 +753,10 @@ function processOfflineMissions(out) {
     let complete = false, reward = 0;
 
     if (e.isNight) {
-      out.nightEnded = true;
+      // ★ См. кометы: не закрываем ночь раньше фактического прилёта.
       if (elapsedMs >= e.flightTime) {
+        out.nightEnded = true;
         complete = true; reward = e.fail ? 0 : e.reward;
-      } else if (elapsedMs > 60000) {
-        complete = true;
-        const ratio = elapsedMs / e.flightTime;
-        reward = e.fail ? 0 : Math.floor(e.reward * ratio);
       }
     } else {
       if (elapsedMs >= e.flightTime) {
@@ -833,56 +850,161 @@ window.fleetRepelChance = fleetRepelChance;
 window.invasionRepelChance = invasionRepelChance;
 window.calcExpeditionPenalty = calcExpeditionPenalty;
 
+// ★ Уровень запустения галактики: 0 при коротком отсутствии, 1..5 при долгом.
+// Порог и шаг вынесены в INVASION_CFG.neglect, чтобы баланс правился в одном месте.
+function invasionNeglectLevel(hours) {
+  const n = (INVASION_CFG && INVASION_CFG.neglect) || {};
+  const th = isFinite(Number(n.thresholdHours)) ? Number(n.thresholdHours) : 4;
+  const step = (isFinite(Number(n.hoursPerLevel)) && Number(n.hoursPerLevel) > 0) ? Number(n.hoursPerLevel) : 4;
+  const cap = isFinite(Number(n.maxLevel)) ? Math.max(0, Math.floor(Number(n.maxLevel))) : 5;
+  if (!(hours > th)) return 0;
+  return Math.min(cap, 1 + Math.floor((hours - th) / step));
+}
+window.invasionNeglectLevel = invasionNeglectLevel;
+
+function isPrimeTargetIdx(idx) {
+  if (typeof isPrimeSystemAt === 'function') return isPrimeSystemAt(idx);
+  if (idx === S.activeSystemIdx) return !!S.primeSystem;
+  return false;
+}
+
+// Все обычные (не Прайм) системы, по которым может ударить офлайн-вторжение.
+function offlineTargetSystems() {
+  const list = [];
+  const active = Number(S.activeSystemIdx) || 0;
+  if (!isPrimeTargetIdx(active)) list.push(active);
+  const systems = Array.isArray(S.otherSystems) ? S.otherSystems : [];
+  for (let i = 0; i < systems.length; i++) {
+    if (i === active) continue;
+    const sys = systems[i];
+    if (!sys || !Array.isArray(sys.planets) || sys.planets.length === 0) continue;
+    if (isPrimeTargetIdx(i)) continue;
+    list.push(i);
+  }
+  return list;
+}
+
+function pickOfflineInvasionTarget() {
+  const list = offlineTargetSystems();
+  if (!list.length) return -1;
+  return list[Math.floor(Math.random() * list.length)];
+}
+
 function simulateOfflineInvasions(elapsedSec, out) {
   const cfg = INVASION_CFG;
-  const hours = elapsedSec / 3600;
+  const n = (cfg && cfg.neglect) || {};
+  const now = Date.now();
+  const totalMs = Math.max(0, Number(elapsedSec) * 1000);
+  if (totalMs <= 0) return;
 
-  if (S.shieldUntil && S.shieldUntil > Date.now() - elapsedSec * 1000) {
-    out.shieldProtected = true;
-    return;
-  }
+  // ★ Щит защищает ровно то время, которое покрывает. Раньше щит,
+  //   действовавший хотя бы минуту из всей ночи, отменял ВСЕ атаки.
+  const startMs = now - totalMs;
+  const shieldUntil = Math.max(0, Number(S.shieldUntil) || 0);
+  const protectedMs = Math.max(0, Math.min(now, shieldUntil) - startMs);
+  out.shieldProtected = protectedMs > 0;
+  const unprotectedMs = totalMs - Math.min(totalMs, protectedMs);
+  if (unprotectedMs < 30 * 1000) { out.invasionAttacks = 0; return; }
 
-  // ★ 1 атака на offlineAttackInterval, не более offlineAttackMax
-  const perHours = (cfg.offlineAttackInterval || 5 * 3600 * 1000) / 3600000;
-  let attacks = Math.min(cfg.offlineAttackMax || 4, Math.floor(hours / perHours));
+  const hours = unprotectedMs / 3600000;
+  out.awayHours = Math.round(hours * 100) / 100;
+  const level = invasionNeglectLevel(hours);
+  out.neglectLevel = level;
+
+  // ★ Чем дольше отсутствие, тем больше волн. Потолок — maxAttacks.
+  const intervalH = Math.max(0.25, (Number(cfg.offlineAttackInterval) || 3 * 3600 * 1000) / 3600000);
+  let attacks = Math.floor(hours / intervalH);
+  if (level > 0) attacks += level * Math.max(0, Number(n.attacksPerLevel) || 0);
+  const maxAttacks = Math.max(0, Number(n.maxAttacks) || Number(cfg.offlineAttackMax) || 5);
+  attacks = Math.min(maxAttacks, attacks);
   if (attacks <= 0) return;
 
-  const capShare = cfg.nightLossCapShare || 0.4;
-  const caps = { dust: (S.dust || 0) * capShare, energy: (S.energy || 0) * capShare, civ: (S.civLevel || 0) * capShare, metals: (S.metalAmount || 0) * capShare };
-  const repel = invasionRepelChance();
-  let defended = 0, lostDust = 0, lostE = 0, lostC = 0, lostM = 0, disabled = 0;
+  const baseShare = Number(cfg.nightLossCapShare) || 0.4;
+  const capShare = Math.min(
+    Number(n.lossCapShareMax) || 0.8,
+    baseShare + level * (Number(n.lossCapSharePerLevel) || 0)
+  );
+  const caps = {
+    dust: (S.dust || 0) * capShare,
+    energy: (S.energy || 0) * capShare,
+    civ: (S.civLevel || 0) * capShare,
+    metals: (S.metalAmount || 0) * capShare,
+  };
+  // ★ Оборону проверяем на момент каждой волны, а не на момент возврата:
+  //   если Автоборона истекла в середине ночи, ранние атаки она ещё отбивала.
+  const attackWindowStart = startMs + Math.min(totalMs, protectedMs);
+  const attackStepMs = unprotectedMs / attacks;
+  let defended = 0, executed = 0, lostDust = 0, lostE = 0, lostC = 0, lostM = 0, disabled = 0;
 
   for (let i = 0; i < attacks; i++) {
     const tierKey = rollInvasionTier();
-    if (Math.random() < repel) { defended++; continue; }
-
-    const hit = applyInvasionHit(tierKey, caps);
-    lostDust += hit.dust; lostE += hit.energy; lostC += hit.civ; lostM += hit.metals; disabled += hit.disabled;
-    caps.dust -= hit.dust; caps.energy -= hit.energy; caps.civ -= hit.civ; caps.metals -= hit.metals;
+    const attackTime = attackWindowStart + (i + 0.5) * attackStepMs;
+    const repel = invasionRepelChance(attackTime);
+    if (Math.random() < repel) { defended++; executed++; continue; }
+    const targetIdx = pickOfflineInvasionTarget();
+    if (targetIdx < 0) break; // одни Прайм-системы — бить некого
+    executed++;
+    const hit = applyInvasionHit(tierKey, caps, targetIdx, { neglectLevel: level });
+    lostDust += hit.dust; lostE += hit.energy; lostC += hit.civ; lostM += hit.metals;
+    disabled += hit.disabled;
+    caps.dust = Math.max(0, caps.dust - hit.dust);
+    caps.energy = Math.max(0, caps.energy - hit.energy);
+    caps.civ = Math.max(0, caps.civ - hit.civ);
+    caps.metals = Math.max(0, caps.metals - hit.metals);
   }
 
-  out.invasionAttacks = attacks;
+  // ★ С уровня запустения 2 (≈8 ч) целые системы выпадают из экономики.
+  let systemsDamaged = 0;
+  if (level >= (Number(n.systemDamageFromLevel) || 2)) {
+    const count = Math.min(6, Math.max(1, Math.ceil(level * (Number(n.systemsDamagedPerLevel) || 1))));
+    systemsDamaged = applySystemLosses(count, { neglectLevel: level });
+  }
+
+  out.invasionAttacks = executed;
   out.invasionDefended = defended;
   out.invasionLost = disabled;
+  out.invasionSystemsDamaged = systemsDamaged;
   out.invasionDrainE = Math.floor(lostE);
   out.invasionDrainC = Math.floor(lostC);
   out.invasionLostDust = Math.floor(lostDust);
   out.invasionLostMetals = Math.floor(lostM);
+
   if (disabled > 0 && typeof addEvent === 'function') {
-    addEvent('invasion_destroy', 'Вторжения повредили ' + disabled + ' планет(ы)');
+    addEvent('invasion_destroy', 'Вторжения повредили ' + disabled + ' планет(ы)', { meta: { count: disabled, source: 'offline' } });
+  }
+  if (level > 0 && executed > 0 && typeof addEvent === 'function') {
+    addEvent('galaxy_neglect',
+      'Галактика в запустении ур.' + level + ': ' + executed + ' атак, ' +
+      'повреждено систем: ' + systemsDamaged + ', планет: ' + disabled,
+      { meta: { neglectLevel: level, awayHours: out.awayHours, attacks: executed, defended: defended, lostDust: Math.floor(lostDust), lostEnergy: Math.floor(lostE), lostCiv: Math.floor(lostC), lostMetals: Math.floor(lostM), systemsDamaged: systemsDamaged, planetsDisabled: disabled, shieldProtected: !!out.shieldProtected } });
   }
 }
 
 // ★ Наносит урон одного удачного вторжения. Возвращает фактический урон.
-function applyInvasionHit(tierKey, caps) {
+// targetIdx — по какой системе бьёт; opts.neglectLevel усиливает удар.
+function applyInvasionHit(tierKey, caps, targetIdx, opts) {
+  opts = opts || {};
   const cfg = INVASION_CFG;
+  const n = (cfg && cfg.neglect) || {};
   const tier = cfg.tiers[tierKey] || cfg.tiers.raid;
   const out = { dust: 0, energy: 0, civ: 0, metals: 0, disabled: 0 };
-  // ★ Прайм-система неприкосновенна: никакого урона от вторжений
-  if (S.primeSystem || (typeof isPrimeSystemAt === 'function' && isPrimeSystemAt(S.activeSystemIdx))) return out;
+  const level = Math.max(0, Number(opts.neglectLevel) || 0);
+  const target = (typeof targetIdx === 'number' && isFinite(targetIdx))
+    ? targetIdx
+    : (Number(S.activeSystemIdx) || 0);
+
+  // ★ Прайм-система неприкосновенна. Проверяем ИМЕННО цель, а не активную
+  //   систему: иначе Прайм на экране защищал вообще все колонии игрока.
+  if (isPrimeTargetIdx(target)) return out;
 
   const now = Date.now();
-  const minutes = tier.theftMin || 0;
+  let minutes = Math.max(0, Number(tier.theftMin) || 0);
+  if (level > 0) {
+    minutes = Math.min(
+      Number(n.theftMinutesCap) || 180,
+      minutes + level * (Number(n.theftMinutesPerLevel) || 0)
+    );
+  }
   const capD = caps ? Math.max(0, caps.dust) : Infinity;
   const capEn = caps ? Math.max(0, caps.energy) : Infinity;
   const capCi = caps ? Math.max(0, caps.civ) : Infinity;
@@ -908,8 +1030,11 @@ function applyInvasionHit(tierKey, caps) {
   }
 
   // 2) «оккупация»: штраф к доходу на N часов (стек до debuffStackCap)
-  const pct = tier.debuffPct || 0;
-  const durH = tier.debuffHours || 0;
+  const pct = (Number(tier.debuffPct) || 0) + level * (Number(n.debuffPctPerLevel) || 0);
+  const durH = Math.min(
+    Number(n.debuffHoursMax) || 12,
+    (Number(tier.debuffHours) || 0) + level * (Number(n.debuffHoursPerLevel) || 0)
+  );
   if (pct > 0 && durH > 0) {
     const cur = (S.invasionDebuff && S.invasionDebuff.until > now) ? Number(S.invasionDebuff.pct) || 0 : 0;
     S.invasionDebuff = {
@@ -918,35 +1043,63 @@ function applyInvasionHit(tierKey, caps) {
     };
   }
 
-  // 3) повреждение планет: простой N часов, но НЕ удаление
-  const alive = (S.planets || []).filter(function(p) { return p && !p.forming && !(p.disabledUntil > now); });
-  const canDisable = Math.max(0, Math.min(tier.disablePlanets || 0, (S.planets || []).length - 1));
+  // 3) повреждение планет ИМЕННО атакованной системы: простой, не удаление
+  const activeIdx = Number(S.activeSystemIdx) || 0;
+  let planets;
+  if (target === activeIdx) {
+    planets = S.planets || [];
+  } else {
+    const targetSys = (Array.isArray(S.otherSystems)) ? S.otherSystems[target] : null;
+    // ★ Не роняем урон на активную систему, если цель почему-то исчезла.
+    if (!targetSys || !Array.isArray(targetSys.planets)) return out;
+    planets = targetSys.planets;
+  }
+  const alive = planets.filter(function(p) { return p && !p.forming && !(p.disabledUntil > now); });
+  const want = (Number(tier.disablePlanets) || 0) + level * (Number(n.planetDisablePerLevel) || 0);
+  const canDisable = Math.max(0, Math.min(want, planets.length - 1));
+  const disableHours = Math.min(24, (Number(tier.disableHours) || 2) + level * 2);
   for (let i = 0; i < canDisable && alive.length > 0; i++) {
     const idx = Math.floor(Math.random() * alive.length);
     const victim = alive.splice(idx, 1)[0];
-    victim.disabledUntil = now + (tier.disableHours || 2) * 3600 * 1000;
+    victim.disabledUntil = now + disableHours * 3600 * 1000;
     out.disabled++;
   }
   return out;
 }
 window.applyInvasionHit = applyInvasionHit;
 
-function applySystemLosses(count) {
-  // ★ Системы больше не удаляются: вторжение лишь выводит их из строя.
+// ★ Системы не удаляются: вторжение выводит их из строя на время.
+// opts.neglectLevel задаёт длительность простоя; старый вызов applySystemLosses(n)
+// продолжает работать и даёт базовые 2 часа.
+function applySystemLosses(count, opts) {
+  opts = opts || {};
+  const n = (INVASION_CFG && INVASION_CFG.neglect) || {};
+  const level = Math.max(0, Number(opts.neglectLevel) || 0);
+  const hours = Math.min(
+    Number(n.systemDamageHoursMax) || 24,
+    (Number(n.systemDamageHoursBase) || 2) + level * (Number(n.systemDamageHoursPerLevel) || 0)
+  );
+  const now = Date.now();
+  const until = now + hours * 3600 * 1000;
+  const active = Number(S.activeSystemIdx) || 0;
+  const list = Array.isArray(S.otherSystems) ? S.otherSystems : [];
   let damaged = 0;
-  const until = Date.now() + (INVASION_CFG.planetDisabledHours || 2) * 3600 * 1000;
-  for (let i = 1; i < S.otherSystems.length && damaged < count; i++) {
-    const sys = S.otherSystems[i];
+  for (let i = 0; i < list.length && damaged < count; i++) {
+    if (i === active) continue;
+    const sys = list[i];
+    if (!sys || !Array.isArray(sys.planets) || sys.planets.length === 0) continue;
+    if (sys.damagedUntil > now) continue;
     // ★ Прайм-системы не повреждаются вторжениями
-    if (sys && !(sys.damagedUntil > Date.now()) && !(typeof isPrimeSystemData === 'function' && isPrimeSystemData(sys))) {
-      sys.damagedUntil = until;
-      damaged++;
-    }
+    if (typeof isPrimeSystemData === 'function' && isPrimeSystemData(sys)) continue;
+    sys.damagedUntil = until;
+    damaged++;
   }
   if (damaged > 0 && typeof addEvent === 'function') {
-    addEvent('invasion_destroy', 'Вторжения повредили ' + damaged + ' систем(ы)');
+    addEvent('invasion_destroy', 'Вторжения повредили ' + damaged + ' систем(ы) на ' + hours + ' ч', { meta: { count: damaged, hours: hours, source: 'offline' } });
   }
+  return damaged;
 }
+window.applySystemLosses = applySystemLosses;
 
 // ─── Экспорт ────────────────────────────────────────────────────
 window.starMult = starMult;

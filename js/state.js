@@ -39,6 +39,9 @@ const S = {
   planets: [],
   otherSystems: [],
   activeSystemIdx: 0,
+  // ★ Время, до которого текущая система выведена из строя вторжением.
+  //   Без отдельного поля урон исчезал при входе в повреждённую систему.
+  activeSystemDamagedUntil: 0,
   systems: 1,
   totalSystemsCreated: 1,
   systemIncomeBonus: 0,
@@ -144,7 +147,7 @@ function resetStateValues() {
   S.starType = null; S.systemType = null;
   S.planets = [];
   S.systemName = 'Родная';
-  S.otherSystems = []; S.activeSystemIdx = 0;
+  S.otherSystems = []; S.activeSystemIdx = 0; S.activeSystemDamagedUntil = 0;
   S.systems = 1; S.totalSystemsCreated = 1;
   S.systemIncomeBonus = 0;
   S.systemShopProgress = { dust: 0, energy: 0, civ: 0 };
@@ -273,7 +276,8 @@ function switchToSystem(idx) {
     planets: S.planets || [],
     incomeBonus: S.systemIncomeBonus || 0,
     isPrime: !!S.primeSystem,
-    primeData: S.primeSystem || null
+    primeData: S.primeSystem || null,
+    damagedUntil: Number(S.activeSystemDamagedUntil) || 0
   };
 
   // Возврат на родную
@@ -288,6 +292,7 @@ function switchToSystem(idx) {
     S.planets = home.planets;
     S.systemIncomeBonus = home.incomeBonus || 0;
     S.primeSystem = home.isPrime ? home.primeData : null;
+    S.activeSystemDamagedUntil = Number(home.damagedUntil) || 0;
     S.activeSystemIdx = 0;
     S.panX = 0; S.panY = 0; S.zoom = 1; S.rotation = 0; S.tiltX = 0; S.tiltY = 0;
     if (typeof updateSystemSwitcher === 'function') updateSystemSwitcher();
@@ -308,6 +313,7 @@ function switchToSystem(idx) {
   S.planets = target.planets || [];
   S.systemIncomeBonus = target.incomeBonus || 0;
   S.primeSystem = target.isPrime ? target.primeData : null;
+  S.activeSystemDamagedUntil = Number(target.damagedUntil) || 0;
   S.activeSystemIdx = idx;
   S.panX = 0; S.panY = 0; S.zoom = 1; S.rotation = 0; S.tiltX = 0; S.tiltY = 0;
   if (typeof updateSystemSwitcher === 'function') updateSystemSwitcher();
@@ -336,7 +342,9 @@ function stripEmptyForSave(data) {
 function saveGame() {
   if (isResetting) return;
   try {
-    S.lastTick = Date.now();
+    // ★ lastTick — «сердце» офлайн-прогресса. Его двигает ТОЛЬКО игровой цикл
+    //   (и applyOfflineProgress). Сохранение не должно стирать время отсутствия:
+    //   иначе автосейв в свёрнутой вкладке «съедал» всю ночь.
     if (typeof S.tutorialStep !== 'number') S.tutorialStep = 0;
     const data = {
       // Фаза и прогресс
@@ -356,6 +364,7 @@ function saveGame() {
       starType: S.starType, systemType: S.systemType,
       planets: S.planets, systemName: S.systemName,
       otherSystems: S.otherSystems, activeSystemIdx: S.activeSystemIdx,
+      activeSystemDamagedUntil: S.activeSystemDamagedUntil || 0,
       systems: S.systems, totalSystemsCreated: S.totalSystemsCreated,
       systemIncomeBonus: S.systemIncomeBonus, systemShopProgress: S.systemShopProgress,
       systemShopCost: S.systemShopCost,
@@ -454,6 +463,7 @@ function loadGame() {
     if (typeof S.firstNightShieldUsed !== 'boolean') S.firstNightShieldUsed = false;
     if (!S.otherSystems) S.otherSystems = [];
     if (typeof S.activeSystemIdx !== 'number') S.activeSystemIdx = 0;
+    if (typeof S.activeSystemDamagedUntil !== 'number') S.activeSystemDamagedUntil = 0;
     if (typeof S.rotation !== 'number') S.rotation = 0;
     if (typeof S.gasDensity !== 'number') S.gasDensity = 1;
     if (!S.systemName) S.systemName = 'Родная';

@@ -990,6 +990,16 @@ function updateHudChips() {
       defEl.style.display = 'none';
     }
   }
+  const negEl = document.getElementById('neglectChip');
+  if (negEl) {
+    const txt = (typeof galaxyNeglectChipText === 'function') ? galaxyNeglectChipText() : '';
+    if (txt) {
+      if (negEl.textContent !== txt) negEl.textContent = txt;
+      if (negEl.style.display !== 'block') negEl.style.display = 'block';
+    } else if (negEl.style.display !== 'none') {
+      negEl.style.display = 'none';
+    }
+  }
 }
 
 // При переходе в галактику подгоняем зум, чтобы карта влезла целиком.
@@ -1087,6 +1097,9 @@ let shopHintShown = false;
 function loop(now) {
 try {
 loopFrame(now);
+// ★ Heartbeat офлайн-времени: пока цикл жив, время «идёт».
+//   Сохранение и автосейв не двигают lastTick, иначе ночь терялась бы.
+S.lastTick = Date.now();
 } catch (e) {
 if (!window.__loopErrorAt || performance.now() - window.__loopErrorAt > 3000) {
 window.__loopErrorAt = performance.now();
@@ -1096,7 +1109,12 @@ console.error('Пропущен кадр (защита цикла):', e);
 requestAnimationFrame(loop);
 }
 function loopFrame(now) {
-sanitizeView();
+  // ★ Досчёт пропущенного времени до обычной симуляции: выход из сна,
+  //   возврат на вкладку, разворот Telegram. Внутри есть guard по lastTick.
+  if (window.__gameStarted) {
+    try { catchUpAwayProgress(); } catch (e) { /* не ломаем кадр */ }
+  }
+  sanitizeView();
 if (!canvas.width || !canvas.height) resize();
 const dt = Math.min((now - last) / 1000, 0.5);
 last = now;
@@ -1282,6 +1300,9 @@ function start() {
 setupTelegram();
 if (typeof initAudio === 'function') initAudio();
 if (typeof loadGame === 'function') loadGame();
+// ★ Снимаем время отсутствия ДО любых saveGame(): ежедневный сброс/ачивки
+//   могли перезаписать lastTick и обнулить всю ночь.
+const awaySince = Number(S.lastTick) || Date.now();
 // ★ Обучалка: включаем только для новой игры (нет прогресса и она не пройдена)
 if (S.dustTotal === 0 && S.tutorialStep === 0 && !S.tutorialDone) {
   S.tutorialStep = 1; // Включаем туториал
@@ -1325,36 +1346,129 @@ if (typeof checkDailyReset === 'function') checkDailyReset();
 if (typeof checkAchievements === 'function') checkAchievements();
 let offline = null;
 if (typeof applyOfflineProgress === 'function') {
-offline = applyOfflineProgress();
+  // ★ Офлайн-расчёт не должен мешать запуску игры: любая ошибка — просто
+  //   пропускаем досчёт, но цикл и UI всё равно стартуют.
+  try {
+    offline = applyOfflineProgress(awaySince);
+  } catch (e) {
+    console.warn('offline progress failed', e);
+    S.lastTick = Date.now();
+  }
 }
 if (offline) {
-const h = Math.floor(offline.seconds / 3600);
-const m = Math.floor((offline.seconds % 3600) / 60);
-const ts = h > 0 ? h + ' ч ' + m + ' мин' : m + ' мин';
-const parts = [];
-if (offline.dustEarned > 0 && typeof fmt === 'function') parts.push('+' + fmt(offline.dustEarned) + ' ✦');
-if (offline.energyEarned > 0 && typeof fmt === 'function') parts.push('+' + fmt(offline.energyEarned) + ' ⚡');
-if (offline.civEarned > 0 && typeof fmt === 'function') parts.push('+' + fmt(offline.civEarned) + ' 🧬');
-if (offline.metalsEarned > 0 && typeof fmt === 'function') parts.push('+' + fmt(offline.metalsEarned) + ' ⚙');
-if (offline.invasionLostMetals > 0 && typeof fmt === 'function') parts.push('⚙ −' + fmt(offline.invasionLostMetals));
-if (offline.cometEarned > 0 && typeof fmt === 'function') parts.push('☄️ +' + fmt(offline.cometEarned) + ' ✦');
-if (offline.expEarned > 0 && typeof fmt === 'function') parts.push('🚀 +' + fmt(offline.expEarned) + ' ✦');
-setTimeout(function() {
-if (typeof toast !== 'function') return;
-if (offline.nightEnded) {
-let msg = 'Ночные миссии завершены. ';
-if (offline.cometEarned > 0 || offline.expEarned > 0) msg += 'Миссии вернулись с частью наград. ';
-if (offline.invasionLost > 0) msg += '⚠️ Потеряно объектов: ' + offline.invasionLost + '. ';
-if (parts.length > 0) msg += parts.join(' · ');
-toast('☀️ Доброе утро!', msg);
-} else if (parts.length > 0) {
-toast('Офлайн за ' + ts, parts.join(' · '));
+  if (typeof showOfflineReport === 'function') showOfflineReport(offline);
 }
-}, 500);
-if (typeof logOfflineIncome === 'function' && offline.dustEarned > 0) {
-logOfflineIncome(offline.seconds, offline.dustEarned);
+
+// ═══════════════════════════════════════════════════════════════
+//  ОТЧЁТ О ВОЗВРАЩЕНИИ И ДОСЧЁТ ВРЕМЕНИ ОТСУТСТВИЯ
+// ═══════════════════════════════════════════════════════════════
+// ★ Раньше офлайн считался только при запуске игры. Если вкладка /
+//   Telegram оставались открытыми, RAF замирал, автосейв обновлял
+//   lastTick — и вся ночь «исчезала» без атак и без потерь.
+function showOfflineReport(offline) {
+  if (!offline) return;
+  const h = Math.floor((offline.seconds || 0) / 3600);
+  const m = Math.floor(((offline.seconds || 0) % 3600) / 60);
+  const ts = h > 0 ? h + ' ч ' + m + ' мин' : m + ' мин';
+  const gains = [];
+  const losses = [];
+  const canFmt = typeof fmt === 'function';
+
+  if (offline.dustEarned > 0) gains.push((canFmt ? '+' + fmt(offline.dustEarned) : '+' + offline.dustEarned) + ' ✦');
+  if (offline.energyEarned > 0) gains.push((canFmt ? '+' + fmt(offline.energyEarned) : '+' + offline.energyEarned) + ' ⚡');
+  if (offline.civEarned > 0) gains.push((canFmt ? '+' + fmt(offline.civEarned) : '+' + offline.civEarned) + ' 🧬');
+  if (offline.metalsEarned > 0) gains.push((canFmt ? '+' + fmt(offline.metalsEarned) : '+' + offline.metalsEarned) + ' ⚙');
+  if (offline.cometEarned > 0) gains.push((canFmt ? '+' + fmt(offline.cometEarned) : '+' + offline.cometEarned) + ' ☄️ ✦');
+  if (offline.expEarned > 0) gains.push((canFmt ? '+' + fmt(offline.expEarned) : '+' + offline.expEarned) + ' 🚀 ✦');
+
+  if (offline.invasionLostDust > 0) losses.push((canFmt ? '−' + fmt(offline.invasionLostDust) : '−' + offline.invasionLostDust) + ' ✦');
+  if (offline.invasionDrainE > 0) losses.push((canFmt ? '−' + fmt(offline.invasionDrainE) : '−' + offline.invasionDrainE) + ' ⚡');
+  if (offline.invasionDrainC > 0) losses.push((canFmt ? '−' + fmt(offline.invasionDrainC) : '−' + offline.invasionDrainC) + ' 🧬');
+  if (offline.invasionLostMetals > 0) losses.push((canFmt ? '−' + fmt(offline.invasionLostMetals) : '−' + offline.invasionLostMetals) + ' ⚙');
+  if (offline.invasionLost > 0) losses.push('🪐 ' + offline.invasionLost + ' планет(ы) в простое');
+  if (offline.invasionSystemsDamaged > 0) losses.push('🌫️ ' + offline.invasionSystemsDamaged + ' систем(ы) повреждены');
+  // ★ «Запустение» показываем только если реально были атаки/потери:
+  //   у игрока из одних Прайм-систем урон невозможен, пугать его нечем.
+  const neglected = offline.neglectLevel > 0 && (offline.invasionAttacks > 0 || losses.length > 0);
+  // ★ Короткие переключения вкладок не должны спамить отчётами.
+  const significant = neglected || losses.length > 0 || offline.nightEnded ||
+    (Number(offline.seconds) || 0) >= 5 * 60;
+  if (!significant) return;
+
+  // ★ Долгое отсутствие — отдельный, заметный отчёт, а не строчка в тосте.
+  if (neglected && typeof showNeglectReport === 'function') {
+    showNeglectReport(offline);
+  }
+
+  setTimeout(function() {
+    if (typeof toast !== 'function') return;
+    if (neglected) {
+      const lines = [];
+      lines.push('Отсутствие: <b>' + ts + '</b> · запустение <b>ур.' + offline.neglectLevel + '/5</b>');
+      if (losses.length) lines.push('Потери: ' + losses.join(' · '));
+      if (offline.invasionDefended > 0) lines.push('Отбито атак: ' + offline.invasionDefended + ' из ' + offline.invasionAttacks);
+      if (gains.length) lines.push('Доход: ' + gains.join(' · '));
+      toast('☠️ Галактика в запустении', lines.join('<br>'));
+    } else if (offline.nightEnded) {
+      let msg = 'Ночные миссии завершены. ';
+      if (offline.cometEarned > 0 || offline.expEarned > 0) msg += 'Миссии вернулись с частью наград. ';
+      if (losses.length) msg += '⚠️ ' + losses.join(' · ') + '. ';
+      if (gains.length) msg += gains.join(' · ');
+      toast('☀️ Доброе утро!', msg);
+    } else if (losses.length) {
+      const msg = losses.join(' · ') + (gains.length ? '<br>' + gains.join(' · ') : '');
+      toast('⚠️ Возвращение', msg);
+    } else if (gains.length) {
+      toast('Офлайн за ' + ts, gains.join(' · '));
+    }
+  }, 500);
+
+  if (typeof logOfflineIncome === 'function') {
+    logOfflineIncome(offline.seconds, offline.dustEarned || 0, offline);
+  }
 }
+window.showOfflineReport = showOfflineReport;
+
+let _awayCatchUpBusy = false;
+// ★ Досчитывает пропущенное время при возврате в открытую вкладку,
+//   пробуждении ПК или сворачивании Telegram. Вызывается из loopFrame
+//   и из событий visible/focus/pageshow.
+function catchUpAwayProgress() {
+  if (!window.__gameStarted || _awayCatchUpBusy) return null;
+  const now = Date.now();
+  const last = Number(S.lastTick) || now;
+  // ★ Тот же порог, что у applyOfflineProgress: не теряем 30–60 с.
+  if (now - last < 30 * 1000) return null;
+  _awayCatchUpBusy = true;
+  let out = null;
+  try {
+    out = (typeof applyOfflineProgress === 'function') ? applyOfflineProgress() : null;
+  } catch (e) {
+    console.warn('away catch-up failed', e);
+    S.lastTick = now;
+  } finally {
+    _awayCatchUpBusy = false;
+  }
+  if (out) {
+    if (typeof showOfflineReport === 'function') showOfflineReport(out);
+    if (typeof updateUI === 'function') updateUI();
+    if (typeof updateSystemSwitcher === 'function') updateSystemSwitcher();
+    if (typeof updateHudChips === 'function') updateHudChips();
+    if (typeof saveGame === 'function') saveGame();
+  }
+  return out;
 }
+window.catchUpAwayProgress = catchUpAwayProgress;
+
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'visible') setTimeout(catchUpAwayProgress, 60);
+});
+window.addEventListener('focus', function() {
+  setTimeout(catchUpAwayProgress, 60);
+});
+window.addEventListener('pageshow', function() {
+  setTimeout(catchUpAwayProgress, 60);
+});
 setTimeout(resize, 200);
 // ★ Ежедневка выдаётся всегда, но не раньше 4-й фазы (сборки первой планеты),
 // чтобы награда не давала пыль на старте и не скипала ранние фазы
@@ -1367,7 +1481,7 @@ checkFirstNightShield(offline.seconds);
 if (typeof updateUI === 'function') updateUI();
 if (typeof restoreRandomEvent === 'function') restoreRandomEvent();
 if (typeof updateSystemSwitcher === 'function') updateSystemSwitcher();
-function bootLoop() { requestAnimationFrame(loop); }
+function bootLoop() { window.__gameStarted = true; requestAnimationFrame(loop); }
 function afterBootLore() {
   bootLoop();
   if (typeof maybeShowGameGuide === 'function') setTimeout(maybeShowGameGuide, 400);
