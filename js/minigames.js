@@ -317,12 +317,14 @@ function updateAssemble(dt, elapsed, cx, cy) {
 }
 
 function finishAssemble() {
+  // ★ Таймаут — это провал, а не суперземля. Раньше пустое поле давало
+  // 'superEarth' с quality 0.5 и endMinigame(true), т.е. награда за ничего.
   if (!MG.result) {
-    MG.result = 'superEarth';
-    MG.quality = 0.5;
-  } else {
-    MG.quality = 1.0;
+    MG.quality = 0;
+    endMinigame(false);
+    return;
   }
+  MG.quality = 1.0;
   endMinigame(true);
 }
 

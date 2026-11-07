@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 // ─── API: сервер на Render ──────────────────────────────────────
-const API_BASE = 'https://accretion-game.onrender.com';
+const API_BASE = 'https://accretion-api-proxy.buggipop.workers.dev';
 
 function getPremiumInitData() {
   const tg = window.Telegram && window.Telegram.WebApp;
@@ -18,7 +18,13 @@ async function premiumApiPost(path, payload) {
   });
   let data = null;
   try { data = await res.json(); } catch (e) { data = null; }
-  if (!res.ok) throw new Error((data && data.error) ? data.error : ('HTTP ' + res.status));
+  if (!res.ok) {
+    // ★ status нужен наверх: claimPurchase отличает 404/410 (покупки нет)
+    // от сети/5xx (можно повторить).
+    const err = new Error((data && data.error) ? data.error : ('HTTP ' + res.status));
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
 
@@ -35,27 +41,39 @@ async function getInvoiceLink(product) {
   }
 }
 
-// Подтверждение выдачи покупки на сервере (не блокирует выдачу в игре)
-function claimPurchase(product) {
+// Подтверждение выдачи покупки на сервере. Награду выдаёт ТОЛЬКО сервер:
+// 404/410/409 = «покупки нет / уже выдана / истекла», и начислять лут
+// локально нельзя — именно так сундук получали бесплатно.
+// Сеть и 5xx повторяем: оплата могла пройти, а ответ потеряться.
+function claimPurchase(product, attemptsLeft) {
   const initData = getPremiumInitData();
-  if (!initData) return Promise.resolve(null);
+  if (!initData) return Promise.reject(new Error('Нет initData Telegram'));
 
-  return premiumApiPost('/api/claim', { initData: initData, product: product }).then(function(r) {
-    // ★ Право на платный щит выдаёт сервер. Применяем его абсолютную метку,
-    // чтобы покупка переживала переустановку и не зависела от сейва.
-    if (r && r.entitlement && r.entitlement.shieldUntil) {
-      const until = Number(r.entitlement.shieldUntil) || 0;
-      if (until > (S.shieldUntil || 0)) {
-        S.shieldUntil = until;
-        if (typeof saveGame === 'function') saveGame();
-        if (typeof updateUI === 'function') updateUI();
+  const left = Number.isFinite(attemptsLeft) ? attemptsLeft : 2;
+
+  return premiumApiPost('/api/claim', { initData: initData, product: product })
+    .catch(function(e) {
+      const status = Number(e && e.status) || 0;
+      const retryable = !status || status >= 500;
+      if (left > 0 && retryable) {
+        return new Promise(function(resolve) { setTimeout(resolve, 1500); })
+          .then(function() { return claimPurchase(product, left - 1); });
       }
-    }
-    return r;
-  }).catch(function(e) {
-    console.warn('[premium] claim failed:', e.message);
-    return null;
-  });
+      throw e;
+    })
+    .then(function(r) {
+      // ★ Право на платный щит выдаёт сервер. Применяем его абсолютную метку,
+      // чтобы покупка переживала переустановку и не зависела от сейва.
+      if (r && r.entitlement && r.entitlement.shieldUntil) {
+        const until = Number(r.entitlement.shieldUntil) || 0;
+        if (until > (S.shieldUntil || 0)) {
+          S.shieldUntil = until;
+          if (typeof saveGame === 'function') saveGame();
+          if (typeof updateUI === 'function') updateUI();
+        }
+      }
+      return r;
+    });
 }
 window.API_BASE = API_BASE;
 function openPremiumShop() {
@@ -183,12 +201,18 @@ async function buyPrimeChest() {
     tg.openInvoice(invoiceLink, function(status) {
       if (status === 'paid') {
         toast('✅ Оплата прошла', 'Сундук открывается...');
-        // ★ Награду выбирает сервер; клиент только доигрывает рулетку.
-        // Если сервер недоступен — старый локальный выбор как fallback.
+        // ★ Награду выбирает сервер; локального fallback больше нет — он был дырой.
         claimPurchase('chest').then(function(r) {
-          startChestRoulette(r && r.reward);
-        }).catch(function() {
-          startChestRoulette();
+          if (!r || !r.reward) {
+            // Покупка оплачена, но сервер не назвал лут. Никакого локального
+            // fallback: иначе сундук открывается бесплатно.
+            toast('Награда не подтверждена', 'Напиши в поддержку — покупка не потеряется.');
+            return;
+          }
+          startChestRoulette(r.reward);
+        }).catch(function(e) {
+          console.warn('[premium] chest claim failed:', e && e.message);
+          toast('Оплата не подтверждена', 'Нет связи с сервером. Попробуй позже.');
         });
       } else if (status === 'cancelled') {
         toast('Оплата отменена', 'Вы не были списаны');
@@ -199,9 +223,12 @@ async function buyPrimeChest() {
     return;
   }
 
-  // Заглушка для браузера (вне Telegram)
-  if (confirm('Вы вне Telegram. Симулировать оплату 200 ⭐ и открыть сундук?')) {
+  // Заглушка ТОЛЬКО для локальной отладки: window.__DEV_SHOP = true.
+  // Иначе игра, открытая просто в браузере, выдавала бы платный лут бесплатно.
+  if (window.__DEV_SHOP === true) {
     startChestRoulette();
+  } else {
+    toast('Покупки только в Telegram', 'Открой игру через Telegram');
   }
 }
 
@@ -218,9 +245,19 @@ async function buyPremiumShield() {
     
     tg.openInvoice(invoiceLink, function(status) {
       if (status === 'paid') {
-        claimPurchase('shield');
-        toast('✅ Оплата прошла', 'Щит активирован!');
-        activatePremiumShieldReward();
+        // ★ Награду выдаёт сервер: без подтверждённого права щит не включаем.
+        claimPurchase('shield').then(function(r) {
+          const until = r && r.entitlement && Number(r.entitlement.shieldUntil);
+          if (!until) {
+            toast('Награда не подтверждена', 'Напиши в поддержку — покупка не потеряется.');
+            return;
+          }
+          activatePremiumShieldReward(until);
+          toast('✅ Оплата прошла', 'Щит активирован!');
+        }).catch(function(e) {
+          console.warn('[premium] shield claim failed:', e && e.message);
+          toast('Оплата не подтверждена', 'Нет связи с сервером. Попробуй позже.');
+        });
       } else if (status === 'cancelled') {
         toast('Оплата отменена', '');
       }
@@ -228,14 +265,17 @@ async function buyPremiumShield() {
     return;
   }
 
-  // Заглушка для браузера
-  if (confirm('Вы вне Telegram. Симулировать оплату 100 ⭐ и получить щит?')) {
+  // Заглушка ТОЛЬКО для локальной отладки: window.__DEV_SHOP = true.
+  if (window.__DEV_SHOP === true) {
     activatePremiumShieldReward();
+  } else {
+    toast('Покупки только в Telegram', 'Открой игру через Telegram');
   }
 }
 
-function activatePremiumShieldReward() {
-  const until = Date.now() + 24 * 3600 * 1000;
+function activatePremiumShieldReward(untilMs) {
+  // Абсолютную метку присылает сервер; локальный fallback — только для дев-режима.
+  const until = Number(untilMs) || (Date.now() + 24 * 3600 * 1000);
   if (!S.shieldUntil || S.shieldUntil < until) S.shieldUntil = until;
   if (!S.activeTrophyEffects) S.activeTrophyEffects = [];
   S.activeTrophyEffects.push({ type: 'shield', value: 24, expiresAt: until });
@@ -257,7 +297,7 @@ function startChestRoulette(forcedKey) {
   }
 
   if (!selectedKey) {
-    // Локальный fallback (сервер недоступен)
+    // Только дев-режим (__DEV_SHOP) или кривой forcedKey — обычная покупка сюда не доходит
     const totalWeight = loot.reduce((sum, item) => sum + item.weight, 0);
     let roll = Math.random() * totalWeight;
     selectedKey = loot[0].key;

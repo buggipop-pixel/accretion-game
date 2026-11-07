@@ -11,6 +11,7 @@ import {
 import { createGameCore } from './lib/game-core.js';
 import {
   nextShieldEntitlement, overlayShieldEntitlement, isShieldSuspicious,
+  clampShield,
   nextBoosterUntil, overlayBoosterEntitlement, clampBooster,
 } from './lib/economy-actions.js';
 import {
@@ -509,7 +510,10 @@ app.post('/api/claim', async (req, res) => {
               if (savePayload && savePayload.data && typeof savePayload.data === 'object') {
                 const systems = Math.max(1, Number(savePayload.data.systems) || 1);
                 const value = withCoreState(savePayload.data, function() {
-                  return chestCapabilityValue(gameCore.planetCost(0), gameCore.systemCost(systems));
+                  // ★ Покрываем ПОЛНУЮ стоимость выдачи: 8 орбит (Σ planetCost)
+                  // + система. Раньше было 8·planetCost(0) — в 25.5 раза меньше
+                  // реального прироста capability().
+                  return chestCapabilityValue(gameCore.planetCostSum(8), gameCore.systemCost(systems));
                 });
                 if (value && value > 0) {
                   const wallet = ensureWallet(await readWallet(user.id), savePayload.data, Date.now());
@@ -653,6 +657,15 @@ app.post('/api/save', async (req, res) => {
         console.warn(`[save] подозрительный shieldUntil user=${user.id}`);
         redisSet(`save_flag:${user.id}`, JSON.stringify({ flags: ['shield_forged'], at: Date.now() }))
           .catch(function() { /* некритично */ });
+      }
+      // ★ Детектор без обрезки оставлял читеру «вечный» щит. Обрезаем
+      // нарисованный щит так же, как бустер: потолок — серверное право
+      // или 9 часов игрового щита.
+      const shieldBefore = Number(safeSave.shieldUntil) || 0;
+      safeSave = clampShield(safeSave, shieldRight, Date.now());
+      const shieldAfter = Number(safeSave.shieldUntil) || 0;
+      if (shieldAfter < shieldBefore) {
+        console.warn(`[save] user=${user.id} обрезан щит: ${shieldBefore} → ${shieldAfter}`);
       }
     } catch (e) {
       console.warn('[save] проверка щита не удалась:', e.message);

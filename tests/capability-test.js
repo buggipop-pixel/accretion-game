@@ -65,9 +65,32 @@ function assert(name, cond, extra) {
   assert('Бюджета не хватило — обнуляется', remain3 === 0);
 
   // ── Ценность сундука ──────────────────────────────────────
-  assert('Сундук = скидка 50% (4 планеты + полсистемы)', chestCapabilityValue(1000, 50000) === 29000);
+  // Сундук выдаёт 8 планет + систему, значит бюджет должен покрывать
+  // Σ planetCost(i), а не 8·planetCost(0).
+  assert('Сундук = полная стоимость выдачи (планеты + система)',
+    chestCapabilityValue(720120000, 254558441) === 974678441);
   assert('Мусор в цене сундука — ноль', chestCapabilityValue(null, undefined) === 0);
   assert('Отрицательные цены не идут в минус', chestCapabilityValue(-100, -5) === 0);
+
+  // ── Сверка с реальными ценами игры ──────────────────────
+  try {
+    const { createGameCore } = await import('../lib/game-core.js');
+    const core = createGameCore();
+    const planetSum = core.planetCostSum(8);
+    const sysCost = core.systemCost(1);
+
+    assert('Σ planetCost(8) = 204·P₀', planetSum === 204 * core.planetCost(0),
+      `sum=${planetSum} P0=${core.planetCost(0)}`);
+
+    const audit = capabilityAudit({
+      prevCost: 0, nextCost: planetSum + sysCost,
+      spentValue: 0, budget: chestCapabilityValue(planetSum, sysCost),
+    });
+    assert('Бюджет сундука покрывает систему из 8 планет', audit.funded === true,
+      `delta=${Math.round(audit.delta)} budget=${Math.round(audit.covered)}`);
+  } catch (e) {
+    assert('game-core доступен для сверки', false, e.message);
+  }
 
   console.log('========================================');
   console.log(`ИТОГО: Пройдено ${passed}, Провалено ${failed}`);

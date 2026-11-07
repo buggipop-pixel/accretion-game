@@ -184,8 +184,12 @@ window.resetAllParticlesToSpiral = resetAllParticlesToSpiral;
 function _absorb(index) {
   const b = _boost();
   const reward = (b && b.dustPerParticle) || DUST_PER_PARTICLE;
-  S.dust += reward;
-  S.dustTotal += reward;
+  // ★ Поглощение не должно пробивать кап хранилища: клик и пассивный доход
+  // его уважают (см. handleCanvasClick), а частицы раньше — нет.
+  const cap = (typeof getResourceCap === 'function') ? getResourceCap('dust') : Infinity;
+  const gain = Math.max(0, Math.min(reward, cap - (Number(S.dust) || 0)));
+  S.dust += gain;
+  S.dustTotal += gain;
   PART.absorbed++;
   PART.corePulse = Math.max(PART.corePulse, 0.8);
   PART.particles[index] = makeSpawnParticle();

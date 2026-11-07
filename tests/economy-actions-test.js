@@ -18,6 +18,8 @@ function assert(name, cond, extra) {
     overlayShieldEntitlement,
     isShieldSuspicious,
     nextBoosterUntil,
+    clampShield,
+    MISSION_SHIELD_MAX_MS,
     overlayBoosterEntitlement,
     clampBooster,
     SHIELD_PRODUCT_MS,
@@ -91,6 +93,25 @@ function assert(name, cond, extra) {
     clampBooster(legitBooster, now + BOOST_MS) === legitBooster);
   assert('Без права бустер обнуляется',
     clampBooster({ boosters: { incomeUntil: now + HOUR_MS } }, 0).boosters.incomeUntil === 0);
+  // ── Обрезка нарисованного щита ──────────────────────────
+  const forgedShield = { stage: 'system', shieldUntil: now + 30 * 24 * HOUR_MS };
+  const shieldClamped = clampShield(forgedShield, 0, now);
+  assert('Нарисованный щит обрезается до игрового максимума',
+    shieldClamped.shieldUntil === now + MISSION_SHIELD_MAX_MS);
+  assert('Щит: исходный сейв не мутирован',
+    forgedShield.shieldUntil === now + 30 * 24 * HOUR_MS);
+
+  const paidShield = { shieldUntil: now + 24 * HOUR_MS };
+  assert('Оплаченный щит не обрезается',
+    clampShield(paidShield, now + 24 * HOUR_MS, now) === paidShield);
+
+  const missionShield = { shieldUntil: now + 8 * HOUR_MS };
+  assert('Игровой 8-часовой щит не обрезается',
+    clampShield(missionShield, 0, now) === missionShield);
+
+  assert('Щит без метки не трогается',
+    clampShield({ stage: 'system' }, 0, now).shieldUntil === undefined);
+  assert('Нет сейва — нет обрезки', clampShield(null, now, now) === null);
 
   console.log('========================================');
   console.log(`ИТОГО: Пройдено ${passed}, Провалено ${failed}`);
