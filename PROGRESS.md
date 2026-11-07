@@ -1,5 +1,26 @@
 # 📓 PROGRESS — журнал сессий
 
+## Сессия: Cloudflare Worker-прокси для API + разбор CORS
+
+**Задача:** перевести игру на прокси `accretion-api-proxy.buggipop.workers.dev` и восстановить облачные сохранения.
+
+**Что найдено:**
+- Прокси жив и корректно проксирует Render (`/` → `{"ok":true,...}`, `/api/load` с фиктивным initData → `401` от сервера).
+- Но CORS сломан: и прокси, и Render отдают ответы **без** `Access-Control-Allow-Origin`, а preflight `OPTIONS` получает `403 Forbidden` от Render. Значит на Render задан неверный/чужой `ALLOWED_ORIGIN`, и браузер (Telegram WebView / GitHub Pages) блокирует ответы (`TypeError: Failed to fetch`).
+- Это вторая, независимая от блокировки `onrender.com` причина: даже в обход блокировки сохранения не работали бы.
+
+**Что сделано:**
+- `js/cloudsave.js` — адрес по умолчанию переключён на Worker-прокси.
+- `cloudflare-worker/worker.js` (новый) — прокси, который сам отвечает на preflight и добавляет CORS (`*`), передаёт на Render только `Content-Type`/`X-Admin-Token` (без `Origin`), чистит `content-encoding`/`content-length`.
+- `cloudflare-worker/README.md` — как задеплоить и проверить.
+- `tests/worker-proxy-test.js` — 11 проверок прокси без сети; `npm run test:worker`, добавлен в `test:all`.
+- `DEPLOY.md` — раздел 8 обновлён: прокси, CORS и `ALLOWED_ORIGIN`.
+
+**Что осталось (ручной шаг):** передеплоить воркер с новым кодом: Cloudflare Dashboard → Workers & Pages → `accretion-api-proxy` → Edit code → вставить `cloudflare-worker/worker.js` → Deploy. После этого проверка `/api/load` с `Origin` должна вернуть `401 *`.
+
+**Проверка до деплоя:** `node tests/worker-proxy-test.js` — 11/11; остальные тесты — без провалов.
+
+
 ## Сессия: запустение — только после 3 суток отсутствия
 
 **Задача:** «дебаф запустения» начислялся уже после 4 ч отсутствия, то есть за обычную ночь; нужно накладывать его только если игрок не заходил в игру более 3 дней.

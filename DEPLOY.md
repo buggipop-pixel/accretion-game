@@ -119,16 +119,33 @@
 
 ### Как чинить
 
-1. **Свой домен через Cloudflare (быстро и без правок сервера).**
+0. **Готовый прокси на Cloudflare Worker (уже стоит по умолчанию).**
+   - Адрес: `https://accretion-api-proxy.buggipop.workers.dev`.
+   - Он прописан адресом по умолчанию в `js/cloudsave.js`; исходник и инструкция —
+     `cloudflare-worker/worker.js` и `cloudflare-worker/README.md`.
+   - Прокси не только обходит блокировку `onrender.com`, но и **сам выставляет CORS**
+     и отвечает на preflight `OPTIONS`. Поэтому ошибки `Failed to fetch` из-за
+     настроек `ALLOWED_ORIGIN` на Render исчезают.
+   - Проверка:
+     ```bash
+     node -e "fetch('https://accretion-api-proxy.buggipop.workers.dev/api/load',{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://buggipop-pixel.github.io'},body:JSON.stringify({initData:'x'})}).then(async r=>console.log(r.status, r.headers.get('access-control-allow-origin'), await r.text()))"
+     ```
+     Ожидаемо: `401 * {"error":"Invalid initData"}` — CORS есть, запрос дошёл до сервера.
+   - Если меняете код воркера — после Deploy прогоните `node tests/worker-proxy-test.js`.
+
+1. **Свой домен через Cloudflare (если не хотите Workers).**
    - Домен на Cloudflare → CNAME `api.ваш-домен` → `accretion-game.onrender.com`,
      **Proxy status: Proxied** (оранжевое облако).
    - В Render → Settings → Custom Domain добавить `api.ваш-домен`.
    - В `js/cloudsave.js` заменить адрес по умолчанию на новый, либо задать игрокам
      без правки кода: `localStorage.setItem('accretion_cloud_api','https://api.ваш-домен')`
      (адрес читается из `accretion_cloud_api` / `window.__CLOUD_API__`).
-   - Трафик идёт через Cloudflare, поэтому блокировка `*.onrender.com` перестаёт мешать.
+   - Не забудьте CORS: в Render → Environment `ALLOWED_ORIGIN` должен содержать
+     точный origin игры (например `https://buggipop-pixel.github.io`, без слэша на конце).
+     Если переменная задана неверно, Render отвечает без `Access-Control-Allow-Origin`,
+     и браузер блокирует ответы даже через прокси-домен.
 
-2. **Перенести API на хост, доступный в регионе** (Cloudflare Workers, Deno Deploy,
+2. **Перенести API на хост, доступный в регионе** (Deno Deploy,
    Vercel, VPS). Сервер — обычный Node/Express, переносится почти без изменений.
 
 3. После смены адреса — проверить в логе строку

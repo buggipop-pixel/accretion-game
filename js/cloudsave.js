@@ -11,9 +11,10 @@
 //   3. При старте, если на сервере есть сейв, он применяется всегда.
 // ═══════════════════════════════════════════════════════════════
 
-// Адрес сервера. По умолчанию — Render.
-// ★ Можно перенастроить БЕЗ правки кода (например, если onrender.com
-//   заблокирован в сети игрока — нужен свой домен/другой хост):
+// Адрес сервера. По умолчанию — наш Cloudflare Worker-прокси:
+// он открывается там, где *.onrender.com заблокирован, и сам выставляет
+// CORS-заголовки (Render отдаёт их только доверенным origin).
+// ★ Можно перенастроить БЕЗ правки кода:
 //   localStorage.setItem('accretion_cloud_api', 'https://api.ваш-домен.ru')
 //   или window.__CLOUD_API__ = '...' перед загрузкой.
 const CLOUD_API = (function () {
@@ -22,7 +23,7 @@ const CLOUD_API = (function () {
     const saved = localStorage.getItem('accretion_cloud_api');
     if (saved) return String(saved);
   } catch (e) { /* localStorage недоступен */ }
-  return 'https://accretion-game.onrender.com';
+  return 'https://accretion-api-proxy.buggipop.workers.dev';
 })();
 window.__cloudApiBase = CLOUD_API;
 try { console.log('[CloudSave] API base:', CLOUD_API); } catch (e) { /* ignore */ }
