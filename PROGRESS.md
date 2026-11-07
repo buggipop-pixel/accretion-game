@@ -338,3 +338,14 @@
 - `.gitignore` — служебный `.dsh-code-index/`.
 
 **Проверка:** `node tests/prestige-world-events-test.js` — 10/10; `tests/random-events-test.js` — 66/66; `tests/prime-protection-test.js` — 23/23; остальные тесты `tests/` — без провалов.
+
+## Сессия: оптимизация частиц + админ-управление статусами
+
+**Задача:** отключить отрисовку частиц на поздних фазах и добавить в админку управление щитом, дебаффом вторжения и мировыми событиями.
+
+**Что сделано:**
+- `js/particles.js` — `particleVisibility()`: `firstPlanet` → 0.05, `system` и `galaxy` → 0; в начале `updateParticles` и `drawParticles` добавлен ранний выход `if (particleVisibility() <= 0.01) return;`.
+- `js/main.js` — вызов `drawParticles(ctx, time)` в `loopFrame` выполняется только при `particleVisibility() > 0.01`.
+- `admin.html` — блок «Статусы» в модалке игрока (текущие `shieldUntil`, `invasionDebuff`, `activeWorldEvents`), кнопки «Снять все дебаффы» / «Выдать Щит 24ч» и селект событий (`golden_hour`, `trade_boom`, `week_golden_age`, `dust_drought`); заполнение блока в `openPlayer(id)`; функции `adminClearDebuffs()`, `adminApplyShield(hours)`, `adminApplyWorldEvent()` (через `setFields`).
+
+**Проверка:** `node --check js/particles.js`, `js/main.js` и inline-скрипта `admin.html` — без ошибок; `node tests/smoke-test.js` — 33/33; `node tests/random-events-test.js` — 66/66.

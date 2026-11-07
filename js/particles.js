@@ -199,6 +199,7 @@ function _absorb(index) {
 //  ОБНОВЛЕНИЕ
 // ═══════════════════════════════════════════════════════════════
 function updateParticles(dt, time) {
+  if (particleVisibility() <= 0.01) return;
   const W = window.CANVAS_W || 400, H = window.CANVAS_H || 700;
   const z = S.zoom || 1;
   const halfW = W / (2 * z), halfH = H / (2 * z);
@@ -617,9 +618,9 @@ function particleVisibility() {
   if (S.stage === 'cloud')       return 1.0;
   if (S.stage === 'condense')    return 0.95;
   if (S.stage === 'protostar')   return 0.75;
-  if (S.stage === 'firstPlanet') return 0.5;
-  if (S.stage === 'system')      return Math.max(0.2, 0.5 - S.planets.length * 0.04);
-  if (S.stage === 'galaxy')      return 0.15;
+  if (S.stage === 'firstPlanet') return 0.05;
+  if (S.stage === 'system')      return 0;
+  if (S.stage === 'galaxy')      return 0;
   return 1.0;
 }
 
@@ -632,6 +633,7 @@ function _hexToRgba(hex, a) {
 }
 
 function drawParticles(ctx, time) {
+  if (particleVisibility() <= 0.01) return;
   const z = S.zoom || 1;
   const t = time;
   const stage = S.stage;

@@ -97,6 +97,40 @@
       </div>
       <button onclick="saveResources()" style="width: 100%;">Сохранить ресурсы</button>
 
+      <!-- СТАТУСЫ -->
+      <div class="section-title">🧪 Статусы</div>
+      <div class="grid-2">
+        <div class="input-group">
+          <label>Щит (shieldUntil)</label>
+          <div id="status-shield" style="font-size: 13px;">—</div>
+        </div>
+        <div class="input-group">
+          <label>Дебафф вторжения</label>
+          <div id="status-invasion" style="font-size: 13px;">—</div>
+        </div>
+        <div class="input-group" style="grid-column: 1 / -1;">
+          <label>Активные мировые события</label>
+          <div id="status-events" style="font-size: 13px; word-break: break-word;">—</div>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn-danger" onclick="adminClearDebuffs()">🧹 Снять все дебаффы</button>
+        <button class="btn-warning" onclick="adminApplyShield(24)">🛡 Выдать Щит 24ч</button>
+      </div>
+      <div class="grid-2">
+        <div class="input-group">
+          <label>Событие</label>
+          <select id="admin-event-id">
+            <option value="golden_hour">Золотой час</option>
+            <option value="trade_boom">Торговый бум</option>
+            <option value="week_golden_age">День Золотого века</option>
+            <option value="dust_drought">Пылевая засуха</option>
+          </select>
+        </div>
+        <div class="input-group" style="justify-content: flex-end;">
+          <button onclick="adminApplyWorldEvent()">Наложить ивент</button>
+        </div>
+      </div>
       <!-- ФАЗА -->
       <div class="section-title">🌀 Фаза игры</div>
       <div class="input-group">
@@ -377,6 +411,28 @@
         const storageRes = document.getElementById('edit-storage-res').value;
         const levels = json.data.storageLevels || {};
         document.getElementById('edit-storage-lvl').value = Number(levels[storageRes]) || 1;
+        // Статусы: щит, дебафф вторжения, мировые события
+        const now = Date.now();
+
+        const shieldUntil = Number(json.data.shieldUntil) || 0;
+        document.getElementById('status-shield').textContent = shieldUntil > now
+          ? ('активен, ещё ' + Math.ceil((shieldUntil - now) / 3600000) + ' ч (до ' + new Date(shieldUntil).toLocaleString() + ')')
+          : 'нет';
+
+        const debuff = json.data.invasionDebuff;
+        document.getElementById('status-invasion').textContent =
+          (debuff && Number(debuff.until) > now)
+            ? ('−' + Math.round((Number(debuff.pct) || 0) * 100) + '%, ещё ' + Math.ceil((Number(debuff.until) - now) / 3600000) + ' ч')
+            : 'нет';
+
+        const events = Array.isArray(json.data.activeWorldEvents) ? json.data.activeWorldEvents : [];
+        const activeEvents = events.filter(function(ev) { return ev && Number(ev.endsAt) > now; });
+        document.getElementById('status-events').textContent = activeEvents.length
+          ? activeEvents.map(function(ev) {
+              return ev.id + ' (' + (ev.tier || 'daily') + ', ещё ' + Math.ceil((Number(ev.endsAt) - now) / 3600000) + ' ч)';
+            }).join(', ')
+          : 'нет';
+
         document.getElementById('playerModal').style.display = 'flex';
       } catch (e) {
         alert(e.message);
@@ -554,6 +610,37 @@
           alert('Ошибка: ' + (json.error || ('HTTP ' + res.status)));
         }
       } catch (e) { alert(e.message); }
+    }
+
+    // ─── Статусы: дебаффы / щит / мировые события ───
+    async function adminClearDebuffs() {
+      if (!currentPlayerId) { alert('Сначала открой игрока'); return; }
+      if (!confirm('Снять все дебаффы, щит и мировые события?')) return;
+      await setFields({
+        invasionDebuff: { pct: 0, until: 0 },
+        activeWorldEvents: [],
+        shieldUntil: 0,
+        nightDefenseExpiresAt: 0,
+      });
+    }
+
+    async function adminApplyShield(hours) {
+      if (!currentPlayerId) { alert('Сначала открой игрока'); return; }
+      const h = Number(hours) || 24;
+      const until = Date.now() + h * 3600 * 1000;
+      await setFields({ shieldUntil: until });
+    }
+
+    async function adminApplyWorldEvent() {
+      if (!currentPlayerId) { alert('Сначала открой игрока'); return; }
+      const id = document.getElementById('admin-event-id').value;
+      if (!id) { alert('Выбери событие'); return; }
+      const now = Date.now();
+      const list = (currentPlayerData && Array.isArray(currentPlayerData.activeWorldEvents))
+        ? currentPlayerData.activeWorldEvents.slice()
+        : [];
+      list.push({ id: id, tier: 'daily', startedAt: now, endsAt: now + 24 * 3600 * 1000 });
+      await setFields({ activeWorldEvents: list });
     }
 
     function saveStorage() {

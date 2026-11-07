@@ -1193,7 +1193,7 @@ drawBackground(time);
 if (S.stage === 'galaxy') {
 drawGalaxyView(time);
 } else {
-if (typeof drawParticles === 'function') drawParticles(ctx, time);
+if (typeof drawParticles === 'function' && typeof particleVisibility === 'function' && particleVisibility() > 0.01) drawParticles(ctx, time);
 if (typeof drawStar === 'function') drawStar(ctx, time);
 if (typeof drawPlanets === 'function') drawPlanets(ctx, time);
 }
