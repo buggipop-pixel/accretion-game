@@ -25,6 +25,7 @@ import {
 import { rollChestReward } from './lib/chest.js';
 import { clampReward, hasReward, maxExtraReward } from './lib/reward.js';
 import { capabilityAudit, remainingCapabilityBudget, chestCapabilityValue } from './lib/capability.js';
+import { applyAdminWallet, adminCapabilityBonus, adminEntitlementPlan } from './lib/admin-trust.js';
 import fs from 'node:fs';
 import TelegramBot from 'node-telegram-bot-api';
 import cron from 'node-cron';
@@ -634,9 +635,17 @@ app.post('/api/save', async (req, res) => {
     const existing = parseRedisJson(existingRaw);
     const curVersion = (existing && typeof existing.version === 'number') ? existing.version : 0;
 
+    // ★ Сразу после правки админа не проверяем сейв на «скачок»: клиент
+    // мог ещё не принять админский срез, и разница была бы ложной.
+    let adminTrust = false;
+    try {
+      adminTrust = (await redisGet(`admin_trust:${user.id}`)) != null;
+      if (adminTrust) await redisDel(`admin_trust:${user.id}`);
+    } catch (e) { /* некритично */ }
+
     // ★ Скачок ресурсов за секунды — это не игра, а подмена сейва.
     // Не блокируем (можно и ошибиться), но фиксируем для админки.
-    if (existing && existing.data) {
+    if (existing && existing.data && !adminTrust) {
       try {
         const anomalies = detectSaveAnomalies(existing.data, safeSave, existing.saved_at);
         if (anomalies.length) {
@@ -705,6 +714,7 @@ app.post('/api/save', async (req, res) => {
     // Клиент мог нарисовать баланс — его прирост принимается только в пределах
     // серверного начисления. Траты принимаются как есть.
     let clampedFields = [];
+    let walletToWrite = null;
     if (SERVER_AUTHORITATIVE && gameCore) {
       try {
         const wallet = ensureWallet(await readWallet(user.id), safeSave, Date.now());
@@ -753,7 +763,7 @@ app.post('/api/save', async (req, res) => {
         const rec = reconcileWallet(wallet, safeSave, allowance);
         safeSave = rec.data;
         clampedFields = rec.clamped;
-        await writeWallet(user.id, wallet);
+        walletToWrite = wallet;
 
         if (clampedFields.length) {
           console.warn(`[save] user=${user.id} обрезаны ресурсы: ${clampedFields.join(',')}`);
@@ -787,6 +797,10 @@ app.post('/api/save', async (req, res) => {
         data: latest && latest.data, saved_at: latest && latest.saved_at, version: cas.version,
       });
     }
+    // ★ Кошелёк пишем только после успешного CAS. Иначе при 409 (конфликт
+    // версий) клиентский срез затирал бы кошелёк, включая выдачу админа.
+    if (walletToWrite) await writeWallet(user.id, walletToWrite);
+
     res.json({
       ok: true, saved_at: payload.saved_at, version: payload.version,
       authoritative: SERVER_AUTHORITATIVE,
@@ -1263,23 +1277,58 @@ function toAdminPlayer(userId, payload) {
   };
 }
 
-// ★ Правка админа должна попасть и в серверный кошелёк, иначе следующая
-// сверка в /api/save обрежет её как необоснованный прирост (см. /give).
-async function syncAdminWallet(userId, data) {
+// ★ Любая правка админа должна попасть в серверные «источники правды»
+// (кошелёк и бюджет возможностей), иначе /api/load и /api/save обрежут
+// её как читерский прирост. prevCapability — стоимость возможностей ДО
+// правки; по разнице выдаём capBudget, как это делает платный сундук.
+async function syncAdminWallet(userId, data, prevCapability) {
   if (!SERVER_AUTHORITATIVE) return false;
   try {
     const wallet = ensureWallet(await readWallet(userId), data, Date.now());
-    wallet.dust = Number(data.dust) || 0;
-    wallet.dustTotal = Number(data.dustTotal) || 0;
-    wallet.energy = Number(data.energy) || 0;
-    wallet.civLevel = Number(data.civLevel) || 0;
-    wallet.updatedAt = Date.now();
+    applyAdminWallet(wallet, data, Date.now());
+
+    if (gameCore && Number.isFinite(Number(prevCapability))) {
+      const nextCapability = withCoreState(data, function () { return gameCore.capability(); });
+      const bonus = adminCapabilityBonus(prevCapability, nextCapability);
+      if (bonus > 0) wallet.capBudget = (Number(wallet.capBudget) || 0) + bonus;
+    }
+
     await writeWallet(userId, wallet);
     return true;
   } catch (e) {
     console.warn('[admin] кошелёк не обновлён:', e.message);
     return false;
   }
+}
+
+// ★ Право на щит/бустер: без записи в entitlement админский щит
+// обрежется до 9 часов, а бустер исчезнет при загрузке.
+async function syncAdminEntitlement(userId, data, field) {
+  const plan = adminEntitlementPlan(field, data);
+  if (!plan) return false;
+  const key = `entitlement:${plan.type}:${userId}`;
+  try {
+    if (plan.until > 0) {
+      const prev = Number(await redisGet(key)) || 0;
+      await redisSet(key, String(Math.max(prev, plan.until)));
+    } else {
+      await redisDel(key);
+    }
+    return true;
+  } catch (e) {
+    console.warn('[admin] право не обновлено:', e.message);
+    return false;
+  }
+}
+
+// ★ Первый сейв после правки админа не проверяем на «скачок»:
+// сравнивать его с админским срезом бессмысленно. Заодно снимаем старый флаг.
+async function markAdminTrust(userId) {
+  try {
+    await redisDel(`save_flag:${userId}`);
+    await redisSet(`admin_trust:${userId}`, String(Date.now()));
+    await redisCommand('EXPIRE', `admin_trust:${userId}`, 600);
+  } catch (e) { /* некритично */ }
 }
 
 // Параметры вторжений берём из настоящего js/config.js (через game-core),
@@ -1455,6 +1504,7 @@ app.post('/admin/api/player/:id/give', adminGuard, async (req, res) => {
     // ★ В режиме кошелька выдача админа должна попасть и в кошелёк,
     // иначе следующая сверка обрежет её как необоснованный прирост.
     await syncAdminWallet(id, payload.data);
+    await markAdminTrust(id);
 
     await redisSet(key, JSON.stringify(payload));
     console.log(`[admin] игроку ${id} выдано ${resource} +${delta} → ${payload.data[resource]}`);
@@ -1504,6 +1554,11 @@ app.post('/admin/api/player/:id/set', adminGuard, async (req, res) => {
         !payload.data || typeof payload.data !== 'object') {
       return res.status(404).json({ error: 'У игрока нет облачного сейва' });
     }
+    // Стоимость «возможностей» до правки: разницу покроем бюджетом,
+    // иначе проверка сочтёт добавленные системы/планеты подделкой.
+    const prevCapability = (SERVER_AUTHORITATIVE && gameCore)
+      ? withCoreState(payload.data, function () { return gameCore.capability(); })
+      : null;
 
     // Если меняем вложенный объект (например, primeSystem)
     if (typeof value === 'object' && value !== null) {
@@ -1518,10 +1573,11 @@ app.post('/admin/api/player/:id/set', adminGuard, async (req, res) => {
     payload.saved_at = Date.now();
     payload.version = (Number(payload.version) || 0) + 1;
 
-    // Правка ресурсов должна попасть и в серверный кошелёк — иначе
-    // /api/save обрежет её как необоснованный прирост.
-    await syncAdminWallet(id, payload.data);
-
+    // Правка ресурсов должна попасть и в серверный кошелёк, а щит/бустер —
+    // в entitlement; иначе /api/load и /api/save обрежут её как читерство.
+    await syncAdminWallet(id, payload.data, prevCapability);
+    await syncAdminEntitlement(id, payload.data, field);
+    await markAdminTrust(id);
     await redisSet(key, JSON.stringify(payload));
     console.log(`[admin] игроку ${id} установлено ${field} = ${JSON.stringify(payload.data[field])}`);
     res.json({ ok: true, field, value: payload.data[field] });
@@ -1548,6 +1604,14 @@ app.post('/admin/api/player/:id/delete', adminGuard, async (req, res) => {
     const saveKey = `cloudsave:${id}`;
     const walletKey = `wallet:${id}`;
     const resetKey = RESET_PREFIX + id;
+    // ★ Вместе с аккаунтом убираем серверные права и служебные метки:
+    // иначе щит/бустер от старой игры «протекут» в новый аккаунт.
+    const extraKeys = [
+      `entitlement:shield:${id}`,
+      `entitlement:booster:${id}`,
+      `save_flag:${id}`,
+      `admin_trust:${id}`,
+    ];
 
     const [saveRaw, walletRaw, resetRaw] = await Promise.all([
       redisGet(saveKey),
@@ -1565,7 +1629,7 @@ app.post('/admin/api/player/:id/delete', adminGuard, async (req, res) => {
 
     const results = [];
     const deleted = [];
-    for (const key of [saveKey, walletKey]) {
+    for (const key of [saveKey, walletKey].concat(extraKeys)) {
       const ok = await redisDel(key);
       results.push({ key, ok });
       if (ok) deleted.push(key);
