@@ -417,8 +417,19 @@ function updateStorageUI() {
       } else if (res === 'civ') {
         rateEl.textContent = '+' + fmt(civPerSec() * 3600) + ' / ч';
       } else if (res === 'metals') {
-        const mRate = metalsPerSec() * ((typeof eventMult === 'function') ? eventMult('metals') : 1) * 3600;
-        rateEl.textContent = '+' + fmt(mRate) + ' / ч';
+        const ev = (typeof eventMult === 'function') ? eventMult('metals') : 1;
+        const gross = metalsPerSec() * ev * 3600;
+        const upkeep = (typeof fleetUpkeepPerSec === 'function') ? fleetUpkeepPerSec() * ev * 3600 : 0;
+        const net = Math.max(0, gross - upkeep);
+        rateEl.textContent = '+' + fmt(net) + ' / ч';
+        const capNow = (typeof getResourceCap === 'function') ? getResourceCap('metals') : 0;
+        let hint = 'Добыча: +' + fmt(gross) + ' / ч';
+        if (upkeep > 0) hint += '\nСодержание флота: −' + fmt(upkeep) + ' / ч';
+        hint += '\nЧистый прирост: +' + fmt(net) + ' / ч';
+        if (capNow > 0) hint += '\nЛимит хранилища: ' + fmt(capNow);
+        rateEl.title = hint;
+        if (upkeep > 0) rateEl.classList.add('rate-net');
+        else rateEl.classList.remove('rate-net');
       }
     }
 
