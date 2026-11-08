@@ -23,6 +23,8 @@
     #playerModal { display: none; position: fixed; inset: 0; background: rgba(2, 1, 10, 0.9); backdrop-filter: blur(5px); z-index: 100; align-items: center; justify-content: center; padding: 20px; overflow-y: auto; }
     .modal-content { background: linear-gradient(180deg, #1a1030, #0a0620); border: 1px solid #6b4de6; border-radius: 16px; padding: 24px; max-width: 600px; width: 100%; box-shadow: 0 10px 40px rgba(0,0,0,0.8); max-height: 90vh; overflow-y: auto; }
 
+    #starsModal { display: none; position: fixed; inset: 0; background: rgba(2, 1, 10, 0.9); backdrop-filter: blur(5px); z-index: 110; align-items: center; justify-content: center; padding: 20px; overflow-y: auto; }
+    #starsModal .modal-content { max-width: 900px; }
     .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid rgba(139, 127, 212, 0.3); padding-bottom: 10px; }
     .section-title { font-size: 12px; color: #8b7fd4; text-transform: uppercase; letter-spacing: 1px; margin: 15px 0 10px; font-weight: bold; border-bottom: 1px dashed rgba(139, 127, 212, 0.2); padding-bottom: 4px; }
 
@@ -51,7 +53,10 @@
   <div id="mainBlock" style="display: none;">
     <div style="display: flex; justify-content: space-between; align-items: center;">
       <h1>🛠 Управление игроками</h1>
-      <button onclick="loadPlayers()">🔄 Обновить</button>
+      <div style="display: flex; gap: 10px;">
+        <button onclick="openStarsModal()">⭐ Транзакции</button>
+        <button onclick="loadPlayers()">🔄 Обновить</button>
+      </div>
     </div>
     <table id="playersTable">
       <thead>
@@ -65,6 +70,32 @@
       </thead>
       <tbody></tbody>
     </table>
+  </div>
+
+  <!-- Модалка транзакций Telegram Stars -->
+  <div id="starsModal">
+    <div class="modal-content">
+      <div class="header-row">
+        <h2 style="margin: 0; color: #fff;">⭐ Telegram Stars</h2>
+        <button class="btn-danger" onclick="closeStarsModal()">✕ Закрыть</button>
+      </div>
+
+      <div class="section-title">Текущий баланс</div>
+      <div id="starsBalance" style="font-size: 32px; font-weight: bold; color: #ffd54a; margin-bottom: 10px;">—</div>
+
+      <div class="section-title">Последние транзакции</div>
+      <table id="starsTable">
+        <thead>
+          <tr>
+            <th>Дата</th>
+            <th>ID пользователя</th>
+            <th>Сумма</th>
+            <th>Название товара</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
   </div>
 
   <!-- Модалка управления игроком -->
@@ -443,6 +474,64 @@
       document.getElementById('playerModal').style.display = 'none';
       currentPlayerId = null;
       currentPlayerData = null;
+    }
+
+    function openStarsModal() {
+      document.getElementById('starsModal').style.display = 'flex';
+      loadStars();
+    }
+
+    function closeStarsModal() {
+      document.getElementById('starsModal').style.display = 'none';
+    }
+
+    async function loadStars() {
+      const tokenInput = document.getElementById('adminToken').value;
+      if (tokenInput) currentToken = tokenInput;
+      if (!currentToken) { alert('Введите токен!'); return; }
+
+      const balanceEl = document.getElementById('starsBalance');
+      const tbody = document.querySelector('#starsTable tbody');
+      balanceEl.textContent = '…';
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">Загрузка…</td></tr>';
+
+      try {
+        const res = await fetch(API_BASE + '/admin/api/stars', {
+          headers: { 'X-Admin-Token': currentToken }
+        });
+        const json = await res.json().catch(function() { return {}; });
+        if (!res.ok || !json.ok) {
+          throw new Error(json.error || ('HTTP ' + res.status));
+        }
+
+        balanceEl.textContent = '⭐ ' + (Number(json.balance) || 0).toLocaleString();
+
+        const txs = Array.isArray(json.transactions) ? json.transactions : [];
+        if (txs.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">Транзакций пока нет</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = txs.map(function(t) {
+          const src = t.source || {};
+          const recv = t.receiver || {};
+          const userId = (src.user && src.user.id) || (recv.user && recv.user.id) || '—';
+          const product = (src.product && src.product.name) || (recv.product && recv.product.name) || '—';
+          const amount = Number(t.amount) || 0;
+          const amountText = (amount > 0 ? '+' : '') + amount;
+          const date = t.date ? new Date(t.date * 1000).toLocaleString() : '—';
+
+          return '<tr>'
+            + '<td>' + esc(date) + '</td>'
+            + '<td>' + esc(userId) + '</td>'
+            + '<td>' + esc(amountText) + '</td>'
+            + '<td>' + esc(product) + '</td>'
+            + '</tr>';
+        }).join('');
+      } catch (e) {
+        balanceEl.textContent = '—';
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">Ошибка: ' + esc(e.message) + '</td></tr>';
+      }
     }
 
     // Записывает набор полей в сейв. Каждый ответ проверяем: раньше ошибки

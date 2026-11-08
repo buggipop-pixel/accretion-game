@@ -1345,6 +1345,40 @@ app.get('/admin/api/players', adminGuard, async (req, res) => {
   }
 });
 
+// GET /admin/api/stars — баланс звёзд бота и последние транзакции.
+// В node-telegram-bot-api нет обёрток для звёзд, поэтому дёргаем Bot API напрямую.
+app.get('/admin/api/stars', adminGuard, async (req, res) => {
+  console.log(`[admin] GET /admin/api/stars — ip=${req.ip}`);
+  try {
+    const api = `https://api.telegram.org/bot${BOT_TOKEN}`;
+
+    const balRes = await fetch(`${api}/getMyStarBalance`);
+    const balJson = await balRes.json();
+    if (!balJson.ok) {
+      throw new Error(balJson.description || 'getMyStarBalance failed');
+    }
+
+    const txRes = await fetch(`${api}/getStarTransactions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ limit: 50 }),
+    });
+    const txJson = await txRes.json();
+    if (!txJson.ok) {
+      throw new Error(txJson.description || 'getStarTransactions failed');
+    }
+
+    res.json({
+      ok: true,
+      balance: Number(balJson.result && balJson.result.balance) || 0,
+      transactions: (txJson.result && txJson.result.transactions) || [],
+    });
+  } catch (e) {
+    console.error('[admin] /admin/api/stars', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /admin/api/player/:id/give  { resource, amount }
 app.post('/admin/api/player/:id/give', adminGuard, async (req, res) => {
   const { id } = req.params;
