@@ -67,6 +67,43 @@ try {
 }
 const bot = new TelegramBot(BOT_TOKEN, { polling: false });
 
+// ─── Меню команд бота ───────────────────────────────────────────
+// Регистрируем подсказки в интерфейсе Telegram (кнопка «Меню»).
+// Ошибку только логируем: без меню бот продолжает работать.
+bot.setMyCommands([
+  { command: 'start', description: '🚀 Запустить игру и подписаться на уведомления' },
+  { command: 'stop',  description: '🔕 Отключить уведомления от бота' }
+]).then(() => console.log('[OK] Меню команд успешно зарегистрировано'))
+  .catch((err) => console.error('[ERROR] Ошибка регистрации меню:', err.message));
+
+// ─── Кнопка «Play» у поля ввода (Telegram Mini App) ─────────────
+// Одна кнопка в чате открывает саму игру, рядом — меню команд /start, /stop.
+// Адрес игры можно переопределить без правки кода: env GAME_URL.
+const GAME_URL = process.env.GAME_URL || 'https://buggipop-pixel.github.io/accretion-game/';
+bot.setChatMenuButton({
+  menu_button: JSON.stringify({ type: 'web_app', text: '▶️ Play', web_app: { url: GAME_URL } }),
+}).then(() => console.log('[OK] Кнопка Play зарегистрирована'))
+  .catch((err) => console.error('[ERROR] Ошибка регистрации кнопки Play:', err.message));
+
+// ─── Разбор команд Telegram ────────────────────────────────────
+// Меню команд, клавиатура и deep-link присылают текст по-разному:
+// "/start", "/Start", "/start@AccretionBot", "/start ref123".
+// Дальше в коде сравниваем только каноническую форму "/start".
+function parseBotCommand(text) {
+  const first = String(text || '').trim().split(/\s+/)[0];
+  if (!first.startsWith('/')) return '';
+  return first.split('@')[0].toLowerCase();
+}
+
+// Кнопка «Открыть игру» под приветствием. web_app разрешён только в
+// личных чатах; в группах Telegram примет обычную url-кнопку.
+function playKeyboard(chatType) {
+  const button = chatType === 'private'
+    ? { text: '▶️ Play', web_app: { url: GAME_URL } }
+    : { text: '▶️ Играть', url: GAME_URL };
+  return { inline_keyboard: [[button]] };
+}
+
 // ─── Upstash Redis (REST) ───────────────────────────────────────
 // ★ Запись через командный API (POST-тело), а не через URL-путь /set/{key}/{value}:
 //   сейвы в сотни КБ/МБ (тысячи систем) не влезают в URL и молча терялись.
@@ -133,14 +170,21 @@ async function redisSetIfVersion(key, newValue, expectedVersion) {
 }
 
 // ─── Push-уведомления в Telegram ────────────────────────────────
-// chatId игрока хранится в tg_chat:<userId> после команды /start.
-// Пустое значение (или отсутствие ключа) означает, что игрок отключил
-// уведомления командой /stop либо заблокировал бота.
+// Подписка живёт в tg_chat:<userId> и хранит РОВНО userId: уведомления
+// уходят только в личный чат самого игрока. Пустое значение (или
+// отсутствие ключа) — игрок отписался /stop либо заблокировал бота.
 async function sendNotification(userId, text) {
   try {
     const chatId = await redisGet(`tg_chat:${userId}`);
     if (!chatId || chatId === 'null') return;
-    await bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
+    // ★ Страховка от «чужих» уведомлений: старый групповой chat_id или
+    //   любое значение, не равное userId, не шлём — подписку сбрасываем.
+    if (String(chatId) !== String(userId)) {
+      console.warn(`[notify] ${userId}: сохранён чужой chatId ${chatId} — подписка сброшена`);
+      await redisSet(`tg_chat:${userId}`, '');
+      return;
+    }
+    await bot.sendMessage(String(userId), text, { parse_mode: 'HTML' });
   } catch (e) {
     console.warn(`[notify] Не удалось отправить ${userId}:`, e.message);
     if (e.response && e.response.statusCode === 403) {
@@ -1166,14 +1210,37 @@ app.post('/webhook', async (req, res) => {
     if (update.message && update.message.text) {
       const chatId = update.message.chat.id;
       const userId = update.message.from.id;
-      const text = update.message.text.trim();
+      const chatType = update.message.chat.type;
+      const command = parseBotCommand(update.message.text);
 
-      if (text === '/start') {
-        await redisSet(`tg_chat:${userId}`, String(chatId));
-        await bot.sendMessage(chatId, 'Привет! Я буду присылать тебе важные уведомления из игры «Аккреция». Чтобы отключить их, напиши /stop.');
-      } else if (text === '/stop') {
-        await redisSet(`tg_chat:${userId}`, '');
-        await bot.sendMessage(chatId, 'Уведомления отключены. Чтобы включить снова, напиши /start.');
+      // ★ Подписка — только в личном чате с ботом. В группах и каналах
+      //   chat_id не сохраняем: иначе пуши уходили бы в общий чат, то есть
+      //   чужим людям, и игрок видел бы не свои уведомления.
+      if (command === '/start' || command === '/stop') {
+        if (chatType !== 'private' || String(chatId) !== String(userId)) {
+          try {
+            await bot.sendMessage(
+              chatId,
+              'Уведомления приходят только в личные сообщения. Откройте чат с ботом и отправьте /start там.'
+            );
+          } catch (e) {
+            console.warn('[webhook] не удалось ответить в общий чат:', e.message);
+          }
+          return res.sendStatus(200);
+        }
+
+        if (command === '/start') {
+          // Подписка включается сразу: следующее уведомление уйдёт уже сюда.
+          await redisSet(`tg_chat:${userId}`, String(userId));
+          await bot.sendMessage(
+            userId,
+            'Привет! Я буду присылать тебе важные уведомления из игры «Аккреция». Чтобы отключить их, напиши /stop.',
+            { reply_markup: playKeyboard('private') }
+          );
+        } else {
+          await redisSet(`tg_chat:${userId}`, '');
+          await bot.sendMessage(userId, 'Уведомления отключены. Чтобы включить снова, напиши /start.');
+        }
       }
       return res.sendStatus(200); // Завершаем обработку
     }
@@ -1801,7 +1868,45 @@ app.post('/api/notify', async (req, res) => {
   }
 });
 
-// ─── Cron: пуш об офлайн-вторжениях ────────────────────────────
+// ─── Предупреждение о запустении галактики ─────────────────────
+// Запустение (INVASION_CFG.neglect) включается после thresholdHours
+// отсутствия без учёта щита. Предупреждаем за NEGLECT_WARN_AHEAD_HOURS
+// до этого и только один раз за одну отлучку: в ключе хранится saved_at,
+// к которому относилось предупреждение. Вернулся и сохранился — saved_at
+// сменился, следующая отлучка снова получит предупреждение.
+const NEGLECT_WARN_AHEAD_HOURS = 2;
+
+async function warnNeglectSoon(userId, payload, preview) {
+  try {
+    if (!gameCore || typeof gameCore.neglectStatus !== 'function') return;
+    const status = gameCore.neglectStatus(preview.awayHours);
+    if (!status) return;
+    if (status.level > 0) return;                            // запустение уже началось
+    if (!(status.hoursToNeglect > 0)) return;
+    if (status.hoursToNeglect > NEGLECT_WARN_AHEAD_HOURS) return; // ещё рано
+
+    // Одно предупреждение на одну отлучку.
+    const key = `neglect_warn:${userId}`;
+    const warnedFor = await redisGet(key);
+    if (warnedFor === String(payload.saved_at)) return;
+    await redisSet(key, String(payload.saved_at));
+    try { await redisCommand('EXPIRE', key, 45 * 24 * 3600); } catch (e) { /* некритично */ }
+
+    const awayLabel = Math.round((Number(preview.awayHours) || 0) * 10) / 10;
+    const leftLabel = Math.max(0.1, Math.round(status.hoursToNeglect * 10) / 10);
+    await sendNotification(userId,
+      '⏳ <b>Галактика скоро начнёт приходить в запустение</b>\n' +
+      'Вы отсутствуете ~' + awayLabel + ' ч. Примерно через ' + leftLabel + ' ч закончится льготный период: ' +
+      'атаки станут жёстче, а планеты начнут уходить в простой.\n' +
+      (preview.shieldProtected ? '🛡 Щит уже покрыл часть отсутствия — это учтено в расчёте.\n' : '') +
+      'Зайдите в игру, чтобы обнулить таймер заброшенности.'
+    );
+  } catch (e) {
+    console.error('[cron] предупреждение о запустении:', e.message);
+  }
+}
+
+// ─── Cron: пуш об офлайн-вторжениях ─────────────────────────────
 // Игрок закрыл игру — клиент не может оповестить. Раз в 10 минут
 // смотрим сейвы: кто отсутствует > 2 ч и по кому набегают волны
 // вторжений, шлём одно предупреждение (не чаще раза в 3 часа).
@@ -1826,6 +1931,8 @@ cron.schedule('*/10 * * * *', async () => {
       const preview = gameCore.previewOfflineInvasions(data, Math.min(elapsedSec, 30 * 24 * 3600));
       if (!preview || preview.skipped) continue;
 
+      // Предупреждение за пару часов до запустения галактики.
+      await warnNeglectSoon(userId, payload, preview);
       const lockKey = `tg_attack_notice:${userId}`;
       const last = await redisGet(lockKey);
       if (last && now - Number(last) < 3 * 3600 * 1000) continue;

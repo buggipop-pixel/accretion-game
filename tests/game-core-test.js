@@ -217,6 +217,17 @@ function makeClientContext() {
     inv && inv.shipsBase === clientInv.shipsBase && inv.shipsMax === clientInv.shipsMax &&
     Object.keys(clientInv.tiers).every((key) => inv.tiers[key] && inv.tiers[key].label === clientInv.tiers[key].label),
     `server tiers=${inv && Object.keys(inv.tiers).join(',')}`);
+
+  // ── Запустение: предупреждение должно считать тот же порог ──
+  const neglectThreshold = clientInv.neglect.thresholdHours;
+  const nearNeglect = core.neglectStatus(neglectThreshold - 2);
+  const insideNeglect = core.neglectStatus(neglectThreshold + 1);
+  assert('Запустение: за 2 ч до порога остаётся 2 ч',
+    nearNeglect && nearNeglect.level === 0 && Math.abs(nearNeglect.hoursToNeglect - 2) < 1e-9,
+    `near=${JSON.stringify(nearNeglect)}`);
+  assert('Запустение: после порога ур.1 и 0 ч до старта',
+    insideNeglect && insideNeglect.level === 1 && insideNeglect.hoursToNeglect === 0,
+    `inside=${JSON.stringify(insideNeglect)}`);
   console.log('========================================');
   console.log(`ИТОГО: Пройдено ${passed}, Провалено ${failed}`);
   if (failed > 0) process.exitCode = 1;
