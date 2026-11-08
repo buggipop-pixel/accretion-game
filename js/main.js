@@ -409,7 +409,8 @@ canvas.addEventListener('pointerdown', function(e) {
       const lod = galaxyLodLevel();
       const nowTap = performance.now();
       if (lod < 4) {
-        // Сначала пробуем попасть в конкретную (прореженную) звезду:
+        if (lod === 3) {
+          // На LOD 3 звезда — это система; на остальных макро-уровнях объект един.
         // одиночный тап выбирает, двойной — входит в систему, как раньше.
         const sysHit = galaxySystemAt(pos.x, pos.y);
         if (sysHit >= 0) {
@@ -432,6 +433,7 @@ canvas.addEventListener('pointerdown', function(e) {
           panStartPanX = S.panX || 0;
           panStartPanY = S.panY || 0;
           return;
+          }
         }
         const macroHit = galaxyMacroAt(pos.x, pos.y);
         if (macroHit >= 0) {
@@ -570,6 +572,7 @@ function onPointerRelease(e) {
       const nextLevel = Math.max(0, galaxyLodLevel() - 1);
       if (nextLevel !== galaxyLodLevel()) {
         S.galaxyZoomLevel = nextLevel;
+        if (nextLevel < 4) S.galaxyFocus = null;
         galaxySelectedMacro = -1;
         S.galaxySelectedIdx = -1;
         galaxyTap.idx = -1;
@@ -712,6 +715,7 @@ function galaxyLodLevel() {
     lvl = (typeof galaxyLodForTotal === 'function')
       ? galaxyLodForTotal(S.totalSystemsCreated || 1) : 4;
   }
+  if (S.galaxyFocus && lvl >= 4) return 4;
   const total = Math.max(1, Number(S.totalSystemsCreated) || 1);
   if (typeof clampGalaxyLodForTotal === 'function') {
     return clampGalaxyLodForTotal(lvl, total);
@@ -834,15 +838,38 @@ function startGalaxyMacroDrill(index) {
   const objects = galaxyMacroObjects(performance.now() / 1000, total, level);
   const o = objects[index];
   if (!o) return false;
-  const maxLod = (typeof galaxyMaxLodForTotal === 'function')
-    ? galaxyMaxLodForTotal(total) : 4;
-  const targetLevel = Math.min(maxLod, level + 1);
+  const targetLevel = Math.min(4, level + 1);
+  const focus = (targetLevel === 4 && level === 3)
+    ? { start: o.start, end: o.end, name: (typeof galaxyMacroName === 'function' ? galaxyMacroName(3, o.index) : o.label) }
+    : null;
   const fromZoom = Math.max(0.00002, Number(S.zoom) || 1);
-  const targetZoom = Math.min(3, Math.max(fromZoom * 2.0, fromZoom + 0.25, 0.55));
   const fromPanX = Number(S.panX) || 0;
   const fromPanY = Number(S.panY) || 0;
-  const tx = (o.x - cx - fromPanX) / fromZoom;
-  const ty = (o.y - cy - fromPanY) / fromZoom;
+  let targetZoom = Math.min(3, Math.max(fromZoom * 2.0, fromZoom + 0.25, 0.55));
+  let centerX = o.x, centerY = o.y;
+  if (focus) {
+    const now = performance.now() / 1000;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (let i = focus.start; i < focus.end; i++) {
+      const p = galaxySystemPos(i, total, now);
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+    if (isFinite(minX)) {
+      const bw = Math.max(60, maxX - minX);
+      const bh = Math.max(60, maxY - minY);
+      const vw = (typeof W === 'number' && W > 0) ? W : (window.innerWidth || 400);
+      const vh = (typeof H === 'number' && H > 0) ? H : (window.innerHeight || 700);
+      const fit = Math.min((vw * 0.72) / bw, (vh * 0.55) / bh);
+      targetZoom = Math.min(2.0, Math.max(fromZoom * 1.05, fromZoom * fit));
+      centerX = (minX + maxX) / 2;
+      centerY = (minY + maxY) / 2;
+    }
+  }
+  const tx = (centerX - cx - fromPanX) / fromZoom;
+  const ty = (centerY - cy - fromPanY) / fromZoom;
   const toPanX = -tx * targetZoom;
   const toPanY = -ty * targetZoom;
   if (!S.vis) S.vis = { collapse: 0, macroMergeAnims: {} };
@@ -851,6 +878,7 @@ function startGalaxyMacroDrill(index) {
     duration: 680,
     fromLevel: level,
     targetLevel: targetLevel,
+    focus: focus,
     focusIndex: index,
     startX: o.x,
     startY: o.y,
@@ -876,6 +904,7 @@ function updateGalaxyMacroDrill(now) {
   if (p >= 1) {
     if (d.targetLevel !== d.fromLevel) {
       S.galaxyZoomLevel = d.targetLevel;
+      S.galaxyFocus = d.focus || null;
       galaxySelectedMacro = -1;
       S.galaxySelectedIdx = -1;
     } else {
@@ -1079,7 +1108,7 @@ function checkGalaxyMergeThresholds(prevTotal, newTotal) {
   const auto = (typeof galaxyLodForTotal === 'function')
     ? galaxyLodForTotal(to) : galaxyLodLevel();
   // На пороге переключаемся на более безопасный (крупный) LOD.
-  if (galaxyLodLevel() > auto) S.galaxyZoomLevel = auto;
+  if (galaxyLodLevel() > auto) { S.galaxyZoomLevel = auto; S.galaxyFocus = null; }
   const thresholds = (typeof GALAXY_LOD_CFG !== 'undefined' && Array.isArray(GALAXY_LOD_CFG.mergeThresholds))
     ? GALAXY_LOD_CFG.mergeThresholds : [10, 50, 150, 450];
   for (let i = 0; i < thresholds.length; i++) {
@@ -1231,7 +1260,10 @@ function galaxySystemAt(x, y) {
     return best;
   }
 
-  for (let i = 0; i < total; i++) {
+  const focus = (level >= 4 && S.galaxyFocus) ? S.galaxyFocus : null;
+  const from = focus ? Math.max(0, Number(focus.start) || 0) : 0;
+  const to = focus ? Math.min(total, Number(focus.end) || total) : total;
+  for (let i = from; i < to; i++) {
     const p = galaxySystemPos(i, total, t);
     const d = Math.hypot(p.x - x, p.y - y);
     if (d <= 26 && d < bestD) { bestD = d; best = i; }
@@ -1401,16 +1433,6 @@ function drawMacroStar(idx, pos, total, time, labelCandidates) {
     ctx.restore();
   }
 
-  if (total <= 250) {
-    let nm = galaxySystemNameAt(idx);
-    if (isPrime) nm = '👑 ' + nm;
-    const dvx = pos.x - (cx || 0), dvy = pos.y - (cy || 0);
-    labelCandidates.push({
-      x: pos.x, y: pos.y + size * 2.5 + 2, name: nm,
-      isActive: isActive, isPrime: isPrime, isSelected: idx === S.galaxySelectedIdx,
-      dist2: dvx * dvx + dvy * dvy
-    });
-  }
 }
 
 
@@ -1622,13 +1644,22 @@ function drawGalaxyView(time) {
   }
   drawMacroMergeAnims(time);
   const positions = [];
-for (let i = 0; i < total; i++) {
+const focus = S.galaxyFocus;
+const from = (focus && Number.isFinite(Number(focus.start))) ? Math.max(0, Math.floor(focus.start)) : 0;
+const to = (focus && Number.isFinite(Number(focus.end))) ? Math.min(total, Math.floor(focus.end)) : total;
+for (let i = from; i < to; i++) {
 const p = galaxySystemPos(i, total, t);
 positions.push({ x: p.x, y: p.y, idx: i });
 }
 // ─── Созвездия: только внутренние связи ─────────────────────────
 // Между группами связей нет, поэтому созвездия читаются отдельно.
-const constellationGroups = galaxyConstellationGroups(total);
+const constellationGroups = focus
+  ? (function () {
+      const members = [];
+      for (let i = 0; i < positions.length; i++) members.push(i);
+      return [{ members: members, edges: constellationMst(positions, members) }];
+    })()
+  : galaxyConstellationGroups(total);
 ctx.save();
 ctx.strokeStyle = 'rgba(150, 140, 215, 0.14)';
 ctx.lineWidth = 1;
@@ -1649,7 +1680,7 @@ for (let gi = 0; gi < constellationGroups.length; gi++) {
 ctx.restore();
 // Названия созвездий
 const constellationNames = ['Орион', 'Дракон', 'Лиры', 'Феникс', 'Центавр', 'Гидра', 'Кит', 'Пегас', 'Андромеда', 'Орёл', 'Волопас', 'Лебедь'];
-if ((S.zoom || 1) >= 0.45 && constellationGroups.length <= 40) {
+if (!focus && (S.zoom || 1) >= 0.45 && constellationGroups.length <= 40) {
 ctx.save();
 ctx.fillStyle = 'rgba(180, 160, 255, 0.55)';
 ctx.font = 'italic 10px -apple-system, sans-serif';
@@ -1729,7 +1760,7 @@ if (pos.idx === S.galaxySelectedIdx) {
   ctx.restore();
 }
 // Подпись — во втором проходе, чтобы тексты не наезжали друг на друга
-if (total <= 250) {
+if (total <= 250 || focus) {
 let nm;
 if (pos.idx === 0) {
 nm = (S.activeSystemIdx === 0) ? S.systemName : (S.otherSystems && S.otherSystems[0] ? S.otherSystems[0].name : 'Родная');
@@ -1829,6 +1860,8 @@ function updateHudChips() {
           : kind === 'Сверхскопление' ? 'Сверхскопления' : kind;
         text += ' · ' + plural + ' · двойной тап — раскрыть';
         }
+      } else if (S.galaxyFocus) {
+        text += ' · ' + S.galaxyFocus.name + ' — двойной тап по системе — войти';
       } else {
         const sel = Number(S.galaxySelectedIdx);
         if (sel >= 0) text += ' · ' + galaxySystemNameAt(sel) + ' — двойной тап, чтобы войти';

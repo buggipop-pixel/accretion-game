@@ -84,6 +84,7 @@ const S = {
   achievements: [],
   // ─── LOD галактики и Сингулярности ───
   galaxyZoomLevel: 4,
+  galaxyFocus: null,
   singularities: 0,
   cosmicTrail: null,
 
@@ -178,7 +179,7 @@ function resetStateValues() {
   S.explosions = [];
   S.prestigeLevel = 0; S.galaxies = 1; S.galaxyForm = 'spiral';
   S.galaxyMultiplier = 1; S.achievements = [];
-  S.galaxyZoomLevel = 4; S.singularities = 0; S.cosmicTrail = null;
+  S.galaxyZoomLevel = 4; S.galaxyFocus = null; S.singularities = 0; S.cosmicTrail = null;
 
   S.unlockedAch = {};
   S.stats = { comets: 0, expeditions: 0, invasionsDefeated: 0, clicks: 0, planets: 0, dailyClaims: 0 };
@@ -531,7 +532,10 @@ function loadGame() {
       const maxLod = (typeof galaxyMaxLodForTotal === 'function')
         ? galaxyMaxLodForTotal(S.totalSystemsCreated || 1) : 4;
       S.galaxyZoomLevel = Math.max(0, Math.min(maxLod, Math.floor(savedLod)));
+      S.galaxyZoomLevel = Math.max(0, Math.min(maxLod, Math.floor(savedLod)));
+      S.galaxyFocus = null;
     }
+    S.galaxyFocus = null;
     if (!S.vis || typeof S.vis !== 'object') S.vis = { collapse: 0, macroMergeAnims: {} };
     if (!S.vis.macroMergeAnims || typeof S.vis.macroMergeAnims !== 'object') S.vis.macroMergeAnims = {};
     if (S.cosmicTrail && (typeof S.cosmicTrail !== 'object' ||
