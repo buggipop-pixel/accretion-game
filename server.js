@@ -1345,6 +1345,48 @@ app.get('/admin/api/players', adminGuard, async (req, res) => {
   }
 });
 
+// Подписи для типов операций из Bot API 8.x (StarTransaction.source.transaction_type).
+const STAR_TX_TYPE_LABELS = {
+  invoice_payment: 'Оплата счёта',
+  paid_media_payment: 'Платный контент',
+  gift_purchase: 'Подарок',
+  premium_purchase: 'Telegram Premium',
+  business_account_transfer: 'Перевод бизнес-аккаунта',
+};
+
+// Bot API не отдаёт готовое имя товара в транзакции. Свой товар узнаём по
+// invoice_payload — при создании счёта туда кладётся {"user_id":…,"product":"chest|shield"}.
+function starsProductName(tx) {
+  const partners = [tx.source, tx.receiver].filter(function(p) {
+    return p && typeof p === 'object';
+  });
+
+  // 1. Наш инвойс — самый точный источник.
+  for (const p of partners) {
+    if (typeof p.invoice_payload !== 'string' || !p.invoice_payload) continue;
+    try {
+      const parsed = JSON.parse(p.invoice_payload);
+      const prod = parsed && PRODUCTS[parsed.product];
+      if (prod) return prod.label;
+    } catch (e) { /* payload не JSON — не наш инвойс */ }
+  }
+
+  // 2. Тип операции (подарки, платный контент, Premium и т.п.).
+  for (const p of partners) {
+    const label = p.transaction_type && STAR_TX_TYPE_LABELS[p.transaction_type];
+    if (label) return label;
+  }
+
+  // 3. Старые транзакции без payload: узнаём товар по цене в звёздах.
+  if (tx.amount > 0) {
+    for (const key in PRODUCTS) {
+      if (PRODUCTS[key].stars === tx.amount) return PRODUCTS[key].label;
+    }
+  }
+
+  return '—';
+}
+
 // GET /admin/api/stars — баланс звёзд бота и последние транзакции.
 // В node-telegram-bot-api нет обёрток для звёзд, поэтому дёргаем Bot API напрямую.
 app.get('/admin/api/stars', adminGuard, async (req, res) => {
@@ -1371,7 +1413,9 @@ app.get('/admin/api/stars', adminGuard, async (req, res) => {
     res.json({
       ok: true,
       balance: Number(balJson.result && balJson.result.balance) || 0,
-      transactions: (txJson.result && txJson.result.transactions) || [],
+      transactions: ((txJson.result && txJson.result.transactions) || []).map(function(t) {
+        return Object.assign({}, t, { productName: starsProductName(t) });
+      }),
     });
   } catch (e) {
     console.error('[admin] /admin/api/stars', e);

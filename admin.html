@@ -516,7 +516,7 @@
           const src = t.source || {};
           const recv = t.receiver || {};
           const userId = (src.user && src.user.id) || (recv.user && recv.user.id) || '—';
-          const product = (src.product && src.product.name) || (recv.product && recv.product.name) || '—';
+          const product = t.productName || (src.product && src.product.name) || (recv.product && recv.product.name) || '—';
           const amount = Number(t.amount) || 0;
           const amountText = (amount > 0 ? '+' : '') + amount;
           const date = t.date ? new Date(t.date * 1000).toLocaleString() : '—';
