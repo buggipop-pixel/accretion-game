@@ -97,10 +97,10 @@ assert('Прайм: superBH > blackHole', context.primeObjectRank('superBH') > c
 // ─── Название макро-объекта ───
 context.S.totalSystemsCreated = 10;
 const macroName = vm.runInContext('currentMacroObjectName()', context);
-assert('Макро-имя: при 10 системах — Туманность №1', /Туманность №1/.test(macroName), macroName);
+assert('Макро-имя: при 10 системах — Созвездие №1', /Созвездие №1/.test(macroName), macroName);
 context.S.totalSystemsCreated = 60;
 const macroName2 = vm.runInContext('currentMacroObjectName()', context);
-assert('Макро-имя: при 60 системах — Созвездие №2', /Созвездие №2/.test(macroName2), macroName2);
+assert('Макро-имя: при 60 системах — Туманность №2', /Туманность №2/.test(macroName2), macroName2);
 
 function wait(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
 

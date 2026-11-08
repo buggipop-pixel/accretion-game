@@ -337,8 +337,8 @@ const PRESTIGE_CFG = {
 // ═══════════════════════════════════════════════════════════════
 //  LOD ГАЛАКТИКИ
 //  Уровень 4 — отдельные звёзды (мало систем),
-//  3 — туманности (10 систем / объект),
-//  2 — созвездия (50 систем / объект),
+//  3 — созвездия (10 систем / объект),
+//  2 — туманности (50 систем / объект),
 //  1 — скопления (150 систем / объект),
 //  0 — сверхскопления (450 систем / объект).
 //  Пороги общие для отрисовки, квестов и престижа.
@@ -347,8 +347,8 @@ const GALAXY_LOD_CFG = {
   mergeThresholds: [10, 50, 150, 450],
   levels: [
     { level: 4, minSystems: 1,   groupSize: 1,   kind: 'star',          label: 'Звёзды' },
-    { level: 3, minSystems: 10,  groupSize: 10,  kind: 'nebula',        label: 'Туманность' },
-    { level: 2, minSystems: 50,  groupSize: 50,  kind: 'constellation', label: 'Созвездие' },
+    { level: 3, minSystems: 10,  groupSize: 10,  kind: 'constellation', label: 'Созвездие' },
+    { level: 2, minSystems: 50,  groupSize: 50,  kind: 'nebula',        label: 'Туманность' },
     { level: 1, minSystems: 150, groupSize: 150, kind: 'cluster',       label: 'Скопление' },
     { level: 0, minSystems: 450, groupSize: 450, kind: 'supercluster',  label: 'Сверхскопление' },
   ],

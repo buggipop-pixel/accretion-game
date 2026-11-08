@@ -409,6 +409,30 @@ canvas.addEventListener('pointerdown', function(e) {
       const lod = galaxyLodLevel();
       const nowTap = performance.now();
       if (lod < 4) {
+        // Сначала пробуем попасть в конкретную (прореженную) звезду:
+        // одиночный тап выбирает, двойной — входит в систему, как раньше.
+        const sysHit = galaxySystemAt(pos.x, pos.y);
+        if (sysHit >= 0) {
+          if (galaxyTap.idx === sysHit && nowTap - galaxyTap.at <= GALAXY_DOUBLE_TAP_MS) {
+            galaxyTap.idx = -1;
+            galaxyTap.at = 0;
+            galaxyTap.macro = -1;
+            openGalaxySystem(sysHit);
+            return;
+          }
+          S.galaxySelectedIdx = sysHit;
+          galaxySelectedMacro = -1;
+          galaxyTap.idx = sysHit;
+          galaxyTap.macro = -1;
+          galaxyTap.at = nowTap;
+          if (typeof playSFX === 'function') playSFX('ui_click');
+          isPanning = true;
+          panStartX = pos.x;
+          panStartY = pos.y;
+          panStartPanX = S.panX || 0;
+          panStartPanY = S.panY || 0;
+          return;
+        }
         const macroHit = galaxyMacroAt(pos.x, pos.y);
         if (macroHit >= 0) {
           // Двойной тап по макро-объекту меняет LOD на более крупный.
@@ -723,8 +747,13 @@ function getGalaxyMacroGroups(total, level, now) {
     const start = g * size;
     const end = Math.min(n, start + size);
     let primeCount = 0;
-    for (let i = start; i < end; i++) if (prime[i]) primeCount++;
-    groups.push({ index: g, start: start, end: end, count: Math.max(0, end - start), primeCount: primeCount });
+    const primeIndices = [];
+    for (let i = start; i < end; i++) {
+      if (!prime[i]) continue;
+      primeCount++;
+      primeIndices.push(i);
+    }
+    groups.push({ index: g, start: start, end: end, count: Math.max(0, end - start), primeCount: primeCount, primeIndices: primeIndices });
   }
   _macroGroupCache = { key: key, at: stamp, groups: groups };
   return groups;
@@ -732,7 +761,7 @@ function getGalaxyMacroGroups(total, level, now) {
 
 function galaxyMacroLabel(obj, level) {
   let base;
-  if (level === 2 && typeof REAL_CONSTELLATIONS !== 'undefined') {
+  if (level === 3 && typeof REAL_CONSTELLATIONS !== 'undefined') {
     const pattern = REAL_CONSTELLATIONS[obj.index % REAL_CONSTELLATIONS.length];
     base = 'Созвездие ' + pattern.name;
   } else {
@@ -1103,6 +1132,22 @@ function galaxySystemAt(x, y) {
   const total = S.totalSystemsCreated || 1;
   const t = performance.now() / 1000;
   let best = -1, bestD = Infinity;
+
+  const level = galaxyLodLevel();
+  if (level < 4) {
+    const groups = getGalaxyMacroGroups(total, level, performance.now());
+    for (let g = 0; g < groups.length; g++) {
+      const members = galaxyMacroSampleMembers(groups[g], total, level);
+      for (let m = 0; m < members.length; m++) {
+        const idx = members[m];
+        const p = galaxySystemPos(idx, total, t);
+        const d = Math.hypot(p.x - x, p.y - y);
+        if (d <= 26 && d < bestD) { bestD = d; best = idx; }
+      }
+    }
+    return best;
+  }
+
   for (let i = 0; i < total; i++) {
     const p = galaxySystemPos(i, total, t);
     const d = Math.hypot(p.x - x, p.y - y);
@@ -1142,106 +1187,256 @@ function handleGalaxyClick(x, y) {
   return true;
 }
 
-// ─── Отрисовка макро-уровня: один градиентный объект на группу ──
+// ─── Отрисовка макро-уровня: те же звёзды, но прореженные ────────
+// Группировка нужна только чтобы не рисовать 1000 звёзд на телефоне.
+// Поэтому вместо «пузырей» показываем реальные позиции части систем:
+// созвездие остаётся созвездием, просто с меньшим числом точек.
+function galaxyMacroStarBudget(level) {
+  if (level <= 0) return 110;
+  if (level === 1) return 190;
+  if (level === 2) return 240;
+  return 180;
+}
+
+function galaxyMacroMaxStarsPerGroup(level) {
+  if (level <= 0) return 34;
+  if (level === 1) return 30;
+  if (level === 2) return 24;
+  return 10;
+}
+
+function galaxyMacroSampleMembers(group, total, level) {
+  const n = Math.max(0, Number(group.count) || 0);
+  if (!n) return [];
+  const safeTotal = Math.max(1, Number(total) || 1);
+  const groupCount = Math.max(1, Math.ceil(safeTotal / Math.max(1, n)));
+  const budget = galaxyMacroStarBudget(level);
+  const target = Math.min(
+    n,
+    galaxyMacroMaxStarsPerGroup(level),
+    Math.max(2, Math.floor(budget / groupCount))
+  );
+  const picked = new Set();
+  function add(i) {
+    i = Math.floor(Number(i));
+    if (i >= group.start && i < group.end) picked.add(i);
+  }
+  if (target >= n) {
+    for (let i = group.start; i < group.end; i++) picked.add(i);
+  } else {
+    const span = n - 1;
+    for (let k = 0; k < target; k++) {
+      add(group.start + Math.round(k * span / Math.max(1, target - 1)));
+    }
+  }
+  // Важные системы не должны исчезать при прореживании.
+  add(Number(S.activeSystemIdx) || 0);
+  add(Number(S.galaxySelectedIdx));
+  const primes = group.primeIndices || [];
+  for (let p = 0; p < primes.length; p++) add(primes[p]);
+  return Array.from(picked).sort(function (a, b) { return a - b; });
+}
+
 function drawGalaxyMacroView(time, total, level) {
   const objects = galaxyMacroObjects(time, total, level);
+  const groups = getGalaxyMacroGroups(total, level, performance.now());
   const cw = (typeof window !== 'undefined' && window.CANVAS_W) || W || 400;
   const ch = (typeof window !== 'undefined' && window.CANVAS_H) || H || 700;
+  const labelCandidates = [];
+  const groupLabels = [];
+
   ctx.save();
-  for (let i = 0; i < objects.length; i++) {
-    const o = objects[i];
-    if (o.x < -o.r - 50 || o.x > cw + o.r + 50 || o.y < -o.r - 50 || o.y > ch + o.r + 50) continue;
-    const hue = (o.index * 47 + level * 31 + 200) % 360;
-    const pulse = 1 + 0.06 * Math.sin(time * 1.3 + o.index * 1.7);
-    const r = Math.max(10, o.r * pulse);
+  for (let gi = 0; gi < groups.length; gi++) {
+    const group = groups[gi];
+    const members = galaxyMacroSampleMembers(group, total, level);
+    if (!members.length) continue;
 
-    // Мягкий радиальный градиент — один на объект (не на систему).
-    const grad = ctx.createRadialGradient(o.x, o.y, r * 0.04, o.x, o.y, r);
-    grad.addColorStop(0, 'hsla(' + hue + ', 72%, 72%, 0.42)');
-    grad.addColorStop(0.45, 'hsla(' + hue + ', 65%, 62%, 0.16)');
-    grad.addColorStop(1, 'hsla(' + hue + ', 60%, 55%, 0)');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(o.x, o.y, r, 0, Math.PI * 2);
-    ctx.fill();
+    const pts = new Array(Math.max(1, total));
+    for (let m = 0; m < members.length; m++) {
+      pts[members[m]] = galaxySystemPos(members[m], total, time);
+    }
 
-    // Тонкий контур, чтобы группы читались как объекты.
-    ctx.strokeStyle = 'hsla(' + hue + ', 60%, 72%, 0.22)';
+    // Связи — минимальное остовное дерево по реальным позициям.
+    const edges = constellationMst(pts, members);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(150, 140, 215, 0.14)';
     ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(o.x, o.y, r * 0.92, 0, Math.PI * 2);
-    ctx.stroke();
+    for (let e = 0; e < edges.length; e++) {
+      const a = pts[members[edges[e][0]]];
+      const b = pts[members[edges[e][1]]];
+      if (!a || !b) continue;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      if (dx * dx + dy * dy > 180000) continue;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+    ctx.restore();
 
-    // Уровень 2: реальный рисунок созвездия внутри объекта.
-    if (level === 2 && typeof REAL_CONSTELLATIONS !== 'undefined' && REAL_CONSTELLATIONS.length) {
-      const pattern = REAL_CONSTELLATIONS[o.index % REAL_CONSTELLATIONS.length];
-      const scale = r * 0.62;
-      const rot = time * 0.02 + o.index;
-      ctx.save();
-      ctx.translate(o.x, o.y);
-      ctx.rotate(rot);
-      ctx.strokeStyle = 'rgba(190, 180, 255, 0.55)';
-      ctx.lineWidth = Math.max(1, r / 60);
-      for (let e = 0; e < pattern.edges.length; e++) {
-        const a = pattern.stars[pattern.edges[e][0]];
-        const b = pattern.stars[pattern.edges[e][1]];
-        if (!a || !b) continue;
-        ctx.beginPath();
-        ctx.moveTo(a.x * scale, a.y * scale);
-        ctx.lineTo(b.x * scale, b.y * scale);
-        ctx.stroke();
+    // Центр группы и её имя — маленьким шрифтом, как подписи созвездий.
+    let gx = 0, gy = 0, gcount = 0;
+    for (let m = 0; m < members.length; m++) {
+      const p = pts[members[m]];
+      if (!p) continue;
+      gx += p.x; gy += p.y; gcount++;
+    }
+    if (!gcount) continue;
+    gx /= gcount; gy /= gcount;
+    if (total <= 250 && gx > -80 && gx < cw + 80 && gy > -80 && gy < ch + 80) {
+      let groupName;
+      if (level === 3 && typeof REAL_CONSTELLATIONS !== 'undefined' && REAL_CONSTELLATIONS.length) {
+        groupName = REAL_CONSTELLATIONS[group.index % REAL_CONSTELLATIONS.length].name;
+      } else {
+        const meta = (typeof galaxyLodMeta === 'function') ? galaxyLodMeta(level) : null;
+        groupName = ((meta && meta.label) || 'Объект') + ' №' + (group.index + 1);
       }
-      ctx.fillStyle = 'rgba(244, 240, 255, 0.95)';
-      for (let s = 0; s < pattern.stars.length; s++) {
-        const st = pattern.stars[s];
+      const midIdx = members[Math.floor((members.length - 1) / 2)];
+      const mid = pts[midIdx];
+      groupLabels.push({
+        x: mid ? mid.x : gx,
+        y: (mid ? mid.y : gy) - 18,
+        name: groupName
+      });
+    }
+
+    // Подсветка выбранной группы — без сплошной заливки.
+    if (galaxySelectedMacro === group.index) {
+      const o = objects[group.index];
+      if (o) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 215, 106, 0.38)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([6, 6]);
         ctx.beginPath();
-        ctx.arc(st.x * scale, st.y * scale, Math.max(1.4, r / 45), 0, Math.PI * 2);
+        ctx.arc(gx, gy, Math.max(24, o.r * 0.9), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    for (let m = 0; m < members.length; m++) {
+      const idx = members[m];
+      const pos = pts[idx];
+      if (!pos) continue;
+      if (pos.x < -50 || pos.x > cw + 50 || pos.y < -50 || pos.y > ch + 50) continue;
+
+      const isActive = idx === S.activeSystemIdx;
+      const size = isActive ? 10 : (total > 400 ? 5 : 6);
+
+      let isPrime = false;
+      let primeData = null;
+      if (idx === S.activeSystemIdx) {
+        if (S.primeSystem) { isPrime = true; primeData = S.primeSystem; }
+      } else if (S.otherSystems && S.otherSystems[idx] &&
+                 (S.otherSystems[idx].isPrime ||
+                  (typeof isPrimeSystemData === 'function' && isPrimeSystemData(S.otherSystems[idx])))) {
+        isPrime = true;
+        primeData = S.otherSystems[idx].primeData || S.otherSystems[idx].primeSystem || null;
+      }
+
+      if (isPrime) {
+        const pulse = 1 + 0.1 * Math.sin(time * 2);
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        const extGlow = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, size * 3.5 * pulse);
+        extGlow.addColorStop(0, 'rgba(255, 200, 50, 0.35)');
+        extGlow.addColorStop(0.6, 'rgba(255, 150, 0, 0.1)');
+        extGlow.addColorStop(1, 'rgba(255, 100, 0, 0)');
+        ctx.fillStyle = extGlow;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, size * 3.5 * pulse, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        if (typeof drawPrimeIcon === 'function' && primeData) {
+          const iconKey = primeData.objectIcon || primeData.objectKey;
+          drawPrimeIcon(ctx, pos.x, pos.y, iconKey, time, size);
+        } else {
+          ctx.fillStyle = '#ffe8a0';
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, size * 0.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else {
+        drawStarGlow(pos.x, pos.y, size, isActive, total);
+        const hue = 50 + (idx * 37) % 100;
+        ctx.fillStyle = isActive ? '#fff' : 'hsla(' + hue + ', 85%, 84%, 0.95)';
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, size * 0.42, 0, Math.PI * 2);
         ctx.fill();
       }
-      ctx.restore();
-    }
 
-    // ★ Прайм внутри макро-объекта: золотой пульсирующий ореол.
-    if (o.primeCount > 0) {
-      const pp = 1 + 0.12 * Math.sin(time * 2.2 + o.index);
-      const goldR = r * 1.25 * pp;
-      const gold = ctx.createRadialGradient(o.x, o.y, r * 0.55, o.x, o.y, goldR);
-      gold.addColorStop(0, 'rgba(255, 210, 90, 0.20)');
-      gold.addColorStop(0.6, 'rgba(255, 170, 40, 0.10)');
-      gold.addColorStop(1, 'rgba(255, 140, 0, 0)');
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.fillStyle = gold;
-      ctx.beginPath();
-      ctx.arc(o.x, o.y, goldR, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
+      if (idx === S.galaxySelectedIdx) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,215,106,0.95)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, size * 2.6 + 5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
 
-    // Выделение одиночным тапом.
-    if (o.index === galaxySelectedMacro) {
-      ctx.save();
-      ctx.strokeStyle = 'rgba(255, 215, 106, 0.9)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(o.x, o.y, r + 6, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // Подпись: «Туманность №1 (10 сист.)» / «Созвездие Ориона (... 👑1)».
-    if (r >= 16) {
-      const fontSize = r >= 70 ? 13 : (r >= 36 ? 12 : 10);
-      ctx.font = 'bold ' + fontSize + 'px -apple-system, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = 'rgba(8, 6, 20, 0.65)';
-      ctx.strokeText(o.label, o.x, o.y + r * 0.62);
-      ctx.fillStyle = o.primeCount > 0 ? '#ffe8a0' : 'rgba(228, 222, 255, 0.92)';
-      ctx.fillText(o.label, o.x, o.y + r * 0.62);
+      if (total <= 250) {
+        let nm = galaxySystemNameAt(idx);
+        if (isPrime) nm = '👑 ' + nm;
+        const dvx = pos.x - (cx || 0), dvy = pos.y - (cy || 0);
+        labelCandidates.push({
+          x: pos.x, y: pos.y + size * 2.5 + 2, name: nm,
+          isActive: isActive, isPrime: isPrime, isSelected: idx === S.galaxySelectedIdx,
+          dist2: dvx * dvx + dvy * dvy
+        });
+      }
     }
   }
   ctx.restore();
+
+  if (groupLabels.length) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(180, 160, 255, 0.5)';
+    ctx.font = 'italic 10px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    for (let i = 0; i < groupLabels.length; i++) {
+      const g = groupLabels[i];
+      if (g.x < -80 || g.x > cw + 80 || g.y < -80 || g.y > ch + 80) continue;
+      ctx.fillText(g.name, g.x, g.y);
+    }
+    ctx.restore();
+  }
+
+  if (labelCandidates.length) {
+    const zoomNow = S.zoom || 1;
+    const placed = [];
+    function prio(l) {
+      if (l.isActive) return 5;
+      if (l.isSelected) return 4;
+      if (l.isPrime) return 3;
+      return 1;
+    }
+    labelCandidates.sort(function (a, b) {
+      const dp = prio(b) - prio(a);
+      return dp !== 0 ? dp : (a.dist2 - b.dist2);
+    });
+    ctx.save();
+    ctx.textAlign = 'center';
+    for (let i = 0; i < labelCandidates.length; i++) {
+      const l = labelCandidates[i];
+      const important = l.isActive || l.isPrime || l.isSelected;
+      if (zoomNow < 0.28 && !important) continue;
+      const w = Math.max(36, l.name.length * 6.2);
+      const box = { l: l.x - w / 2, r: l.x + w / 2, t: l.y - 9, b: l.y + 4 };
+      let overlaps = false;
+      for (let j = 0; j < placed.length; j++) {
+        const q = placed[j];
+        if (box.l < q.r && box.r > q.l && box.t < q.b && box.b > q.t) { overlaps = true; break; }
+      }
+      if (overlaps) continue;
+      placed.push(box);
+      ctx.fillStyle = l.isPrime ? '#ffe8a0' : (l.isActive || l.isSelected ? '#fff' : 'rgba(200, 190, 255, 0.7)');
+      ctx.font = (l.isActive || l.isPrime || l.isSelected ? 'bold ' : '') + (l.isPrime ? '13px' : '11px') + ' -apple-system, sans-serif';
+      ctx.fillText(l.name, l.x, l.y);
+    }
+    ctx.restore();
+  }
 }
 function drawGalaxyView(time) {
   const t = time;

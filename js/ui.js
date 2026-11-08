@@ -636,8 +636,8 @@ function getQuests() {
 
     // ★ Двойная цель: макро-рубеж ИЛИ доступная Вспышка.
     const macroTargets = [
-      { need: 10,  label: 'Туманности' },
-      { need: 50,  label: 'Созвездия' },
+      { need: 10,  label: 'Созвездия' },
+      { need: 50,  label: 'Туманности' },
       { need: 150, label: 'Скопления' },
       { need: 450, label: 'Сверхскопления' },
     ];
@@ -649,7 +649,7 @@ function getQuests() {
 
     if (systems < 10) {
       list.push({
-        title: 'Сформируйте Туманность (' + fmt(systems) + '/10)',
+        title: 'Сформируйте Созвездие (' + fmt(systems) + '/10)',
         cur: systems, max: 10
       });
     } else if (nextMacro) {
