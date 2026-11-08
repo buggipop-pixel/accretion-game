@@ -634,18 +634,42 @@ function getQuests() {
     const systems = S.systems;
     const nextCost = nextSystemDustCost();
 
-    // ★ Престиж виден ВСЕГДА в стадии галактики — в том числе после
-    // 5-й вспышки, когда явный список требований заканчивался.
-    // Показываем и требование, и текущий прогресс.
-    if (typeof prestigeRequirementFor === 'function') {
-      const need = prestigeRequirementFor(S.prestigeLevel || 0);
-      if (need) {
-        const ready = systems >= need;
-        list.push({
-          title: (ready ? '💥 Престиж доступен! · ' : '💥 До престижа · ') + fmt(need) + ' сист.',
-          cur: systems, max: need,
-        });
-      }
+    // ★ Двойная цель: макро-рубеж ИЛИ доступная Вспышка.
+    const macroTargets = [
+      { need: 10,  label: 'Туманности' },
+      { need: 50,  label: 'Созвездия' },
+      { need: 150, label: 'Скопления' },
+      { need: 450, label: 'Сверхскопления' },
+    ];
+    const nextMacro = macroTargets.find(function(t) { return systems < t.need; }) || null;
+    const prestigeReady = (typeof checkPrestigeAvailability === 'function')
+      ? checkPrestigeAvailability() > 0 : false;
+    const prestigeNeed = (typeof prestigeRequirementFor === 'function')
+      ? (prestigeRequirementFor(S.prestigeLevel || 0) || 0) : 0;
+
+    if (systems < 10) {
+      list.push({
+        title: 'Сформируйте Туманность (' + fmt(systems) + '/10)',
+        cur: systems, max: 10
+      });
+    } else if (nextMacro) {
+      const expandTitle = 'Расширьтесь до ' + nextMacro.label +
+        ' (' + fmt(systems) + '/' + fmt(nextMacro.need) + ')';
+      list.push({
+        title: prestigeReady
+          ? '💥 Сделать Вспышку (Доступна) ИЛИ ' + expandTitle
+          : expandTitle,
+        cur: systems, max: nextMacro.need
+      });
+    } else if (prestigeReady) {
+      list.push({ title: '💥 Сделать Вспышку (Доступна)', cur: 1, max: 1 });
+    } else if (prestigeNeed > systems) {
+      list.push({
+        title: '💥 До следующей Вспышки (' + fmt(systems) + '/' + fmt(prestigeNeed) + ')',
+        cur: systems, max: prestigeNeed
+      });
+    } else {
+      list.push({ title: 'Расширяйтесь — следующий рубеж не задан', cur: 1, max: 1 });
     }
 
     if (systems < 2) {

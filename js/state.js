@@ -82,6 +82,10 @@ const S = {
   galaxyForm: 'spiral',
   galaxyMultiplier: 1,
   achievements: [],
+  // ─── LOD галактики и Сингулярности ───
+  galaxyZoomLevel: 4,
+  singularities: 0,
+  cosmicTrail: null,
 
   // ─── Достижения и Ежедневки ───
   unlockedAch: {},
@@ -108,7 +112,7 @@ const S = {
 
   // ─── Настройки и Визуал ───
   settings: { brightness: 1.0, sound: true, pushEnabled: true },
-  vis: { collapse: 0 },
+  vis: { collapse: 0, macroMergeAnims: {} },
 };
 
 const SAVE_KEY = 'accretion_v17';
@@ -174,6 +178,7 @@ function resetStateValues() {
   S.explosions = [];
   S.prestigeLevel = 0; S.galaxies = 1; S.galaxyForm = 'spiral';
   S.galaxyMultiplier = 1; S.achievements = [];
+  S.galaxyZoomLevel = 4; S.singularities = 0; S.cosmicTrail = null;
 
   S.unlockedAch = {};
   S.stats = { comets: 0, expeditions: 0, invasionsDefeated: 0, clicks: 0, planets: 0, dailyClaims: 0 };
@@ -194,7 +199,7 @@ function resetStateValues() {
   S.gasDensity = 1;
   S.activeMinigame = null;
   S.settings = { brightness: 1.0, sound: true, pushEnabled: true };
-  S.vis = { collapse: 0 };
+  S.vis = { collapse: 0, macroMergeAnims: {} };
 
   // Синхронизация с missions.js
   if (typeof MISS !== 'undefined') {
@@ -399,6 +404,9 @@ function saveGame() {
       prestigeLevel: S.prestigeLevel, galaxies: S.galaxies,
       galaxyForm: S.galaxyForm, galaxyMultiplier: S.galaxyMultiplier,
       achievements: S.achievements, unlockedAch: S.unlockedAch,
+      galaxyZoomLevel: S.galaxyZoomLevel,
+      singularities: S.singularities,
+      cosmicTrail: S.cosmicTrail,
       stats: S.stats, dailyProgress: S.dailyProgress, dailyClaimed: S.dailyClaimed, lastDailyReset: S.lastDailyReset,
       
       // Лор и Журнал
@@ -511,6 +519,26 @@ function loadGame() {
     }
     if (!Array.isArray(S.achievements)) S.achievements = [];
 
+    // ─── 3b. LOD, Сингулярности и космический след ───
+    if (typeof S.singularities !== 'number' || !isFinite(S.singularities) || S.singularities < 0) S.singularities = 0;
+    S.singularities = Math.floor(S.singularities);
+    const savedLod = (data && typeof data.galaxyZoomLevel === 'number' && isFinite(data.galaxyZoomLevel))
+      ? data.galaxyZoomLevel : null;
+    if (savedLod === null) {
+      S.galaxyZoomLevel = (typeof galaxyLodForTotal === 'function')
+        ? galaxyLodForTotal(S.totalSystemsCreated || 1) : 4;
+    } else {
+      const maxLod = (typeof galaxyMaxLodForTotal === 'function')
+        ? galaxyMaxLodForTotal(S.totalSystemsCreated || 1) : 4;
+      S.galaxyZoomLevel = Math.max(0, Math.min(maxLod, Math.floor(savedLod)));
+    }
+    if (!S.vis || typeof S.vis !== 'object') S.vis = { collapse: 0, macroMergeAnims: {} };
+    if (!S.vis.macroMergeAnims || typeof S.vis.macroMergeAnims !== 'object') S.vis.macroMergeAnims = {};
+    if (S.cosmicTrail && (typeof S.cosmicTrail !== 'object' ||
+        typeof S.cosmicTrail.x !== 'number' || typeof S.cosmicTrail.y !== 'number' ||
+        typeof S.cosmicTrail.start !== 'number')) {
+      S.cosmicTrail = null;
+    }
     // ─── 4. Достижения и Ежедневки ───
     if (!S.unlockedAch || typeof S.unlockedAch !== 'object' || Array.isArray(S.unlockedAch)) S.unlockedAch = {};
     if (!S.stats || typeof S.stats !== 'object' || Array.isArray(S.stats)) S.stats = {};

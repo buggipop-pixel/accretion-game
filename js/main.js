@@ -342,6 +342,7 @@ function getPointerPos(e) {
 
 const pointers = new Map();
 let pinchStartDist = 0;
+let pinchZoomOutDetected = false;
 let pinchStartZoom = 1;
 let pinchStartAngle = 0;
 let pinchStartRotation = 0;
@@ -383,6 +384,7 @@ canvas.addEventListener('pointerdown', function(e) {
   if (pointers.size === 2) {
     const pts = Array.from(pointers.values());
     pinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    pinchZoomOutDetected = false;
     pinchStartZoom = S.zoom || 1;
     pinchStartAngle = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
     pinchStartRotation = S.rotation || 0;
@@ -404,8 +406,42 @@ canvas.addEventListener('pointerdown', function(e) {
     }
 
     if (S.stage === 'galaxy') {
-      const hit = galaxySystemAt(pos.x, pos.y);
+      const lod = galaxyLodLevel();
       const nowTap = performance.now();
+      if (lod < 4) {
+        const macroHit = galaxyMacroAt(pos.x, pos.y);
+        if (macroHit >= 0) {
+          // Двойной тап по макро-объекту меняет LOD на более крупный.
+          if (galaxyTap.macro === macroHit && nowTap - galaxyTap.at <= GALAXY_DOUBLE_TAP_MS) {
+            galaxyTap.macro = -1;
+            galaxyTap.idx = -1;
+            galaxyTap.at = 0;
+            S.galaxyZoomLevel = Math.max(0, lod - 1);
+            galaxySelectedMacro = -1;
+            S.galaxySelectedIdx = -1;
+            if (typeof playSFX === 'function') playSFX('ui_click');
+            return;
+          }
+          S.galaxySelectedIdx = -1;
+          galaxySelectedMacro = macroHit;
+          galaxyTap.macro = macroHit;
+          galaxyTap.idx = -1;
+          galaxyTap.at = nowTap;
+          if (typeof playSFX === 'function') playSFX('ui_click');
+        } else {
+          S.galaxySelectedIdx = -1;
+          galaxySelectedMacro = -1;
+          galaxyTap.macro = -1;
+          galaxyTap.idx = -1;
+        }
+        isPanning = true;
+        panStartX = pos.x;
+        panStartY = pos.y;
+        panStartPanX = S.panX || 0;
+        panStartPanY = S.panY || 0;
+        return;
+      }
+      const hit = galaxySystemAt(pos.x, pos.y);
       if (hit >= 0) {
         // ★ Двойной тап по системе — вход. Одиночный — только выбор.
         if (galaxyTap.idx === hit && nowTap - galaxyTap.at <= GALAXY_DOUBLE_TAP_MS) {
@@ -470,6 +506,7 @@ canvas.addEventListener('pointermove', function(e) {
     const pts = Array.from(pointers.values());
     const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
     S.zoom = clampZoom(pinchStartZoom * (d / pinchStartDist));
+    if (d < pinchStartDist * 0.98) pinchZoomOutDetected = true;
     const angle = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
     S.rotation = (pinchStartRotation || 0) + (angle - pinchStartAngle);
     return;
@@ -504,7 +541,25 @@ function onPointerRelease(e) {
     return;
   }
   pointers.delete(e.pointerId);
-  if (pointers.size < 2) pinchStartDist = 0;
+  if (pointers.size < 2) {
+    if (pinchZoomOutDetected && S.stage === 'galaxy' && (S.zoom || 1) < 0.3) {
+      const nextLevel = Math.min(
+        (typeof galaxyMaxLodForTotal === 'function'
+          ? galaxyMaxLodForTotal(S.totalSystemsCreated || 1) : 4),
+        galaxyLodLevel() + 1
+      );
+      if (nextLevel !== galaxyLodLevel()) {
+        S.galaxyZoomLevel = nextLevel;
+        galaxySelectedMacro = -1;
+        S.galaxySelectedIdx = -1;
+        galaxyTap.idx = -1;
+        galaxyTap.macro = -1;
+        galaxyTap.at = 0;
+      }
+    }
+    pinchZoomOutDetected = false;
+    pinchStartDist = 0;
+  }
   if (pointers.size === 0) {
     isPanning = false;
     if (PART.dragActive) handleParticleDrag(PART.dragX, PART.dragY, false);
@@ -525,6 +580,57 @@ canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
 //  набор фигур, а не как одна длинная нить.
 // ═══════════════════════════════════════════════════════════════
 const CONSTELLATION_SIZE = 7;
+
+// ─── Реальные созвездия для LOD-уровня 2 ────────────────────────
+// Координаты нормализованы в диапазон [-1, 1]: рисуются внутри
+// макро-объекта «Созвездие» вместо отдельных звёзд.
+const REAL_CONSTELLATIONS = [
+  {
+    name: 'Ориона',
+    stars: [
+      { x: -0.52, y: -0.46 }, { x: 0.34, y: -0.55 },
+      { x: -0.18, y: 0.02 }, { x: 0.04, y: 0.22 }, { x: 0.26, y: 0.42 },
+      { x: 0.42, y: 0.86 }, { x: -0.34, y: 0.80 }
+    ],
+    edges: [[0, 2], [1, 4], [2, 3], [3, 4], [2, 6], [4, 5]]
+  },
+  {
+    name: 'Кассиопеи',
+    stars: [
+      { x: -0.92, y: 0.28 }, { x: -0.46, y: -0.38 },
+      { x: 0.0, y: 0.18 }, { x: 0.46, y: -0.38 }, { x: 0.92, y: 0.28 }
+    ],
+    edges: [[0, 1], [1, 2], [2, 3], [3, 4]]
+  },
+  {
+    name: 'Большой Медведицы',
+    stars: [
+      { x: -0.92, y: -0.25 }, { x: -0.62, y: -0.55 },
+      { x: -0.28, y: -0.48 }, { x: -0.06, y: -0.16 },
+      { x: 0.22, y: -0.30 }, { x: 0.58, y: -0.12 }, { x: 0.86, y: 0.18 }
+    ],
+    edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6]]
+  }
+];
+
+// Проекция мировой точки галактики в экран (камера: поворот, наклон, пан, зум).
+function galaxyProjectWorld(bx, by) {
+  const rot = S.rotation || 0;
+  const cosR = Math.cos(rot), sinR = Math.sin(rot);
+  const x1 = bx * cosR - by * sinR;
+  const y1 = bx * sinR + by * cosR;
+  const yaw = S.tiltY || 0;
+  const pitch = S.tiltX || 0;
+  const cyw = Math.cos(yaw), syw = Math.sin(yaw);
+  const cpi = Math.cos(pitch), spi = Math.sin(pitch);
+  const x3 = x1 * cyw;
+  const y3 = y1 * cpi - x1 * syw * spi;
+  const z = S.zoom || 1;
+  return {
+    x: cx + (S.panX || 0) + x3 * z,
+    y: cy + (S.panY || 0) + y3 * z
+  };
+}
 
 // Базовые координаты системы в плоскости галактики (до камеры).
 function galaxyLayoutPos(i, total, t) {
@@ -570,21 +676,131 @@ function galaxySystemPos(i, total, time) {
       bx *= ease; by *= ease;
     }
   }
-  const rot = S.rotation || 0;
-  const cosR = Math.cos(rot), sinR = Math.sin(rot);
-  const x1 = bx * cosR - by * sinR;
-  const y1 = bx * sinR + by * cosR;
-  const yaw = S.tiltY || 0;
-  const pitch = S.tiltX || 0;
-  const cyw = Math.cos(yaw), syw = Math.sin(yaw);
-  const cpi = Math.cos(pitch), spi = Math.sin(pitch);
-  const x3 = x1 * cyw;
-  const y3 = y1 * cpi - x1 * syw * spi;
-  const z = S.zoom || 1;
-  return {
-    x: cx + (S.panX || 0) + x3 * z,
-    y: cy + (S.panY || 0) + y3 * z
-  };
+  return galaxyProjectWorld(bx, by);
+}
+
+// ─── LOD: макро-объекты галактики ──────────────────────────────
+// Кэш групп: пересобирается при смене total/level и не чаще 1 раза
+// в секунду (прайм-флаги могут измениться без роста числа систем).
+let _macroGroupCache = { key: '', at: 0, groups: [] };
+let _galaxyFrameId = 0;
+let _macroObjectsCache = { key: '', objects: [] };
+
+function galaxyLodLevel() {
+  let lvl = Math.floor(Number(S.galaxyZoomLevel));
+  if (!isFinite(lvl)) {
+    lvl = (typeof galaxyLodForTotal === 'function')
+      ? galaxyLodForTotal(S.totalSystemsCreated || 1) : 4;
+  }
+  const total = Math.max(1, Number(S.totalSystemsCreated) || 1);
+  if (typeof clampGalaxyLodForTotal === 'function') {
+    return clampGalaxyLodForTotal(lvl, total);
+  }
+  return Math.max(0, Math.min(4, lvl));
+}
+
+function getGalaxyMacroGroups(total, level, now) {
+  const n = Math.max(1, Number(total) || 1);
+  const key = n + '|' + level;
+  const stamp = Number(now) || (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  if (_macroGroupCache.key === key && stamp - _macroGroupCache.at < 1000) {
+    return _macroGroupCache.groups;
+  }
+  const size = Math.max(1, Number(galaxyGroupSizeForLevel(level)) || 1);
+  const count = Math.max(1, Math.ceil(n / size));
+  const prime = new Uint8Array(n);
+  const activeIdx = Math.max(0, Math.min(n - 1, Number(S.activeSystemIdx) || 0));
+  if (S.primeSystem) prime[activeIdx] = 1;
+  const list = Array.isArray(S.otherSystems) ? S.otherSystems : [];
+  for (let i = 0; i < list.length && i < n; i++) {
+    if (!list[i]) continue;
+    if (list[i].isPrime || (typeof isPrimeSystemData === 'function' && isPrimeSystemData(list[i]))) {
+      prime[i] = 1;
+    }
+  }
+  const groups = [];
+  for (let g = 0; g < count; g++) {
+    const start = g * size;
+    const end = Math.min(n, start + size);
+    let primeCount = 0;
+    for (let i = start; i < end; i++) if (prime[i]) primeCount++;
+    groups.push({ index: g, start: start, end: end, count: Math.max(0, end - start), primeCount: primeCount });
+  }
+  _macroGroupCache = { key: key, at: stamp, groups: groups };
+  return groups;
+}
+
+function galaxyMacroLabel(obj, level) {
+  let base;
+  if (level === 2 && typeof REAL_CONSTELLATIONS !== 'undefined') {
+    const pattern = REAL_CONSTELLATIONS[obj.index % REAL_CONSTELLATIONS.length];
+    base = 'Созвездие ' + pattern.name;
+  } else {
+    const meta = (typeof galaxyLodMeta === 'function') ? galaxyLodMeta(level) : null;
+    base = ((meta && meta.label) || 'Объект') + ' №' + (obj.index + 1);
+  }
+  return base + ' (' + obj.count + ' сист.' + (obj.primeCount > 0 ? ' 👑' + obj.primeCount : '') + ')';
+}
+
+function galaxyMacroObjects(time, total, level) {
+  const camKey = [
+    total, level, _galaxyFrameId,
+    Math.round((S.panX || 0) * 10), Math.round((S.panY || 0) * 10),
+    Math.round((S.zoom || 1) * 1000), Math.round((S.rotation || 0) * 1000),
+    Math.round((S.tiltX || 0) * 1000), Math.round((S.tiltY || 0) * 1000),
+    (typeof window !== 'undefined' && window.CANVAS_W) || W || 0,
+    (typeof window !== 'undefined' && window.CANVAS_H) || H || 0
+  ].join('|');
+  if (_macroObjectsCache.key === camKey) return _macroObjectsCache.objects;
+  const groups = getGalaxyMacroGroups(total, level, typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const count = groups.length;
+  const objects = [];
+  for (let i = 0; i < count; i++) {
+    const g = groups[i];
+    const rep = g.start + Math.floor(Math.max(1, g.count) / 2);
+    const base = galaxyLayoutPos(rep, Math.max(1, total), time);
+    const pos = galaxyProjectWorld(base.x, base.y);
+    objects.push({
+      index: g.index, start: g.start, end: g.end, count: g.count,
+      primeCount: g.primeCount, x: pos.x, y: pos.y, r: 24,
+      label: galaxyMacroLabel(g, level)
+    });
+  }
+  const cw = (typeof window !== 'undefined' && window.CANVAS_W) || W || 400;
+  const ch = (typeof window !== 'undefined' && window.CANVAS_H) || H || 700;
+  const minDim = Math.max(120, Math.min(cw, ch));
+  const fit = Math.max(0.00001, (typeof galaxyFitZoom === 'function' ? galaxyFitZoom() : 1));
+  const zoomScale = Math.max(0.55, Math.min(2.2, (S.zoom || 1) / fit));
+  for (let i = 0; i < count; i++) {
+    const o = objects[i];
+    let nearest = Infinity;
+    for (let j = 0; j < count; j++) {
+      if (j === i) continue;
+      const dx = objects[j].x - o.x, dy = objects[j].y - o.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < nearest) nearest = d;
+    }
+    const baseR = (count === 1 || !isFinite(nearest))
+      ? minDim * 0.30
+      : Math.min(nearest * 0.42, minDim * 0.24);
+    o.r = Math.max(18, Math.min(170, baseR * zoomScale));
+  }
+  _macroObjectsCache = { key: camKey, objects: objects };
+  return objects;
+}
+
+function galaxyMacroAt(x, y) {
+  const level = galaxyLodLevel();
+  if (level >= 4) return -1;
+  const total = Math.max(1, S.totalSystemsCreated || 1);
+  const objects = galaxyMacroObjects(performance.now() / 1000, total, level);
+  let best = -1, bestD = Infinity;
+  for (let i = 0; i < objects.length; i++) {
+    const o = objects[i];
+    const d = Math.hypot(o.x - x, o.y - y);
+    if (d <= o.r * 0.95 + 8 && d < bestD) { bestD = d; best = o.index; }
+  }
+  return best;
 }
 
 // ─── Кэш созвездий ──────────────────────────────────────────────
@@ -724,9 +940,162 @@ function drawStarGlow(x, y, size, isActive, total) {
   ctx.drawImage(sprite, x - r, y - r, r * 2, r * 2);
   ctx.restore();
 }
+
+// ═══════════════════════════════════════════════════════════════
+//  СЛИЯНИЕ МАКРО-ОБЪЕКТОВ (10 / 50 / 150 / 450 систем)
+// ═══════════════════════════════════════════════════════════════
+function triggerGalaxyMerge(x, y, threshold) {
+  if (!S.vis) S.vis = { collapse: 0, macroMergeAnims: {} };
+  if (!S.vis.macroMergeAnims || typeof S.vis.macroMergeAnims !== 'object') S.vis.macroMergeAnims = {};
+  const id = 'merge_' + threshold + '_' + Date.now();
+  S.vis.macroMergeAnims[id] = {
+    x: Number(x) || 0, y: Number(y) || 0,
+    start: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+    threshold: threshold
+  };
+  const keys = Object.keys(S.vis.macroMergeAnims);
+  while (keys.length > 6) {
+    delete S.vis.macroMergeAnims[keys.shift()];
+  }
+}
+
+// Вызывается после покупки/основания систем. Сам решает, был ли переход порога.
+function checkGalaxyMergeThresholds(prevTotal, newTotal) {
+  const from = Math.max(0, Number(prevTotal) || 0);
+  const to = Math.max(0, Number(newTotal) || 0);
+  if (to <= from) return;
+  const auto = (typeof galaxyLodForTotal === 'function')
+    ? galaxyLodForTotal(to) : galaxyLodLevel();
+  // На пороге переключаемся на более безопасный (крупный) LOD.
+  if (galaxyLodLevel() > auto) S.galaxyZoomLevel = auto;
+  const thresholds = (typeof GALAXY_LOD_CFG !== 'undefined' && Array.isArray(GALAXY_LOD_CFG.mergeThresholds))
+    ? GALAXY_LOD_CFG.mergeThresholds : [10, 50, 150, 450];
+  for (let i = 0; i < thresholds.length; i++) {
+    const t = thresholds[i];
+    if (from < t && to >= t) {
+      const size = Math.max(1, Number(galaxyGroupSizeForLevel(auto)) || 1);
+      const count = Math.max(1, Math.ceil(to / size));
+      const gi = Math.max(0, Math.min(count - 1, Math.floor((t - 1) / size)));
+      const base = galaxyLayoutPos(gi, count, (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000);
+      triggerGalaxyMerge(base.x, base.y, t);
+    }
+  }
+}
+
+function drawMacroMergeAnims(time) {
+  if (!S.vis || !S.vis.macroMergeAnims) return;
+  const keys = Object.keys(S.vis.macroMergeAnims);
+  if (!keys.length) return;
+  const now = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+  const fit = Math.max(0.00001, (typeof galaxyFitZoom === 'function' ? galaxyFitZoom() : 1));
+  const zoomScale = Math.max(0.6, Math.min(2.2, (S.zoom || 1) / fit));
+  const MERGE_FLASH_MS = 2000;
+  const MERGE_LIFE_MS = 600000;
+  for (let k = 0; k < keys.length; k++) {
+    const id = keys[k];
+    const a = S.vis.macroMergeAnims[id];
+    if (!a) continue;
+    const elapsed = now - (Number(a.start) || 0);
+    if (elapsed < 0) { delete S.vis.macroMergeAnims[id]; continue; }
+    if (elapsed >= MERGE_FLASH_MS + MERGE_LIFE_MS) {
+      delete S.vis.macroMergeAnims[id];
+      continue;
+    }
+    const pos = galaxyProjectWorld(Number(a.x) || 0, Number(a.y) || 0);
+    if (elapsed < MERGE_FLASH_MS) {
+      const p = elapsed / MERGE_FLASH_MS;
+      const ease = p * p * (3 - 2 * p);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 28; i++) {
+        const ang = i * 2.399963;
+        const radius = (130 * (1 - ease) + 8) * zoomScale;
+        const px = pos.x + Math.cos(ang) * radius;
+        const py = pos.y + Math.sin(ang) * radius;
+        const alpha = 0.15 + 0.7 * ease;
+        ctx.fillStyle = 'rgba(200, 215, 255, ' + alpha + ')';
+        ctx.beginPath();
+        ctx.arc(px, py, 1.4 + (i % 3) * 0.7, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (elapsed > 1500) {
+        const q = Math.min(1, (elapsed - 1500) / 500);
+        const flashR = (14 + 80 * q) * zoomScale;
+        const fg = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, flashR);
+        fg.addColorStop(0, 'rgba(255,255,255,' + (0.9 * (1 - q * 0.4)) + ')');
+        fg.addColorStop(0.4, 'rgba(210,225,255,' + (0.45 * (1 - q)) + ')');
+        fg.addColorStop(1, 'rgba(160,180,255,0)');
+        ctx.fillStyle = fg;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, flashR, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    } else {
+      // «Молодая туманность»: спиральные частицы вращаются и тают 10 минут.
+      const p = (elapsed - MERGE_FLASH_MS) / MERGE_LIFE_MS;
+      const alpha = Math.max(0, 1 - p);
+      if (alpha <= 0.01) continue;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const rot = elapsed * 0.00012;
+      for (let i = 0; i < 44; i++) {
+        const baseAng = i * 2.399963;
+        const radius = (16 + (i % 11) * 7) * zoomScale * (0.6 + 0.4 * p);
+        const ang = baseAng + rot;
+        const px = pos.x + Math.cos(ang) * radius;
+        const py = pos.y + Math.sin(ang) * radius;
+        const a2 = alpha * (0.12 + 0.30 * (1 - (i % 11) / 11));
+        ctx.fillStyle = 'rgba(150, 200, 255, ' + a2 + ')';
+        ctx.beginPath();
+        ctx.arc(px, py, 1 + (i % 2) * 0.8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+}
+
+function drawCosmicTrail(time) {
+  const tr = S.cosmicTrail;
+  if (!tr || typeof tr !== 'object') return;
+  const start = Number(tr.start) || 0;
+  const duration = Math.max(1000, Number(tr.duration) || 600000);
+  const elapsed = Date.now() - start;
+  if (elapsed < 0) return;
+  if (elapsed > duration) { S.cosmicTrail = null; return; }
+  const p = elapsed / duration;
+  const pos = galaxyProjectWorld(Number(tr.x) || 0, Number(tr.y) || 0);
+  const radius = 30 + p * 260;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.strokeStyle = 'rgba(170, 155, 255, ' + ((1 - p) * 0.20) + ')';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(255, 220, 150, ' + ((1 - p) * 0.10) + ')';
+  ctx.lineWidth = Math.max(1, 7 * (1 - p));
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, radius * 0.72, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawGalaxyPrestigeFlash() {
+  if (S.vis && S.vis.prestigeAnim && S.vis.prestigeAnim.phase === 'explode') {
+    const el = performance.now() - S.vis.prestigeAnim.start - 1500;
+    const p = Math.min(1, el / 500);
+    ctx.fillStyle = 'rgba(255, 255, 255, ' + (1 - p) + ')';
+    ctx.beginPath();
+    ctx.arc(cx, cy, Math.max(W, H) * p, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
 // ★ Двойной тап по системе в галактике открывает её. Одиночный — выделяет.
 const GALAXY_DOUBLE_TAP_MS = 380;
-let galaxyTap = { idx: -1, at: 0 };
+let galaxyTap = { idx: -1, macro: -1, at: 0 };
+let galaxySelectedMacro = -1;
 
 // Хит-тест систем: радиус задан в экранных пикселях и не зависит от зума.
 function galaxySystemAt(x, y) {
@@ -759,6 +1128,8 @@ function openGalaxySystem(i) {
   S.galaxySelectedIdx = -1;
   galaxyTap.idx = -1;
   galaxyTap.at = 0;
+  galaxyTap.macro = -1;
+  galaxySelectedMacro = -1;
   if (typeof updateSystemSwitcher === 'function') updateSystemSwitcher();
   if (typeof updateUI === 'function') updateUI();
 }
@@ -770,10 +1141,123 @@ function handleGalaxyClick(x, y) {
   openGalaxySystem(i);
   return true;
 }
+
+// ─── Отрисовка макро-уровня: один градиентный объект на группу ──
+function drawGalaxyMacroView(time, total, level) {
+  const objects = galaxyMacroObjects(time, total, level);
+  const cw = (typeof window !== 'undefined' && window.CANVAS_W) || W || 400;
+  const ch = (typeof window !== 'undefined' && window.CANVAS_H) || H || 700;
+  ctx.save();
+  for (let i = 0; i < objects.length; i++) {
+    const o = objects[i];
+    if (o.x < -o.r - 50 || o.x > cw + o.r + 50 || o.y < -o.r - 50 || o.y > ch + o.r + 50) continue;
+    const hue = (o.index * 47 + level * 31 + 200) % 360;
+    const pulse = 1 + 0.06 * Math.sin(time * 1.3 + o.index * 1.7);
+    const r = Math.max(10, o.r * pulse);
+
+    // Мягкий радиальный градиент — один на объект (не на систему).
+    const grad = ctx.createRadialGradient(o.x, o.y, r * 0.04, o.x, o.y, r);
+    grad.addColorStop(0, 'hsla(' + hue + ', 72%, 72%, 0.42)');
+    grad.addColorStop(0.45, 'hsla(' + hue + ', 65%, 62%, 0.16)');
+    grad.addColorStop(1, 'hsla(' + hue + ', 60%, 55%, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(o.x, o.y, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Тонкий контур, чтобы группы читались как объекты.
+    ctx.strokeStyle = 'hsla(' + hue + ', 60%, 72%, 0.22)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(o.x, o.y, r * 0.92, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Уровень 2: реальный рисунок созвездия внутри объекта.
+    if (level === 2 && typeof REAL_CONSTELLATIONS !== 'undefined' && REAL_CONSTELLATIONS.length) {
+      const pattern = REAL_CONSTELLATIONS[o.index % REAL_CONSTELLATIONS.length];
+      const scale = r * 0.62;
+      const rot = time * 0.02 + o.index;
+      ctx.save();
+      ctx.translate(o.x, o.y);
+      ctx.rotate(rot);
+      ctx.strokeStyle = 'rgba(190, 180, 255, 0.55)';
+      ctx.lineWidth = Math.max(1, r / 60);
+      for (let e = 0; e < pattern.edges.length; e++) {
+        const a = pattern.stars[pattern.edges[e][0]];
+        const b = pattern.stars[pattern.edges[e][1]];
+        if (!a || !b) continue;
+        ctx.beginPath();
+        ctx.moveTo(a.x * scale, a.y * scale);
+        ctx.lineTo(b.x * scale, b.y * scale);
+        ctx.stroke();
+      }
+      ctx.fillStyle = 'rgba(244, 240, 255, 0.95)';
+      for (let s = 0; s < pattern.stars.length; s++) {
+        const st = pattern.stars[s];
+        ctx.beginPath();
+        ctx.arc(st.x * scale, st.y * scale, Math.max(1.4, r / 45), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    // ★ Прайм внутри макро-объекта: золотой пульсирующий ореол.
+    if (o.primeCount > 0) {
+      const pp = 1 + 0.12 * Math.sin(time * 2.2 + o.index);
+      const goldR = r * 1.25 * pp;
+      const gold = ctx.createRadialGradient(o.x, o.y, r * 0.55, o.x, o.y, goldR);
+      gold.addColorStop(0, 'rgba(255, 210, 90, 0.20)');
+      gold.addColorStop(0.6, 'rgba(255, 170, 40, 0.10)');
+      gold.addColorStop(1, 'rgba(255, 140, 0, 0)');
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = gold;
+      ctx.beginPath();
+      ctx.arc(o.x, o.y, goldR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Выделение одиночным тапом.
+    if (o.index === galaxySelectedMacro) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 215, 106, 0.9)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(o.x, o.y, r + 6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Подпись: «Туманность №1 (10 сист.)» / «Созвездие Ориона (... 👑1)».
+    if (r >= 16) {
+      const fontSize = r >= 70 ? 13 : (r >= 36 ? 12 : 10);
+      ctx.font = 'bold ' + fontSize + 'px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(8, 6, 20, 0.65)';
+      ctx.strokeText(o.label, o.x, o.y + r * 0.62);
+      ctx.fillStyle = o.primeCount > 0 ? '#ffe8a0' : 'rgba(228, 222, 255, 0.92)';
+      ctx.fillText(o.label, o.x, o.y + r * 0.62);
+    }
+  }
+  ctx.restore();
+}
 function drawGalaxyView(time) {
-const t = time;
-const total = S.totalSystemsCreated || 1;
-const positions = [];
+  const t = time;
+  const total = S.totalSystemsCreated || 1;
+  drawCosmicTrail(time);
+  const lod = galaxyLodLevel();
+  if (lod < 4) {
+    // ★ На уровнях 3-0 НЕ рисуем отдельные звёзды:
+    //   только макро-группы, поэтому 1000 систем = единицы объектов.
+    drawGalaxyMacroView(t, total, lod);
+    drawMacroMergeAnims(time);
+    drawGalaxyPrestigeFlash();
+    return;
+  }
+  drawMacroMergeAnims(time);
+  const positions = [];
 for (let i = 0; i < total; i++) {
 const p = galaxySystemPos(i, total, t);
 positions.push({ x: p.x, y: p.y, idx: i });
@@ -930,15 +1414,7 @@ for (let i = 0; i < labelCandidates.length; i++) {
   ctx.fillText(l.name, l.x, l.y);
 }
 })();
-// Вспышка при взрыве престижа
-if (S.vis && S.vis.prestigeAnim && S.vis.prestigeAnim.phase === 'explode') {
-const el = performance.now() - S.vis.prestigeAnim.start - 1500;
-const p = Math.min(1, el / 500);
-ctx.fillStyle = 'rgba(255, 255, 255, ' + (1 - p) + ')';
-ctx.beginPath();
-ctx.arc(cx, cy, Math.max(W, H) * p, 0, Math.PI * 2);
-ctx.fill();
-}
+drawGalaxyPrestigeFlash();
 // Подпись галактики теперь DOM-чипом #galaxyCaption: canvas-текст перекрывался доком.
 }
 // ─── HUD-чипы: подпись галактики и статус Автобороны ────────────
@@ -970,10 +1446,26 @@ function updateHudChips() {
   if (capEl) {
     if (S.stage === 'galaxy') {
       let text = '🌌 Галактика ' + (S.galaxies || 1) + ' · ' + galaxyFormLabel() +
-        ' · доход ×' + (Number(S.galaxyMultiplier) || 1).toFixed(1);
-      const sel = Number(S.galaxySelectedIdx);
-      if (sel >= 0) text += ' · ' + galaxySystemNameAt(sel) + ' — двойной тап, чтобы войти';
-      else text += ' · двойной тап по системе — войти';
+        ' · доход ×' + (Number(S.galaxyMultiplier) || 1).toFixed(1) +
+        ((Number(S.singularities) || 0) > 0 ? ' · ✨ ' + S.singularities : '');
+      const lod = galaxyLodLevel();
+      if (lod < 4) {
+        const meta = (typeof galaxyLodMeta === 'function') ? galaxyLodMeta(lod) : null;
+        const kind = (meta && meta.label) || 'Объект';
+        if (galaxySelectedMacro >= 0) {
+          text += ' · ' + kind + ' №' + (galaxySelectedMacro + 1) + ' — двойной тап: сменить масштаб';
+        } else {
+        const plural = kind === 'Туманность' ? 'Туманности'
+          : kind === 'Созвездие' ? 'Созвездия'
+          : kind === 'Скопление' ? 'Скопления'
+          : kind === 'Сверхскопление' ? 'Сверхскопления' : kind;
+        text += ' · ' + plural + ' · двойной тап по объекту — сменить масштаб';
+        }
+      } else {
+        const sel = Number(S.galaxySelectedIdx);
+        if (sel >= 0) text += ' · ' + galaxySystemNameAt(sel) + ' — двойной тап, чтобы войти';
+        else text += ' · двойной тап по системе — войти';
+      }
       if (capEl.textContent !== text) capEl.textContent = text;
       if (capEl.style.display !== 'block') capEl.style.display = 'block';
     } else if (capEl.style.display !== 'none') {
@@ -1127,6 +1619,7 @@ console.error('Пропущен кадр (защита цикла):', e);
 requestAnimationFrame(loop);
 }
 function loopFrame(now) {
+  _galaxyFrameId++;
   // ★ Досчёт пропущенного времени до обычной симуляции: выход из сна,
   //   возврат на вкладку, разворот Telegram. Внутри есть guard по lastTick.
   if (window.__gameStarted) {
@@ -1533,4 +2026,9 @@ if (typeof saveGame === 'function') saveGame();
 //  Вся логика — в js/random-events.js (daily + weekly world events).
 // ═══════════════════════════════════════════════════════════════
 // Запуск приложения
+window.galaxyLodLevel = galaxyLodLevel;
+window.galaxyMacroAt = galaxyMacroAt;
+window.galaxyMacroObjects = galaxyMacroObjects;
+window.triggerGalaxyMerge = triggerGalaxyMerge;
+window.checkGalaxyMergeThresholds = checkGalaxyMergeThresholds;
 start();

@@ -327,12 +327,75 @@ const SYSTEM_SHOP_CFG = {
 //   получалось ×2048, и доход улетал в космос. Теперь шаг мягче (×1.3)
 //   плюс потолок: 12-я галактика ≈ ×23, 20-я ≈ ×190, 30-я ≈ ×2.6К.
 const PRESTIGE_CFG = {
-  firstRequirement: 5,
+  firstRequirement: 10,
   stepMultiplier: 1.4,
   multiplierPerGalaxy: 1.3,
   multiplierCap: 1e6,
-  requirements: [5, 8, 11, 14, 18]
+  requirements: [10, 50, 150, 450, 1350, 4050]
 };
+
+// ═══════════════════════════════════════════════════════════════
+//  LOD ГАЛАКТИКИ
+//  Уровень 4 — отдельные звёзды (мало систем),
+//  3 — туманности (10 систем / объект),
+//  2 — созвездия (50 систем / объект),
+//  1 — скопления (150 систем / объект),
+//  0 — сверхскопления (450 систем / объект).
+//  Пороги общие для отрисовки, квестов и престижа.
+// ═══════════════════════════════════════════════════════════════
+const GALAXY_LOD_CFG = {
+  mergeThresholds: [10, 50, 150, 450],
+  levels: [
+    { level: 4, minSystems: 1,   groupSize: 1,   kind: 'star',          label: 'Звёзды' },
+    { level: 3, minSystems: 10,  groupSize: 10,  kind: 'nebula',        label: 'Туманность' },
+    { level: 2, minSystems: 50,  groupSize: 50,  kind: 'constellation', label: 'Созвездие' },
+    { level: 1, minSystems: 150, groupSize: 150, kind: 'cluster',       label: 'Скопление' },
+    { level: 0, minSystems: 450, groupSize: 450, kind: 'supercluster',  label: 'Сверхскопление' },
+  ],
+};
+
+// Базовый (самый подробный безопасный) уровень для текущего числа систем.
+function galaxyLodForTotal(total) {
+  const n = Math.max(1, Number(total) || 1);
+  if (n >= 450) return 0;
+  if (n >= 150) return 1;
+  if (n >= 50) return 2;
+  if (n >= 10) return 3;
+  return 4;
+}
+
+function galaxyGroupSizeForLevel(level) {
+  const lvl = Math.max(0, Math.min(4, Math.floor(Number(level) || 0)));
+  for (let i = 0; i < GALAXY_LOD_CFG.levels.length; i++) {
+    if (GALAXY_LOD_CFG.levels[i].level === lvl) return GALAXY_LOD_CFG.levels[i].groupSize;
+  }
+  return 1;
+}
+
+function galaxyLodMeta(level) {
+  const lvl = Math.max(0, Math.min(4, Math.floor(Number(level) || 0)));
+  for (let i = 0; i < GALAXY_LOD_CFG.levels.length; i++) {
+    if (GALAXY_LOD_CFG.levels[i].level === lvl) return GALAXY_LOD_CFG.levels[i];
+  }
+  return GALAXY_LOD_CFG.levels[0];
+}
+
+function galaxyMacroGroupCount(total, level) {
+  const n = Math.max(1, Number(total) || 1);
+  const size = galaxyGroupSizeForLevel(level);
+  return Math.max(1, Math.ceil(n / size));
+}
+
+// Предохранитель: при >450 систем ручной LOD 4 (1000+ звёзд) запрещён.
+// LOD 3 — туманности, максимум ~N/10 объектов, что безопасно для Canvas.
+function galaxyMaxLodForTotal(total) {
+  return (Number(total) || 1) > 450 ? 3 : 4;
+}
+
+function clampGalaxyLodForTotal(level, total) {
+  const maxLod = galaxyMaxLodForTotal(total);
+  return Math.max(0, Math.min(maxLod, Math.floor(Number(level) || 0)));
+}
 
 // Множитель дохода за уровень вспышки (0 — вспышек ещё не было).
 // Единственный источник истины: и сейв, и окно престижа считают отсюда.
@@ -683,6 +746,13 @@ window.PREMIUM_CFG = PREMIUM_CFG;
 window.MISSIONS_CFG = MISSIONS_CFG;
 window.SYSTEM_SHOP_CFG = SYSTEM_SHOP_CFG;
 window.PRESTIGE_CFG = PRESTIGE_CFG;
+window.GALAXY_LOD_CFG = GALAXY_LOD_CFG;
+window.galaxyLodForTotal = galaxyLodForTotal;
+window.galaxyGroupSizeForLevel = galaxyGroupSizeForLevel;
+window.galaxyLodMeta = galaxyLodMeta;
+window.galaxyMacroGroupCount = galaxyMacroGroupCount;
+window.galaxyMaxLodForTotal = galaxyMaxLodForTotal;
+window.clampGalaxyLodForTotal = clampGalaxyLodForTotal;
 window.prestigeMultiplierFor = prestigeMultiplierFor;
 window.METALS_CFG = METALS_CFG;
 window.ECONOMY_CFG = ECONOMY_CFG;

@@ -160,6 +160,8 @@ function testFleetTravelAndCombat() {
   S.fleet = { interceptor: 10, cruiser: 0, dreadnought: 0 };
   S.fleetActive = true;
   S.invasions = [makeInvasion(g, 3)];
+  // Детерминированный бой: случайная сила эскадры не должна делать тест флаки.
+  for (const sh of S.invasions[0].ships) { sh.hp = 50; sh.maxHp = 50; }
 
   const t = 1;
   g.tickFleet(1, t);

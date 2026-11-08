@@ -17,6 +17,71 @@
 // ─── Формы галактик ──────────────────────────────────────────────
 const GALAXY_FORMS = ['spiral', 'elliptical', 'irregular', 'ring'];
 
+// ─── Прайм-реликвии и текущий макро-объект ───────────────────────
+// Лучшая Прайм-система определяется по редкости объекта, а не по доходу:
+// primeBH > superBH > massiveBH > blackHole > ...
+const _PREMIUM_RARITY_FALLBACK = {
+  primeBH: 100, superBH: 90, massiveBH: 80, blackHole: 70, quasar: 65,
+  wormhole3: 60, magnetar: 55, pulsar: 50, wormhole2: 45, wormhole: 40,
+  darkMatter: 30, gravLens: 20, quarkVoid: 10,
+};
+
+function _primeDataOfSystem(sys) {
+  if (!sys || typeof sys !== 'object') return null;
+  if (typeof primeDataOfSystem === 'function') {
+    const data = primeDataOfSystem(sys);
+    if (data) return data;
+  }
+  return sys.primeData || sys.primeSystem || null;
+}
+
+function _primeRarityOfSystem(sys) {
+  const data = _primeDataOfSystem(sys);
+  if (!data) return 0;
+  if (typeof primeObjectRank === 'function') return primeObjectRank(data.objectKey);
+  return _PREMIUM_RARITY_FALLBACK[data.objectKey] || 1;
+}
+
+// Название макро-объекта, который будет потерян при вспышке.
+function currentMacroObjectName() {
+  const total = Math.max(1, Number(S.totalSystemsCreated) || 1);
+  if (typeof galaxyLodForTotal !== 'function' || typeof galaxyGroupSizeForLevel !== 'function') {
+    return 'Галактику (' + total + ' сист.)';
+  }
+  const lvl = galaxyLodForTotal(total);
+  if (lvl >= 4) return 'Звёздное поле (' + total + ' сист.)';
+  const size = galaxyGroupSizeForLevel(lvl);
+  const count = Math.max(1, Math.ceil(total / size));
+  const meta = (typeof galaxyLodMeta === 'function') ? galaxyLodMeta(lvl) : null;
+  const label = (meta && meta.label) || 'Объект';
+  return label + ' №' + count + ' (' + total + ' сист.)';
+}
+
+// Лучшая Прайм-система (по редкости) среди активной и остальных.
+function findBestPrimeSystemData() {
+  let best = null;
+  let bestRank = 0;
+  if (S.primeSystem) {
+    const rank = _primeRarityOfSystem({ primeData: S.primeSystem });
+    if (rank > bestRank) {
+      bestRank = rank;
+      best = { data: S.primeSystem, rank: rank, name: S.systemName || 'Родная', active: true };
+    }
+  }
+  const list = Array.isArray(S.otherSystems) ? S.otherSystems : [];
+  for (let i = 0; i < list.length; i++) {
+    const sys = list[i];
+    const data = _primeDataOfSystem(sys);
+    if (!data) continue;
+    const rank = _primeRarityOfSystem(sys);
+    if (rank > bestRank) {
+      bestRank = rank;
+      best = { data: data, rank: rank, name: (sys && sys.name) || ('Система ' + (i + 1)), active: false };
+    }
+  }
+  return best;
+}
+
 // ─── Шансы на класс звезды при престиже (M — легендарная) ───────
 const PRESTIGE_STAR_TABLE = [
   [1,  { M: 0.05, K: 0.25, G: 0.55, A: 0.10, B: 0.05 }],
@@ -183,6 +248,14 @@ function activateSupernova() {
   const wormholeNote = wormholePct > 0
     ? '<div class="row-stat"><span>🌀 Кротовая нора:</span><span>+' + wormholePct + '% обычных систем</span></div>'
     : '';
+  const gainSing = Math.floor((Number(S.systems) || 1) / 10);
+  const macroName = (typeof currentMacroObjectName === 'function')
+    ? currentMacroObjectName() : ('Галактику (' + (S.systems || 1) + ' сист.)');
+  const bestPrime = findBestPrimeSystemData();
+  const bestPrimeNote = bestPrime
+    ? '<div class="row-stat"><span>👑 Лучшая Прайм:</span><span>' + bestPrime.name +
+      ' · ' + ((bestPrime.data && bestPrime.data.objectName) || bestPrime.data.objectKey || 'реликвия') + '</span></div>'
+    : '';
   const info = `
     <div class="info-box">
       <div class="row-stat"><span>Галактик:</span><span>${S.galaxies || 1} ➔ ${(S.galaxies || 1) + 1}</span></div>
@@ -191,11 +264,15 @@ function activateSupernova() {
       <div class="row-stat"><span>Систем после:</span><span>${survivingPreview} (родная + ${primeCount} прайм + ${keepPreview} обычных)</span></div>
       <div class="row-stat"><span>Потеряется:</span><span>${lostPreview} обычных</span></div>
       ${wormholeNote}
+      ${bestPrimeNote}
+      <div class="row-stat"><span>Текущий объект:</span><span>${macroName}</span></div>
+      <div class="row-stat"><span>Сингулярности:</span><span>+${gainSing} (всего ${(Number(S.singularities)||0) + gainSing})</span></div>
       <div class="row-stat"><span>Металлы:</span><span>останется 50%</span></div>
       <div class="row-stat"><span>Хранилище:</span><span>сохраняется</span></div>
       <div class="row-stat" style="color:#ff5e5e;"><span>Сборка планет:</span><span>отключится</span></div>
     </div>
     <div class="modal-sub" style="color:#ff5e5e;font-weight:bold;">
+      Вы потеряете ${macroName}! Но получите ${gainSing} Сингулярностей и сохраните лучшую Прайм-систему.<br>
       Сбрасываются: пыль, энергия, цивилизация, родная система.<br>
       Внимание: после престижа ручная сборка планет недоступна!
     </div>
@@ -294,7 +371,11 @@ function performSupernova(level) {
   // 2c. Дубли Прайм-систем НЕ удаляем: каждая оплаченная система из сундука
   //     обязана выжить при вспышке, даже если объекты совпадают. Дубликат
   //     активной системы уже исключён через takenIdx выше.
-
+  // 2d. Лучшая Прайм-система — первой, чтобы попасть в otherSystems[1].
+  //     Редкость важнее дохода: primeBH > superBH > massiveBH > ...
+  primeSystems.sort(function(a, b) {
+    return _primeRarityOfSystem(b) - _primeRarityOfSystem(a);
+  });
   // 3. Считаем лимит ТОЛЬКО для обычных систем
   const keepRegularCount = calculateKeepCount(regularSystems.length);
 
@@ -305,6 +386,12 @@ function performSupernova(level) {
   // 5. Итоговый список сохраненных: ВСЕ Праймы + лучшие Обычные
   const kept = [...primeSystems, ...keptRegulars];
   const systemsBefore = S.systems;
+  const gainedSingularities = Math.floor(Math.max(0, Number(systemsBefore) || 0) / 10);
+  const oldPanX = Number(S.panX) || 0;
+  const oldPanY = Number(S.panY) || 0;
+  const oldZoom = Math.max(0.00001, Number(S.zoom) || 1);
+  const oldCenterX = -oldPanX / oldZoom;
+  const oldCenterY = -oldPanY / oldZoom;
 
   // 6. Что переносится между галактиками
   const keep = {
@@ -314,6 +401,11 @@ function performSupernova(level) {
       : (S.galaxyMultiplier || 1) * (PRESTIGE_CFG.multiplierPerGalaxy || 1.3),
     galaxyForm: GALAXY_FORMS[(GALAXY_FORMS.indexOf(S.galaxyForm || 'spiral') + 1) % GALAXY_FORMS.length],
     achievements: S.achievements || [],
+    singularities: (Number(S.singularities) || 0) + gainedSingularities,
+    // ★ Космический след: координаты старого центра + 10 минут жизни.
+    cosmicTrail: { x: oldCenterX, y: oldCenterY, start: Date.now(), duration: 600000 },
+    galaxyZoomLevel: (typeof galaxyLodForTotal === 'function')
+      ? galaxyLodForTotal(1 + kept.length) : 4,
     metalAmount: Math.floor((S.metalAmount || 0) * 0.5),
     unlockedAch: S.unlockedAch || {},
     stats: S.stats || {},
@@ -379,13 +471,19 @@ function performSupernova(level) {
     for (let i = 0; i < kept.length; i++) S.otherSystems.push(kept[i]);
     S.systems = 1 + kept.length;
     S.totalSystemsCreated = S.systems;
+    S.galaxyZoomLevel = (typeof galaxyLodForTotal === 'function')
+      ? galaxyLodForTotal(S.totalSystemsCreated) : S.galaxyZoomLevel;
 
     if (kept.length > 0) {
+      // ★ Сохраняем ЛУЧШУЮ Прайм-систему: она уже стоит первой в kept,
+      //   то есть в otherSystems[1]. Иначе — самая доходная обычная.
       let bestIdx = 1;
-      let bestRate = -1;
-      for (let i = 1; i < S.otherSystems.length; i++) {
-        const r = _systemRate(S.otherSystems[i]);
-        if (r > bestRate) { bestRate = r; bestIdx = i; }
+      if (primeSystems.length === 0) {
+        let bestRate = -1;
+        for (let i = 1; i < S.otherSystems.length; i++) {
+          const r = _systemRate(S.otherSystems[i]);
+          if (r > bestRate) { bestRate = r; bestIdx = i; }
+        }
       }
       if (typeof switchToSystem === 'function') switchToSystem(bestIdx);
     }
@@ -406,7 +504,7 @@ function performSupernova(level) {
     if (S.vis) S.vis.prestigeAnim = null;
     toast('🌟 Вспышка Сверхновой!',
       'Галактика ' + S.galaxies + ' · ×' + S.galaxyMultiplier.toFixed(1) +
-      ' · сохранено ' + kept.length + ' систем');
+      ' · сохранено ' + kept.length + ' систем · +' + gainedSingularities + ' ✨');
     if (typeof updateUI === 'function') updateUI();
     if (typeof updateSystemSwitcher === 'function') updateSystemSwitcher();
   }, 3500);

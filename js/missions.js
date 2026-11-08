@@ -377,7 +377,11 @@ function offerColony() {
         const newIdx = S.otherSystems.length;
         S.otherSystems.push(newSys);
         S.systems++;
-        S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
+        const prevTotalSystems = (S.totalSystemsCreated || 1);
+        S.totalSystemsCreated = prevTotalSystems + 1;
+        if (typeof checkGalaxyMergeThresholds === 'function') {
+          checkGalaxyMergeThresholds(prevTotalSystems, S.totalSystemsCreated);
+        }
         if (typeof bumpSystemCostFloor === 'function') bumpSystemCostFloor();
         toast('Колония основана',
           newSys.name + ' · ' + STAR_TYPES[newSys.starType].name);

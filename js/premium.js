@@ -437,7 +437,11 @@ function showChestResult(prime) {
     if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) S.otherSystems[0] = null;
     S.otherSystems.push(newSys);
     S.systems++;
-    S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
+    const prevTotalSystems = (S.totalSystemsCreated || 1);
+    S.totalSystemsCreated = prevTotalSystems + 1;
+    if (typeof checkGalaxyMergeThresholds === 'function') {
+      checkGalaxyMergeThresholds(prevTotalSystems, S.totalSystemsCreated);
+    }
     if (typeof bumpSystemCostFloor === 'function') bumpSystemCostFloor();
   }
 

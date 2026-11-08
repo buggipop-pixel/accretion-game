@@ -22,6 +22,30 @@ const PRIME_OBJECTS = {
   primeBH:    { name: 'Первичная ЧД',         icon: 'primeBH',    bonus: { rareChance: 0.05 }, absorbRadius: 300 },
 };
 
+// ★ Реликвии Прайма: чем выше ранг, тем ценнее объект.
+// Используется престижем, чтобы сохранить ЛУЧШУЮ Прайм-систему
+// и перенести её в otherSystems[1] новой галактики.
+const PRIME_OBJECT_RARITY = {
+  primeBH: 100,
+  superBH: 90,
+  massiveBH: 80,
+  blackHole: 70,
+  quasar: 65,
+  wormhole3: 60,
+  magnetar: 55,
+  pulsar: 50,
+  wormhole2: 45,
+  wormhole: 40,
+  darkMatter: 30,
+  gravLens: 20,
+  quarkVoid: 10,
+};
+
+function primeObjectRank(objectKey) {
+  const rank = PRIME_OBJECT_RARITY[objectKey];
+  return Number.isFinite(rank) ? rank : 0;
+}
+
 function generatePrimeName() {
   const p = PRIME_PREFIX[Math.floor(Math.random() * PRIME_PREFIX.length)];
   const r = PRIME_ROOT[Math.floor(Math.random() * PRIME_ROOT.length)];
@@ -807,3 +831,5 @@ window.createPrimeSystem = createPrimeSystem;
 window.tryCraftPrime = tryCraftPrime;
 window.drawPrimeIcon = drawPrimeIcon;
 window.drawPrimeMain = drawPrimeMain;
+window.PRIME_OBJECT_RARITY = PRIME_OBJECT_RARITY;
+window.primeObjectRank = primeObjectRank;

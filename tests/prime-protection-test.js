@@ -239,14 +239,14 @@ function testPrestigePreviewShowsChestPrimesSafe() {
   const g = createGame();
   const S = g.S;
   S.stage = 'galaxy';
-  S.systems = 9;
+  S.systems = 10;
   S.prestigeLevel = 0; S.galaxies = 1; S.galaxyMultiplier = 1;
   S.galaxyForm = 'spiral';
   S.primeSystem = null;
   S.activeSystemIdx = 0;
   S.planets = planets();
   S.otherSystems = [null, primeSystem('ChestWorm', wormhole3(), true)];
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 8; i++) {
     S.otherSystems.push({ name: 'Reg' + i, starType: 'G', systemType: 'single', planets: planets() });
   }
 
@@ -260,7 +260,7 @@ function testPrestigePreviewShowsChestPrimesSafe() {
   const lost = /Потеряется:<\/span><span>(\d+) обычных/.exec(html);
   assert('Окно престижа: сундучная система показана среди сохраняемых', /1 прайм/.test(html));
   assert('Окно престижа: счётчик систем включает Прайм', !!total && Number(total[1]) >= 5);
-  assert('Окно престижа: теряются только обычные системы', !!lost && !!total && Number(total[1]) + Number(lost[1]) === 9);
+  assert('Окно престижа: теряются только обычные системы', !!lost && !!total && Number(total[1]) + Number(lost[1]) === 10);
 }
 
 function testInvasionNeverTargetsPrime() {

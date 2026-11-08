@@ -315,7 +315,7 @@ try {
   context.closeEvolutionModal = noop;
 
   const S = context.S;
-  S.systems = 6; S.prestigeLevel = 0; S.galaxies = 1; S.galaxyMultiplier = 1;
+  S.systems = 10; S.prestigeLevel = 0; S.galaxies = 1; S.galaxyMultiplier = 1;
   S.primeSystem = null; S.activeSystemIdx = 0;
   S.otherSystems = [null,
     { name: 'A', starType: 'G', systemType: 'single', planets: [] },
@@ -328,7 +328,7 @@ try {
   context.activateSupernova();
   const html = String(context.__prestigeModalHtml);
   assert(
-    'Престиж: при 6 системах открывается окно Вспышки',
+    'Престиж: при 10 системах открывается окно Вспышки',
     html.indexOf('ВСПЫШКА СВЕРХНОВОЙ') !== -1 &&
     html.indexOf('Систем после') !== -1 &&
     html.indexOf('undefined') === -1 &&
@@ -336,7 +336,7 @@ try {
   );
 } catch (e) {
   console.error('   престиж: ' + e.message);
-  assert('Престиж: при 6 системах открывается окно Вспышки', false);
+  assert('Престиж: при 10 системах открывается окно Вспышки', false);
 }
 // Тест 9: лестница престижа продолжается после 5-й вспышки
 // (раньше требования заканчивались, и квест «До престижа» пропадал)
@@ -345,15 +345,15 @@ try {
   const reqs = context.prestigeRequirements();
   assert(
     'Престиж: лестница продолжается после 5-й вспышки',
-    reqs.length > 5 && reqs[5] === 25 && reqs[6] > reqs[5]
+    reqs.length > 5 && reqs[5] === 4050 && reqs[6] > reqs[5]
   );
   S.prestigeLevel = 5;
   S.systems = 8;
   assert('Престиж: 6-я вспышка требует больше систем', context.checkPrestigeAvailability() === 0);
-  S.systems = 25;
-  assert('Престиж: 6-я вспышка доступна при 25 системах', context.checkPrestigeAvailability() === 6);
+  S.systems = 4050;
+  assert('Престиж: 6-я вспышка доступна при 4050 системах', context.checkPrestigeAvailability() === 6);
   S.prestigeLevel = 6;
-  S.systems = 30;
+  S.systems = 5000;
   assert(
     'Престиж: 7-я вспышка требует больше, чем 6-я',
     context.checkPrestigeAvailability() === 0 && context.prestigeRequirementFor(6) === reqs[6]

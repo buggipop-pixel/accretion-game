@@ -207,6 +207,7 @@ function createSystemFromShop() {
     let firstNew = null;
     let lastIdx = S.otherSystems.length;
 
+    const prevTotalSystems = S.totalSystemsCreated || 1;
     for (let k = 0; k < count; k++) {
       const roll = Math.random();
       let flavor = 'ice';
@@ -222,7 +223,9 @@ function createSystemFromShop() {
       S.totalSystemsCreated = (S.totalSystemsCreated || 1) + 1;
       if (typeof bumpSystemCostFloor === 'function') bumpSystemCostFloor();
     }
-
+    if (typeof checkGalaxyMergeThresholds === 'function') {
+      checkGalaxyMergeThresholds(prevTotalSystems, S.totalSystemsCreated);
+    }
     if (S.systems >= 5 && S.stage === 'system') {
       S.stage = 'galaxy';
       setTimeout(function() { toast('🌌 Галактика сформирована', 'Теперь доступен Престиж!'); }, 1000);
