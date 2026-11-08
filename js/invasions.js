@@ -749,14 +749,149 @@ function drawFleetShots(ctx, inv, z, shipScreenPos) {
 }
 
 // Корабль вторжения: форма/цвет/размер зависят от типа, поверх — HP-бар.
+function invShipRgba(hex, a) {
+  const h = String(hex || '#ff5e5e').replace('#', '');
+  let r = 255, g = 94, b = 94;
+  if (h.length === 3) {
+    r = parseInt(h[0] + h[0], 16); g = parseInt(h[1] + h[1], 16); b = parseInt(h[2] + h[2], 16);
+  } else if (h.length >= 6) {
+    const n = parseInt(h.slice(0, 6), 16);
+    if (isFinite(n)) { r = (n >> 16) & 255; g = (n >> 8) & 255; b = n & 255; }
+  }
+  return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+}
+
+// Корабль вторжения: у каждого типа свой силуэт, свечение, сопла и HP-бар.
 function drawInvaderShip(ctx, ship, z) {
   const s = Math.max(0.6, Number(ship.size) || 1) * z;
-  ctx.fillStyle = ship.color || '#ff3030';
+  const type = ship.type || 'fighter';
+  const base = ship.color || '#ff5e5e';
+  const t = (typeof performance !== 'undefined' && performance.now) ? performance.now() / 1000 : Date.now() / 1000;
+  const pulse = 0.72 + 0.28 * Math.sin(t * 6 + (Number(ship.angle) || 0));
+
+  ctx.save();
+
+  // Двигательный след
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const plumeLen = (type === 'dread' ? 16 : type === 'frigate' ? 13 : type === 'corvette' ? 11 : 9) * s;
+  const trail = ctx.createLinearGradient(-plumeLen, 0, -2 * s, 0);
+  trail.addColorStop(0, invShipRgba(base, 0));
+  trail.addColorStop(0.55, invShipRgba(base, 0.30 * pulse));
+  trail.addColorStop(1, invShipRgba(base, 0.8 * pulse));
+  ctx.fillStyle = trail;
   ctx.beginPath();
-  ctx.moveTo(7 * s, 0); ctx.lineTo(-4 * s, -5 * s); ctx.lineTo(-2 * s, 0); ctx.lineTo(-4 * s, 5 * s);
-  ctx.closePath(); ctx.fill();
-  ctx.fillStyle = 'rgba(255,255,255,0.75)';
-  ctx.beginPath(); ctx.arc(1.5 * s, 0, 1.5 * s, 0, Math.PI * 2); ctx.fill();
+  ctx.moveTo(-2 * s, -2.6 * s);
+  ctx.lineTo(-plumeLen, 0);
+  ctx.lineTo(-2 * s, 2.6 * s);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // Ореол
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, 13 * s);
+  halo.addColorStop(0, invShipRgba(base, 0.40 * pulse));
+  halo.addColorStop(0.55, invShipRgba(base, 0.12));
+  halo.addColorStop(1, invShipRgba(base, 0));
+  ctx.fillStyle = halo;
+  ctx.beginPath(); ctx.arc(0, 0, 13 * s, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // Крылья / стабилизаторы (рисуем под корпусом)
+  ctx.fillStyle = invShipRgba(base, 0.55);
+  ctx.strokeStyle = invShipRgba(base, 0.85);
+  ctx.lineWidth = Math.max(0.7, 0.7 * z);
+  for (let dir = -1; dir <= 1; dir += 2) {
+    ctx.beginPath();
+    if (type === 'dread') {
+      ctx.moveTo(2 * s, dir * 5.5 * s);
+      ctx.lineTo(-4 * s, dir * 9.5 * s);
+      ctx.lineTo(-8 * s, dir * 8.0 * s);
+      ctx.lineTo(-6 * s, dir * 5.0 * s);
+    } else if (type === 'frigate') {
+      ctx.moveTo(2 * s, dir * 4.5 * s);
+      ctx.lineTo(-2 * s, dir * 7.6 * s);
+      ctx.lineTo(-6.5 * s, dir * 6.2 * s);
+      ctx.lineTo(-4.5 * s, dir * 4.0 * s);
+    } else if (type === 'corvette') {
+      ctx.moveTo(1.8 * s, dir * 4.0 * s);
+      ctx.lineTo(-1.5 * s, dir * 6.6 * s);
+      ctx.lineTo(-5 * s, dir * 5.3 * s);
+      ctx.lineTo(-3.5 * s, dir * 3.6 * s);
+    } else {
+      ctx.moveTo(1.8 * s, dir * 3.2 * s);
+      ctx.lineTo(-1.0 * s, dir * 5.0 * s);
+      ctx.lineTo(-4 * s, dir * 4.0 * s);
+      ctx.lineTo(-2.8 * s, dir * 2.8 * s);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  // Корпус: силуэт зависит от типа
+  ctx.beginPath();
+  if (type === 'dread') {
+    ctx.moveTo(10 * s, 0);
+    ctx.lineTo(6 * s, -3.4 * s); ctx.lineTo(4.2 * s, -6.4 * s); ctx.lineTo(-7.4 * s, -6.2 * s);
+    ctx.lineTo(-9 * s, -3 * s); ctx.lineTo(-9.4 * s, 0);
+    ctx.lineTo(-9 * s, 3 * s); ctx.lineTo(-7.4 * s, 6.2 * s); ctx.lineTo(4.2 * s, 6.4 * s); ctx.lineTo(6 * s, 3.4 * s);
+  } else if (type === 'frigate') {
+    ctx.moveTo(9 * s, 0);
+    ctx.lineTo(5 * s, -2.8 * s); ctx.lineTo(0, -5.2 * s); ctx.lineTo(-7.2 * s, -4.4 * s);
+    ctx.lineTo(-8.4 * s, 0); ctx.lineTo(-7.2 * s, 4.4 * s); ctx.lineTo(0, 5.2 * s); ctx.lineTo(5 * s, 2.8 * s);
+  } else if (type === 'corvette') {
+    ctx.moveTo(8 * s, 0);
+    ctx.lineTo(3.4 * s, -4.2 * s); ctx.lineTo(-5 * s, -4.8 * s); ctx.lineTo(-6.4 * s, 0);
+    ctx.lineTo(-5 * s, 4.8 * s); ctx.lineTo(3.4 * s, 4.2 * s);
+  } else {
+    ctx.moveTo(8.4 * s, 0);
+    ctx.lineTo(2.6 * s, -3.6 * s); ctx.lineTo(-4.6 * s, -2.6 * s); ctx.lineTo(-5.6 * s, 0);
+    ctx.lineTo(-4.6 * s, 2.6 * s); ctx.lineTo(2.6 * s, 3.6 * s);
+  }
+  ctx.closePath();
+
+  const hull = ctx.createLinearGradient(-8 * s, -6 * s, 9 * s, 5 * s);
+  hull.addColorStop(0, invShipRgba(base, 0.55));
+  hull.addColorStop(0.45, invShipRgba(base, 0.98));
+  hull.addColorStop(1, '#ffffff');
+  ctx.fillStyle = hull;
+  ctx.fill();
+  ctx.lineWidth = Math.max(0.8, 0.95 * z);
+  ctx.strokeStyle = invShipRgba(base, 0.95);
+  ctx.stroke();
+
+  // Осевая линия корпуса
+  ctx.strokeStyle = 'rgba(18, 8, 32, 0.55)';
+  ctx.lineWidth = Math.max(0.6, 0.7 * z);
+  ctx.beginPath(); ctx.moveTo(6 * s, 0); ctx.lineTo(-5 * s, 0); ctx.stroke();
+
+  // Кабина и панель
+  ctx.fillStyle = 'rgba(12, 8, 30, 0.55)';
+  ctx.beginPath(); ctx.ellipse(-0.5 * s, 0, 1.9 * s, (type === 'dread' ? 1.7 : 1.05) * s, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.beginPath(); ctx.ellipse(2.4 * s, 0, 1.5 * s, 1.0 * s, 0, 0, Math.PI * 2); ctx.fill();
+
+  // Сопла с пульсирующим свечением
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const nozzles = type === 'dread' ? [-3.2, 0, 3.2] : (type === 'frigate' ? [-2.2, 2.2] : [-1.5, 1.5]);
+  const nozzleX = type === 'dread' ? -7.6 * s : -5.6 * s;
+  for (let n = 0; n < nozzles.length; n++) {
+    const ny = nozzles[n] * s;
+    const nr = (type === 'dread' ? 1.5 : 1.0) * s * pulse;
+    const ng = ctx.createRadialGradient(nozzleX, ny, 0, nozzleX, ny, nr * 2.2);
+    ng.addColorStop(0, 'rgba(255,255,255,0.95)');
+    ng.addColorStop(0.4, invShipRgba(base, 0.85));
+    ng.addColorStop(1, invShipRgba(base, 0));
+    ctx.fillStyle = ng;
+    ctx.beginPath(); ctx.arc(nozzleX, ny, nr * 2.2, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+
+  // HP-бар
   if (ship.maxHp > 0 && ship.hp < ship.maxHp) {
     const w = 18 * s, h = Math.max(1.5, 2 * z);
     const ratio = Math.max(0, Math.min(1, ship.hp / ship.maxHp));
@@ -765,6 +900,7 @@ function drawInvaderShip(ctx, ship, z) {
     ctx.fillStyle = ratio > 0.5 ? '#7ee0a8' : (ratio > 0.25 ? '#ffb347' : '#ff4040');
     ctx.fillRect(-w / 2, -11 * s, w * ratio, h);
   }
+  ctx.restore();
 }
 window.drawInvaderShip = drawInvaderShip;
 

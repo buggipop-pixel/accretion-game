@@ -35,7 +35,7 @@ function makeCtx() {
     createLinearGradient: () => ({ addColorStop: noop }),
     putImageData: noop, drawImage: noop, fillRect: noop, clearRect: noop, strokeRect: noop,
     beginPath: noop, closePath: noop, arc: noop, ellipse: noop, fill: noop, stroke: noop,
-    moveTo: noop, lineTo: noop, save: noop, restore: noop, translate: noop, rotate: noop,
+    moveTo: noop, lineTo: noop, quadraticCurveTo: noop, bezierCurveTo: noop, save: noop, restore: noop, translate: noop, rotate: noop,
     scale: noop, setTransform: noop, fillText: noop, strokeText: noop,
     measureText: () => ({ width: 20 }), setLineDash: noop,
   };

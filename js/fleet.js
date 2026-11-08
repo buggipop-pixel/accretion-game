@@ -224,88 +224,170 @@ function drawFleet(ctx, time) {
   const maxR = Number(FLEET_CFG.flagshipMaxRadius) || 22;
   const scale = (S.stage === 'galaxy' ? 0.75 : 1) * z;
   const r = (baseR + Math.min(maxR - baseR, total * perShip)) * scale;
-  const len = r * 3.2;
-  const wid = r * 1.25;
+  const len = r * 3.6;
+  const wid = r * 1.55;
+  const tt = (typeof time === 'number' && isFinite(time)) ? time : 0;
+  const moving = !!pos.moving;
 
   ctx.save();
   ctx.translate(pos.x, pos.y);
   ctx.rotate(pos.angle || 0);
 
-  // Двигательный след
-  const trail = pos.moving ? 1 : 0.55;
+  // ── Реактивная струя ─────────────────────────────────────────
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
-  const g = ctx.createLinearGradient(-len * 1.6, 0, -len * 0.5, 0);
-  g.addColorStop(0, 'rgba(90, 180, 255, 0)');
-  g.addColorStop(0.6, 'rgba(90, 180, 255, 0.25)');
-  g.addColorStop(1, 'rgba(180, 230, 255, 0.75)');
-  ctx.fillStyle = g;
+  const flick = 0.85 + 0.15 * Math.sin(tt * 17 + pos.x * 0.03);
+  const plumeEnd = len * (moving ? 2.35 : 1.35) * flick;
+  const plume = ctx.createLinearGradient(-len * 0.42, 0, -plumeEnd, 0);
+  plume.addColorStop(0, 'rgba(225, 245, 255, 0.95)');
+  plume.addColorStop(0.35, 'rgba(95, 180, 255, 0.45)');
+  plume.addColorStop(1, 'rgba(70, 110, 255, 0)');
+  ctx.fillStyle = plume;
   ctx.beginPath();
-  ctx.moveTo(-len * 0.55, -wid * 0.35);
-  ctx.lineTo(-len * (1.3 + 0.35 * trail), 0);
-  ctx.lineTo(-len * 0.55, wid * 0.35);
+  ctx.moveTo(-len * 0.42, -wid * 0.30);
+  ctx.quadraticCurveTo(-len * 1.1, -wid * 0.16, -plumeEnd, 0);
+  ctx.quadraticCurveTo(-len * 1.1, wid * 0.16, -len * 0.42, wid * 0.30);
   ctx.closePath();
   ctx.fill();
+
+  // Яркие язычки пламени
+  for (let i = -1; i <= 1; i++) {
+    const fy = i * wid * 0.16;
+    const fl = plumeEnd * (0.55 + 0.2 * Math.sin(tt * 21 + i));
+    const fg = ctx.createLinearGradient(-len * 0.45, fy, -fl, fy);
+    fg.addColorStop(0, 'rgba(255,255,255,0.9)');
+    fg.addColorStop(1, 'rgba(120,200,255,0)');
+    ctx.fillStyle = fg;
+    ctx.beginPath();
+    ctx.moveTo(-len * 0.45, fy - wid * 0.05);
+    ctx.lineTo(-fl, fy);
+    ctx.lineTo(-len * 0.45, fy + wid * 0.05);
+    ctx.closePath();
+    ctx.fill();
+  }
   ctx.restore();
 
-  // Ореол
-  const halo = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, r * 2.2);
-  halo.addColorStop(0, 'rgba(120, 200, 255, 0.28)');
-  halo.addColorStop(1, 'rgba(120, 200, 255, 0)');
+  // ── Ореол ────────────────────────────────────────────────────
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const halo = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, r * 3);
+  halo.addColorStop(0, 'rgba(120, 200, 255, 0.26)');
+  halo.addColorStop(0.6, 'rgba(110, 140, 255, 0.10)');
+  halo.addColorStop(1, 'rgba(110, 140, 255, 0)');
   ctx.fillStyle = halo;
-  ctx.beginPath();
-  ctx.arc(0, 0, r * 2.2, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.beginPath(); ctx.arc(0, 0, r * 3, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
 
-  // Корпус линкора
-  ctx.fillStyle = '#dbe9ff';
-  ctx.strokeStyle = '#7fb8ff';
-  ctx.lineWidth = Math.max(1, 1.2 * z);
+  // ── Корабли сопровождения (визуально показывают размер флота) ─
+  const escorts = Math.min(3, Math.max(0, total - 1));
+  for (let i = 0; i < escorts; i++) {
+    const orb = tt * 0.7 + i * 2.2;
+    const ex = -len * 0.72 + Math.cos(orb) * r * 0.9;
+    const ey = Math.sin(orb) * wid * 0.85;
+    const es = r * 0.30;
+    ctx.save();
+    ctx.translate(ex, ey);
+    ctx.rotate(0.25 * Math.sin(orb));
+    ctx.fillStyle = 'rgba(155, 205, 255, 0.92)';
+    ctx.beginPath();
+    ctx.moveTo(es * 1.9, 0);
+    ctx.lineTo(-es * 1.1, -es * 0.8);
+    ctx.lineTo(-es * 0.5, 0);
+    ctx.lineTo(-es * 1.1, es * 0.8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(130, 220, 255, 0.9)';
+    ctx.beginPath(); ctx.arc(-es * 0.9, 0, es * 0.35, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // ── Крылья (фиолетовый акцент) ───────────────────────────────
+  const wing = ctx.createLinearGradient(0, -wid, 0, wid);
+  wing.addColorStop(0, 'rgba(150, 130, 255, 0.95)');
+  wing.addColorStop(0.5, 'rgba(105, 80, 230, 0.95)');
+  wing.addColorStop(1, 'rgba(150, 130, 255, 0.95)');
+  for (let dir = -1; dir <= 1; dir += 2) {
+    ctx.beginPath();
+    ctx.moveTo(len * 0.14, dir * wid * 0.30);
+    ctx.lineTo(-len * 0.06, dir * wid * 0.98);
+    ctx.lineTo(-len * 0.34, dir * wid * 0.80);
+    ctx.lineTo(-len * 0.30, dir * wid * 0.32);
+    ctx.closePath();
+    ctx.fillStyle = wing;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(185, 168, 255, 0.85)';
+    ctx.lineWidth = Math.max(0.8, 0.9 * z);
+    ctx.stroke();
+  }
+
+  // ── Корпус ───────────────────────────────────────────────────
+  const hull = ctx.createLinearGradient(-len * 0.5, 0, len * 0.56, 0);
+  hull.addColorStop(0, '#8fb4ea');
+  hull.addColorStop(0.55, '#d7e8ff');
+  hull.addColorStop(1, '#f6fbff');
+  ctx.fillStyle = hull;
+  ctx.strokeStyle = 'rgba(150, 205, 255, 0.95)';
+  ctx.lineWidth = Math.max(1, 1.3 * z);
   ctx.beginPath();
-  ctx.moveTo(len * 0.5, 0);
-  ctx.lineTo(len * 0.12, -wid * 0.5);
-  ctx.lineTo(-len * 0.32, -wid * 0.42);
-  ctx.lineTo(-len * 0.5, 0);
-  ctx.lineTo(-len * 0.32, wid * 0.42);
-  ctx.lineTo(len * 0.12, wid * 0.5);
+  ctx.moveTo(len * 0.56, 0);
+  ctx.quadraticCurveTo(len * 0.40, -wid * 0.20, len * 0.18, -wid * 0.26);
+  ctx.lineTo(len * 0.05, -wid * 0.52);
+  ctx.lineTo(-len * 0.26, -wid * 0.46);
+  ctx.lineTo(-len * 0.40, -wid * 0.22);
+  ctx.lineTo(-len * 0.48, 0);
+  ctx.lineTo(-len * 0.40, wid * 0.22);
+  ctx.lineTo(-len * 0.26, wid * 0.46);
+  ctx.lineTo(len * 0.05, wid * 0.52);
+  ctx.lineTo(len * 0.18, wid * 0.26);
+  ctx.quadraticCurveTo(len * 0.40, wid * 0.20, len * 0.56, 0);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
 
-  // Надстройка и крылья
-  ctx.fillStyle = '#6b4de6';
+  // ── Кабина ───────────────────────────────────────────────────
+  ctx.fillStyle = 'rgba(40, 60, 120, 0.75)';
   ctx.beginPath();
-  ctx.moveTo(len * 0.05, -wid * 0.18);
-  ctx.lineTo(-len * 0.18, 0);
-  ctx.lineTo(len * 0.05, wid * 0.18);
-  ctx.closePath();
+  ctx.ellipse(len * 0.20, 0, len * 0.10, wid * 0.16, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(170, 225, 255, 0.95)';
+  ctx.beginPath();
+  ctx.ellipse(len * 0.22, 0, len * 0.055, wid * 0.09, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.fillStyle = 'rgba(185, 168, 255, 0.9)';
-  ctx.beginPath();
-  ctx.moveTo(len * 0.02, -wid * 0.5);
-  ctx.lineTo(-len * 0.2, -wid * 0.95);
-  ctx.lineTo(-len * 0.05, -wid * 0.5);
-  ctx.closePath();
-  ctx.fill();
-  ctx.beginPath();
-  ctx.moveTo(len * 0.02, wid * 0.5);
-  ctx.lineTo(-len * 0.2, wid * 0.95);
-  ctx.lineTo(-len * 0.05, wid * 0.5);
-  ctx.closePath();
-  ctx.fill();
+  // ── Реактор ──────────────────────────────────────────────────
+  const corePulse = 0.7 + 0.3 * Math.sin(tt * 4.5);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const core = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 0.75);
+  core.addColorStop(0, 'rgba(230, 250, 255, ' + (0.95 * corePulse) + ')');
+  core.addColorStop(0.35, 'rgba(120, 210, 255, 0.55)');
+  core.addColorStop(1, 'rgba(90, 140, 255, 0)');
+  ctx.fillStyle = core;
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.75, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
 
-  // Пушки
-  ctx.strokeStyle = '#9fd0ff';
+  // ── Пушки ────────────────────────────────────────────────────
+  ctx.strokeStyle = '#a8d4ff';
   ctx.lineWidth = Math.max(1, 1.4 * z);
   ctx.beginPath();
-  ctx.moveTo(len * 0.28, -wid * 0.18); ctx.lineTo(len * 0.62, -wid * 0.18);
-  ctx.moveTo(len * 0.28, wid * 0.18); ctx.lineTo(len * 0.62, wid * 0.18);
+  ctx.moveTo(len * 0.30, -wid * 0.20); ctx.lineTo(len * 0.64, -wid * 0.20);
+  ctx.moveTo(len * 0.30, wid * 0.20); ctx.lineTo(len * 0.64, wid * 0.20);
   ctx.stroke();
+
+  // ── Щит ──────────────────────────────────────────────────────
+  ctx.save();
+  ctx.strokeStyle = 'rgba(130, 200, 255, 0.35)';
+  ctx.lineWidth = Math.max(0.8, 1.0 * z);
+  ctx.setLineDash([r * 0.55, r * 0.45]);
+  ctx.lineDashOffset = -tt * 22;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, len * 0.62, wid * 0.92, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
 
   ctx.restore();
 
-  // Бейдж количества
+  // ── Бейдж количества ─────────────────────────────────────────
   const labelY = pos.y - r * 2.6;
   ctx.save();
   ctx.font = 'bold ' + Math.max(9, Math.round(9 * z)) + 'px sans-serif';
