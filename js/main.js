@@ -1539,9 +1539,37 @@ function drawMacroStar(idx, pos, total, time, labelCandidates) {
 
 }
 
+function drawMacroSelectedStarShimmer(pos, time, idx) {
+  const pulse = 0.5 + 0.5 * Math.sin(time * 2.8 + idx * 1.3);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const r = 6 + 3 * pulse;
+  ctx.fillStyle = 'rgba(255, 220, 140, ' + (0.04 + 0.05 * pulse).toFixed(3) + ')';
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255, 246, 210, ' + (0.08 + 0.09 * pulse).toFixed(3) + ')';
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, 2.2 + 1.2 * pulse, 0, Math.PI * 2);
+  ctx.fill();
+  const rr = 4 + 4 * pulse;
+  ctx.strokeStyle = 'rgba(255, 232, 165, ' + (0.10 + 0.14 * pulse).toFixed(3) + ')';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pos.x - rr, pos.y);
+  ctx.lineTo(pos.x - rr * 0.55, pos.y);
+  ctx.moveTo(pos.x + rr * 0.55, pos.y);
+  ctx.lineTo(pos.x + rr, pos.y);
+  ctx.moveTo(pos.x, pos.y - rr);
+  ctx.lineTo(pos.x, pos.y - rr * 0.55);
+  ctx.moveTo(pos.x, pos.y + rr * 0.55);
+  ctx.lineTo(pos.x, pos.y + rr);
+  ctx.stroke();
+  ctx.restore();
+}
+
 
 function drawGalaxyMacroView(time, total, level) {
-  const objects = galaxyMacroObjects(time, total, level);
   const groups = getGalaxyMacroGroups(total, level, performance.now());
   const cw = (typeof window !== 'undefined' && window.CANVAS_W) || W || 400;
   const ch = (typeof window !== 'undefined' && window.CANVAS_H) || H || 700;
@@ -1558,6 +1586,7 @@ function drawGalaxyMacroView(time, total, level) {
   for (let gi = 0; gi < groups.length; gi++) {
     const group = groups[gi];
     if (!galaxyMacroInFocus(group)) continue;
+    const isSelectedMacro = galaxySelectedMacro === group.index;
     const chunks = [];
 
     if (childSize > 0) {
@@ -1603,8 +1632,12 @@ function drawGalaxyMacroView(time, total, level) {
 
       const edges = constellationMst(pts, members);
       ctx.save();
-      const linePulse = 0.09 + 0.06 * (0.5 + 0.5 * Math.sin(time * 0.8 + chunk.index));
-      ctx.strokeStyle = 'rgba(150, 140, 215, ' + linePulse.toFixed(3) + ')';
+      const linePulse = isSelectedMacro
+        ? 0.16 + 0.10 * (0.5 + 0.5 * Math.sin(time * 1.6 + chunk.index))
+        : 0.09 + 0.06 * (0.5 + 0.5 * Math.sin(time * 0.8 + chunk.index));
+      ctx.strokeStyle = isSelectedMacro
+        ? 'rgba(255, 205, 120, ' + linePulse.toFixed(3) + ')'
+        : 'rgba(150, 140, 215, ' + linePulse.toFixed(3) + ')';
       ctx.lineWidth = 1;
       for (let e = 0; e < edges.length; e++) {
         const a = pts[members[edges[e][0]]];
@@ -1625,6 +1658,7 @@ function drawGalaxyMacroView(time, total, level) {
         if (!pos) continue;
         if (pos.x < -50 || pos.x > cw + 50 || pos.y < -50 || pos.y > ch + 50) continue;
         drawMacroStar(idx, pos, total, time, labelCandidates);
+        if (isSelectedMacro) drawMacroSelectedStarShimmer(pos, time, idx);
       }
     }
 
@@ -1659,19 +1693,6 @@ function drawGalaxyMacroView(time, total, level) {
       });
     }
 
-    if (galaxySelectedMacro === group.index) {
-      const o = objects[group.index];
-      if (o) {
-        ctx.save();
-        ctx.strokeStyle = 'rgba(255, 215, 106, 0.38)';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([6, 6]);
-        ctx.beginPath();
-        ctx.arc(gx, gy, Math.max(24, o.r * 0.9), 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
-      }
-    }
   }
   ctx.restore();
 

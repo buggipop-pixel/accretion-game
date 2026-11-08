@@ -8,6 +8,20 @@ function setViewMode(mode) {
   S.viewMode = mode || 'normal';
   if (mode === 'normal') {
     S.tiltX = 0; S.tiltY = 0;
+    // Выход из 3D-обзора возвращает галактику в центр экрана:
+    // игрок мог уехать далеко и потерять её из вида.
+    if (typeof S !== 'undefined' && S.stage === 'galaxy') {
+      S.panX = 0;
+      S.panY = 0;
+      S.galaxyFocus = null;
+      S.galaxyManualLod = false;
+      if (typeof galaxyLodForTotal === 'function') {
+        S.galaxyZoomLevel = galaxyLodForTotal(S.totalSystemsCreated || 1);
+      }
+      if (typeof galaxyFitZoom === 'function') {
+        S.zoom = galaxyFitZoom();
+      }
+    }
   }
   if (mode === 'free') {
     S.tiltX = 0.35;   // стартовый наклон, чтобы сразу увидеть объём
@@ -15,7 +29,7 @@ function setViewMode(mode) {
   }
   if (typeof toast === 'function') {
     const labels = { normal: 'Обычный вид', free: 'Свободный обзор', tour: 'Тур' };
-    toast('🌐 ' + labels[mode], mode === 'free' ? 'Свайп — вращение, пинч — зум' : '');
+    toast('🌐 ' + labels[mode], mode === 'free' ? 'Свайп — вращение, пинч — зум' : (S.stage === 'galaxy' ? 'Галактика возвращена в центр' : ''));
   }
 }
 
