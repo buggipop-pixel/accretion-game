@@ -417,8 +417,8 @@ function updateStorageUI() {
       } else if (res === 'civ') {
         rateEl.textContent = '+' + fmt(civPerSec() * 3600) + ' / ч';
       } else if (res === 'metals') {
-        const mRate = metalsPerSec() * ((typeof eventMult === 'function') ? eventMult('metals') : 1);
-        rateEl.textContent = '+' + (mRate < 10 ? mRate.toFixed(1) : fmt(mRate)) + ' / с';
+        const mRate = metalsPerSec() * ((typeof eventMult === 'function') ? eventMult('metals') : 1) * 3600;
+        rateEl.textContent = '+' + fmt(mRate) + ' / ч';
       }
     }
 
