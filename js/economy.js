@@ -893,6 +893,14 @@ function pickOfflineInvasionTarget() {
   return list[Math.floor(Math.random() * list.length)];
 }
 
+// ★ Короткие числа для TG-отчёта: 52.5Б вместо 52496952136.
+function invasionShortNum(value) {
+  const n = Math.max(0, Number(value) || 0);
+  if (typeof notifyFmt === 'function') return notifyFmt(n);
+  if (typeof fmt === 'function') return fmt(n);
+  return String(Math.floor(n));
+}
+
 function simulateOfflineInvasions(elapsedSec, out) {
   const cfg = INVASION_CFG;
   const n = (cfg && cfg.neglect) || {};
@@ -977,7 +985,7 @@ function simulateOfflineInvasions(elapsedSec, out) {
     const lines = [
       '⏳ Отсутствие: ' + out.awayHours + ' ч',
       '⚔️ Атак: ' + executed + ' · отбито: ' + defended,
-      '💸 Потери: ✦ ' + Math.floor(lostDust) + ', ⚡ ' + Math.floor(lostE) + ', 🧬 ' + (Math.round(lostC * 100) / 100) + ', ⚙ ' + Math.floor(lostM),
+      '💸 Потери: ✦ ' + invasionShortNum(lostDust) + ', ⚡ ' + invasionShortNum(lostE) + ', 🧬 ' + (lostC >= 1000 ? invasionShortNum(lostC) : (Math.round(lostC * 100) / 100)) + ', ⚙ ' + invasionShortNum(lostM),
       '🪐 Планет в простое: ' + disabled + (systemsDamaged > 0 ? ' · систем: ' + systemsDamaged : ''),
     ];
     if (level > 0) lines.push('☠️ Запустение: ур.' + level);

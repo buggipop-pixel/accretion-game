@@ -284,6 +284,7 @@ function notifyStorageFull(name, value, cap, text) {
   return notifyEvent('storage', 'Хранилище заполнено: ' + _notifyEsc(name), lines, { key: 'storage:' + name, immediate: true });
 }
 
+window.notifyFmt = _notifyFmt;
 window.notifyEvent = notifyEvent;
 window.notifyBuildMessage = notifyBuildMessage;
 window.notifyInvasionStart = notifyInvasionStart;

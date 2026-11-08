@@ -235,6 +235,27 @@ function testRichNotifications() {
   assert('Уведомление: указаны трофеи', endMsg.includes('Трофеи'));
 }
 
+// ★ TG-отчёт об офлайн-вторжениях должен показывать короткие числа
+//   (52.5Б), а не сырые цифры (52496952136).
+function testOfflineReportShortNumbers() {
+  const g = createGame();
+  const S = prepareGame(g);
+  S.dust = 52496952136 * 2;
+  S.energy = 1193683211932 * 2;
+  S.civLevel = 10556.62 * 2;
+  S.metalAmount = 1241729 * 2;
+  g.__sent.length = 0;
+
+  const out = {};
+  g.simulateOfflineInvasions(4 * 3600, out);
+
+  const msg = g.__sent.map((m) => m.message).join('\n');
+  assert('Отчёт офлайн: сообщение отправлено', msg.includes('Отчёт о вторжениях'));
+  const lossLine = (msg.split('\n').find((line) => line.includes('Потери')) || '');
+  assert('Отчёт офлайн: строка потерь есть', lossLine.length > 0, lossLine);
+  assert('Отчёт офлайн: длинных чисел нет', !/\d{7,}/.test(lossLine), lossLine);
+}
+
 function testFleetAlwaysOn() {
   const g = createGame();
   const S = prepareGame(g);
@@ -255,6 +276,7 @@ function testFleetAlwaysOn() {
     testManualKillReward();
     testManualKillNotifiesEnd();
     testRichNotifications();
+    testOfflineReportShortNumbers();
     testFleetAlwaysOn();
   } catch (e) {
     console.error('❌ Исключение в тестах: ' + (e && e.stack || e));
