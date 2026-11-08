@@ -706,6 +706,121 @@ function galaxyLodLevel() {
   }
   return Math.max(0, Math.min(4, lvl));
 }
+function galaxyMacroInFocus(o) {
+  const f = S.galaxyFocus;
+  if (!f) return true;
+  return o.start >= f.start && o.start < f.end;
+}
+
+function galaxyMacroNearestIndex(x, y, level) {
+  const total = Math.max(1, S.totalSystemsCreated || 1);
+  const objects = galaxyMacroObjects(performance.now() / 1000, total, level);
+  let best = -1, bestD = Infinity;
+  for (let i = 0; i < objects.length; i++) {
+    const o = objects[i];
+    if (!galaxyMacroInFocus(o)) continue;
+    const d = Math.hypot(o.x - x, o.y - y);
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return best;
+}
+
+function fitGalaxyAutoFocus(parent, target) {
+  const total = Math.max(1, S.totalSystemsCreated || 1);
+  const now = performance.now() / 1000;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  if (target < 4) {
+    const children = galaxyMacroObjects(now, total, target);
+    for (let i = 0; i < children.length; i++) {
+      const c = children[i];
+      if (c.start < parent.start || c.start >= parent.end) continue;
+      if (c.x < minX) minX = c.x;
+      if (c.x > maxX) maxX = c.x;
+      if (c.y < minY) minY = c.y;
+      if (c.y > maxY) maxY = c.y;
+    }
+  } else {
+    for (let i = parent.start; i < parent.end; i++) {
+      const p = galaxySystemPos(i, total, now);
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+  }
+  if (!isFinite(minX) || !isFinite(minY)) return;
+  const vw = (typeof W === 'number' && W > 0) ? W : (window.innerWidth || 400);
+  const vh = (typeof H === 'number' && H > 0) ? H : (window.innerHeight || 700);
+  const bw = Math.max(60, maxX - minX);
+  const bh = Math.max(60, maxY - minY);
+  let factor = Math.min(1, (vw * 0.72) / bw, (vh * 0.55) / bh);
+  factor = Math.max(0.35, factor);
+  const bcx = (minX + maxX) / 2;
+  const bcy = (minY + maxY) / 2;
+  S.panX = (S.panX + cx - bcx) * factor;
+  S.panY = (S.panY + cy - bcy) * factor;
+  const z = (typeof clampZoom === 'function') ? clampZoom((Number(S.zoom) || 1) * factor) : (Number(S.zoom) || 1) * factor;
+  S.zoom = z;
+  if (S.galaxyFocus) S.galaxyFocus.zoom = z;
+}
+
+function applyGalaxyAutoLod(target, fromLevel) {
+  if (target === fromLevel) return false;
+  S.galaxyZoomLevel = target;
+  S.galaxyManualLod = true;
+  if (target > fromLevel) {
+    let idx = galaxyMacroAt(cx, cy);
+    if (idx < 0) idx = galaxyMacroNearestIndex(cx, cy, fromLevel);
+    if (idx >= 0) {
+      const objects = galaxyMacroObjects(performance.now() / 1000, S.totalSystemsCreated || 1, fromLevel);
+      const o = objects[idx];
+      if (o) {
+        S.galaxyFocus = {
+          start: o.start,
+          end: o.end,
+          name: (typeof galaxyMacroName === 'function' ? galaxyMacroName(fromLevel, o.index) : o.label),
+          zoom: Number(S.zoom) || 1
+        };
+        fitGalaxyAutoFocus(o, target);
+      }
+    } else {
+      S.galaxyFocus = null;
+    }
+  } else {
+    S.galaxyFocus = null;
+  }
+  galaxySelectedMacro = -1;
+  S.galaxySelectedIdx = -1;
+  return true;
+}
+
+// Плавное «раскрытие/сворачивание» по зуму: приближение входит в объект
+// под центром экрана, отдаление возвращает к более крупным макро-объектам.
+function updateGalaxyZoomLod() {
+  if (S.stage !== 'galaxy') return;
+  if (S.vis && S.vis.macroDrill) return;
+  const total = Math.max(1, S.totalSystemsCreated || 1);
+  if (total <= 9) return;
+  const base = (typeof galaxyLodForTotal === 'function') ? galaxyLodForTotal(total) : 4;
+  const lvl = galaxyLodLevel();
+  if (lvl < base) return;
+  const fit = (typeof galaxyFitZoom === 'function') ? galaxyFitZoom() : 1;
+  if (!isFinite(fit) || fit <= 0) return;
+  const ratio = Math.max(0.01, (Number(S.zoom) || 1) / fit);
+  const UP = [1.45, 2.4, 4.0, 6.4];
+  let target = lvl;
+  if (S.galaxyFocus) {
+    const fz = Number(S.galaxyFocus.zoom) || fit;
+    if (lvl > base && (Number(S.zoom) || 1) < fz * 0.72) target = lvl - 1;
+    else if (lvl < 4 && (Number(S.zoom) || 1) > fz * 1.55) target = lvl + 1;
+  } else if (lvl < 4 && ratio > UP[lvl]) {
+    target = lvl + 1;
+  } else if (lvl > base && ratio < UP[lvl - 1] * 0.8) {
+    target = lvl - 1;
+  }
+  if (target !== lvl) applyGalaxyAutoLod(target, lvl);
+}
+
 
 function getGalaxyMacroGroups(total, level, now) {
   const n = Math.max(1, Number(total) || 1);
@@ -807,6 +922,7 @@ function galaxyMacroAt(x, y) {
   let best = -1, bestD = Infinity;
   for (let i = 0; i < objects.length; i++) {
     const o = objects[i];
+    if (!galaxyMacroInFocus(o)) continue;
     const d = Math.hypot(o.x - x, o.y - y);
     if (d <= o.r * 0.95 + 8 && d < bestD) { bestD = d; best = o.index; }
   }
@@ -823,9 +939,11 @@ function startGalaxyMacroDrill(index) {
   const o = objects[index];
   if (!o) return false;
   const targetLevel = Math.min(4, level + 1);
-  const focus = (targetLevel === 4 && level === 3)
-    ? { start: o.start, end: o.end, name: (typeof galaxyMacroName === 'function' ? galaxyMacroName(3, o.index) : o.label) }
-    : null;
+  const focus = {
+    start: o.start,
+    end: o.end,
+    name: (typeof galaxyMacroName === 'function' ? galaxyMacroName(level, o.index) : o.label)
+  };
   const fromZoom = Math.max(0.00002, Number(S.zoom) || 1);
   const fromPanX = Number(S.panX) || 0;
   const fromPanY = Number(S.panY) || 0;
@@ -851,6 +969,7 @@ function startGalaxyMacroDrill(index) {
       centerX = (minX + maxX) / 2;
       centerY = (minY + maxY) / 2;
     }
+    focus.zoom = targetZoom;
   }
   const tx = (centerX - cx - fromPanX) / fromZoom;
   const ty = (centerY - cy - fromPanY) / fromZoom;
@@ -1438,6 +1557,7 @@ function drawGalaxyMacroView(time, total, level) {
 
   for (let gi = 0; gi < groups.length; gi++) {
     const group = groups[gi];
+    if (!galaxyMacroInFocus(group)) continue;
     const chunks = [];
 
     if (childSize > 0) {
@@ -1511,8 +1631,8 @@ function drawGalaxyMacroView(time, total, level) {
     if (!gcount) continue;
     gx /= gcount; gy /= gcount;
 
-    const showGroupLabel = total <= 250 || level <= 1 || galaxySelectedMacro === group.index;
-    if (showGroupLabel && gx > -80 && gx < cw + 80 && gy > -80 && gy < ch + 80) {
+    const showGroupLabel = !!S.galaxyFocus || total <= 250 || level <= 1 || galaxySelectedMacro === group.index;
+    if (showGroupLabel && (!!S.galaxyFocus || (gx > -80 && gx < cw + 80 && gy > -80 && gy < ch + 80))) {
       let groupName = (typeof galaxyMacroName === 'function')
         ? galaxyMacroName(level, group.index)
         : (((typeof galaxyLodMeta === 'function' ? galaxyLodMeta(level) : null) || {}).label || 'Объект');
@@ -1562,17 +1682,44 @@ function drawGalaxyMacroView(time, total, level) {
     ctx.textAlign = 'center';
     for (let i = 0; i < groupLabels.length; i++) {
       const g = groupLabels[i];
-      if (g.x < -80 || g.x > cw + 80 || g.y < -80 || g.y > ch + 80) continue;
+      if (!S.galaxyFocus && (g.x < -120 || g.x > cw + 120 || g.y < -120 || g.y > ch + 120)) continue;
       const gw = Math.max(40, g.name.length * 5.8 + 8);
-      const box = { l: g.x - gw / 2, r: g.x + gw / 2, t: g.y - 9, b: g.y + 4 };
-      let overlaps = false;
-      for (let j = 0; j < groupLabelBoxes.length; j++) {
-        const q = groupLabelBoxes[j];
-        if (box.l < q.r && box.r > q.l && box.t < q.b && box.b > q.t) { overlaps = true; break; }
+      const baseX = Math.max(gw / 2 + 8, Math.min(cw - gw / 2 - 8, g.x));
+      const baseY = Math.max(110, Math.min(ch * 0.68, g.y));
+      const tries = [
+        { x: baseX, y: baseY },
+        { x: baseX, y: baseY + 26 },
+        { x: baseX, y: baseY - 26 },
+        { x: baseX - gw * 0.7, y: baseY },
+        { x: baseX + gw * 0.7, y: baseY }
+      ];
+      let chosen = null;
+      for (let t = 0; t < tries.length; t++) {
+        const x = Math.max(gw / 2 + 8, Math.min(cw - gw / 2 - 8, tries[t].x));
+        const y = Math.max(110, Math.min(ch * 0.68, tries[t].y));
+        const box = { l: x - gw / 2, r: x + gw / 2, t: y - 9, b: y + 4 };
+        let overlaps = false;
+        for (let j = 0; j < groupLabelBoxes.length; j++) {
+          const q = groupLabelBoxes[j];
+          if (box.l < q.r && box.r > q.l && box.t < q.b && box.b > q.t) { overlaps = true; break; }
+        }
+        if (!overlaps) { chosen = { x: x, y: y, box: box }; break; }
       }
-      if (overlaps) continue;
-      groupLabelBoxes.push(box);
-      ctx.fillText(g.name, g.x, g.y);
+      if (!chosen) {
+        chosen = { x: baseX, y: baseY, box: { l: baseX - gw / 2, r: baseX + gw / 2, t: baseY - 9, b: baseY + 4 } };
+      }
+      groupLabelBoxes.push(chosen.box);
+      if (Math.abs(chosen.x - g.x) > 20 || Math.abs(chosen.y - g.y) > 20) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(150, 140, 215, 0.22)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(g.x, g.y);
+        ctx.lineTo(chosen.x, chosen.y + 3);
+        ctx.stroke();
+        ctx.restore();
+      }
+      ctx.fillText(g.name, chosen.x, chosen.y);
     }
     ctx.restore();
   }
@@ -1615,6 +1762,7 @@ function drawGalaxyMacroView(time, total, level) {
 function drawGalaxyView(time) {
   const t = time;
   updateGalaxyMacroDrill(performance.now());
+  updateGalaxyZoomLod();
   const total = S.totalSystemsCreated || 1;
   drawCosmicTrail(time);
   const lod = galaxyLodLevel();
