@@ -1275,10 +1275,10 @@ function handleGalaxyClick(x, y) {
 // Поэтому вместо «пузырей» показываем реальные позиции части систем:
 // созвездие остаётся созвездием, просто с меньшим числом точек.
 function galaxyMacroStarBudget(level) {
-  if (level <= 0) return 110;
-  if (level === 1) return 190;
-  if (level === 2) return 240;
-  return 180;
+  if (level <= 0) return 120;
+  if (level === 1) return 210;
+  if (level === 2) return 300;
+  return 300;
 }
 
 function galaxyMacroMaxStarsPerGroup(level) {
@@ -1286,6 +1286,31 @@ function galaxyMacroMaxStarsPerGroup(level) {
   if (level === 1) return 30;
   if (level === 2) return 24;
   return 10;
+}
+
+function galaxySampleRange(start, end, target, primeIndices) {
+  const from = Math.floor(Number(start) || 0);
+  const to = Math.max(from, Math.floor(Number(end) || 0));
+  const n = to - from;
+  if (!n) return [];
+  const count = Math.max(1, Math.min(n, Math.floor(Number(target) || 1)));
+  const picked = new Set();
+  function add(i) {
+    i = Math.floor(Number(i));
+    if (i >= from && i < to) picked.add(i);
+  }
+  if (count >= n) {
+    for (let i = from; i < to; i++) picked.add(i);
+  } else {
+    for (let k = 0; k < count; k++) {
+      add(from + Math.round(k * (n - 1) / Math.max(1, count - 1)));
+    }
+  }
+  add(Number(S.activeSystemIdx) || 0);
+  add(Number(S.galaxySelectedIdx));
+  const primes = primeIndices || [];
+  for (let p = 0; p < primes.length; p++) add(primes[p]);
+  return Array.from(picked).sort(function (a, b) { return a - b; });
 }
 
 function galaxyMacroSampleMembers(group, total, level) {
@@ -1297,28 +1322,97 @@ function galaxyMacroSampleMembers(group, total, level) {
   const target = Math.min(
     n,
     galaxyMacroMaxStarsPerGroup(level),
-    Math.max(2, Math.floor(budget / groupCount))
+    Math.max(3, Math.floor(budget / groupCount))
   );
-  const picked = new Set();
-  function add(i) {
-    i = Math.floor(Number(i));
-    if (i >= group.start && i < group.end) picked.add(i);
-  }
-  if (target >= n) {
-    for (let i = group.start; i < group.end; i++) picked.add(i);
-  } else {
-    const span = n - 1;
-    for (let k = 0; k < target; k++) {
-      add(group.start + Math.round(k * span / Math.max(1, target - 1)));
-    }
-  }
-  // Важные системы не должны исчезать при прореживании.
-  add(Number(S.activeSystemIdx) || 0);
-  add(Number(S.galaxySelectedIdx));
-  const primes = group.primeIndices || [];
-  for (let p = 0; p < primes.length; p++) add(primes[p]);
-  return Array.from(picked).sort(function (a, b) { return a - b; });
+  return galaxySampleRange(group.start, group.end, target, group.primeIndices);
 }
+
+// Склонение количества дочерних объектов для подписи масштаба.
+function galaxyChildCountLabel(kind, count) {
+  const forms = kind === 'Скопление' ? ['скопление', 'скопления', 'скоплений']
+    : kind === 'Туманность' ? ['туманность', 'туманности', 'туманностей']
+    : kind === 'Созвездие' ? ['созвездие', 'созвездия', 'созвездий']
+    : ['объект', 'объекта', 'объектов'];
+  const n = Math.abs(Number(count) || 0);
+  const tail = n % 100;
+  const digit = n % 10;
+  const form = (tail >= 11 && tail <= 14) ? 2
+    : (digit === 1 ? 0 : (digit >= 2 && digit <= 4 ? 1 : 2));
+  return n + ' ' + forms[form];
+}
+
+function drawMacroStar(idx, pos, total, time, labelCandidates) {
+  const isActive = idx === S.activeSystemIdx;
+  const size = isActive ? 10 : (total > 400 ? 5 : 6);
+
+  let isPrime = false;
+  let primeData = null;
+  if (idx === S.activeSystemIdx) {
+    if (S.primeSystem) { isPrime = true; primeData = S.primeSystem; }
+  } else if (S.otherSystems && S.otherSystems[idx] &&
+             (S.otherSystems[idx].isPrime ||
+              (typeof isPrimeSystemData === 'function' && isPrimeSystemData(S.otherSystems[idx])))) {
+    isPrime = true;
+    primeData = S.otherSystems[idx].primeData || S.otherSystems[idx].primeSystem || null;
+  }
+
+  if (isPrime) {
+    const pulse = 1 + 0.1 * Math.sin(time * 2);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const extGlow = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, size * 3.5 * pulse);
+    extGlow.addColorStop(0, 'rgba(255, 200, 50, 0.35)');
+    extGlow.addColorStop(0.6, 'rgba(255, 150, 0, 0.1)');
+    extGlow.addColorStop(1, 'rgba(255, 100, 0, 0)');
+    ctx.fillStyle = extGlow;
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, size * 3.5 * pulse, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    if (typeof drawPrimeIcon === 'function' && primeData) {
+      const iconKey = primeData.objectIcon || primeData.objectKey;
+      drawPrimeIcon(ctx, pos.x, pos.y, iconKey, time, size);
+    } else {
+      ctx.fillStyle = '#ffe8a0';
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, size * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else {
+    const twinkle = 0.82 + 0.18 * Math.sin(time * 1.8 + idx * 1.7);
+    drawStarGlow(pos.x, pos.y, size, isActive, total, twinkle);
+    const hue = 50 + (idx * 37) % 100;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0.25, twinkle);
+    ctx.fillStyle = isActive ? '#fff' : 'hsla(' + hue + ', 85%, 84%, 0.95)';
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, size * 0.42, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  if (idx === S.galaxySelectedIdx) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,215,106,0.95)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, size * 2.6 + 5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  if (total <= 250) {
+    let nm = galaxySystemNameAt(idx);
+    if (isPrime) nm = '👑 ' + nm;
+    const dvx = pos.x - (cx || 0), dvy = pos.y - (cy || 0);
+    labelCandidates.push({
+      x: pos.x, y: pos.y + size * 2.5 + 2, name: nm,
+      isActive: isActive, isPrime: isPrime, isSelected: idx === S.galaxySelectedIdx,
+      dist2: dvx * dvx + dvy * dvy
+    });
+  }
+}
+
 
 function drawGalaxyMacroView(time, total, level) {
   const objects = galaxyMacroObjects(time, total, level);
@@ -1330,51 +1424,107 @@ function drawGalaxyMacroView(time, total, level) {
   const groupLabelBoxes = [];
 
   ctx.save();
+  const childSize = (level < 3 && typeof galaxyGroupSizeForLevel === 'function')
+    ? Math.max(1, Number(galaxyGroupSizeForLevel(level + 1)) || 1)
+    : 0;
+  const parentBudget = Math.max(6, Math.floor(galaxyMacroStarBudget(level) / Math.max(1, groups.length)));
+
   for (let gi = 0; gi < groups.length; gi++) {
     const group = groups[gi];
-    const members = galaxyMacroSampleMembers(group, total, level);
-    if (!members.length) continue;
+    const chunks = [];
 
-    const pts = new Array(Math.max(1, total));
-    for (let m = 0; m < members.length; m++) {
-      pts[members[m]] = galaxySystemPos(members[m], total, time);
+    if (childSize > 0) {
+      const childCount = Math.max(1, Math.ceil(group.count / childSize));
+      const perChild = Math.min(12, Math.max(3, Math.floor(parentBudget / childCount)));
+      for (let cs = group.start; cs < group.end; cs += childSize) {
+        const ce = Math.min(group.end, cs + childSize);
+        const primes = (group.primeIndices || []).filter(function (i) { return i >= cs && i < ce; });
+        const span = ce - cs;
+        let winStart = cs + Math.max(0, Math.floor((span - Math.max(perChild * 2, Math.ceil(span * 0.5))) / 2));
+        let winEnd = Math.min(ce, winStart + Math.max(perChild * 2, Math.ceil(span * 0.5)));
+        const forced = primes.concat([Number(S.activeSystemIdx) || 0, Number(S.galaxySelectedIdx)]);
+        for (let f = 0; f < forced.length; f++) {
+          const idx = Math.floor(Number(forced[f]));
+          if (idx < cs || idx >= ce) continue;
+          if (idx < winStart) winStart = idx;
+          if (idx >= winEnd) winEnd = idx + 1;
+        }
+        const members = galaxySampleRange(winStart, winEnd, perChild, primes);
+        if (members.length) {
+          chunks.push({ start: cs, end: ce, index: Math.floor(cs / childSize), members: members });
+        }
+      }
+    } else {
+      const members = galaxyMacroSampleMembers(group, total, level);
+      if (members.length) chunks.push({ start: group.start, end: group.end, index: group.index, members: members });
     }
+    if (!chunks.length) continue;
 
-    // Связи — минимальное остовное дерево по реальным позициям.
-    const edges = constellationMst(pts, members);
-    ctx.save();
-    const linePulse = 0.09 + 0.06 * (0.5 + 0.5 * Math.sin(time * 0.8 + group.index));
-    ctx.strokeStyle = 'rgba(150, 140, 215, ' + linePulse.toFixed(3) + ')';
-    ctx.lineWidth = 1;
-    for (let e = 0; e < edges.length; e++) {
-      const a = pts[members[edges[e][0]]];
-      const b = pts[members[edges[e][1]]];
-      if (!a || !b) continue;
-      const dx = b.x - a.x, dy = b.y - a.y;
-      if (dx * dx + dy * dy > 180000) continue;
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    // Центр группы и её имя — маленьким шрифтом, как подписи созвездий.
     let gx = 0, gy = 0, gcount = 0;
-    for (let m = 0; m < members.length; m++) {
-      const p = pts[members[m]];
-      if (!p) continue;
-      gx += p.x; gy += p.y; gcount++;
+    const parentPts = new Array(Math.max(1, total));
+
+    for (let ci = 0; ci < chunks.length; ci++) {
+      const chunk = chunks[ci];
+      const members = chunk.members;
+      const pts = new Array(Math.max(1, total));
+      for (let m = 0; m < members.length; m++) {
+        const p = galaxySystemPos(members[m], total, time);
+        pts[members[m]] = p;
+        parentPts[members[m]] = p;
+        gx += p.x; gy += p.y; gcount++;
+      }
+
+      const edges = constellationMst(pts, members);
+      ctx.save();
+      const linePulse = 0.09 + 0.06 * (0.5 + 0.5 * Math.sin(time * 0.8 + chunk.index));
+      ctx.strokeStyle = 'rgba(150, 140, 215, ' + linePulse.toFixed(3) + ')';
+      ctx.lineWidth = 1;
+      for (let e = 0; e < edges.length; e++) {
+        const a = pts[members[edges[e][0]]];
+        const b = pts[members[edges[e][1]]];
+        if (!a || !b) continue;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        if (dx * dx + dy * dy > 14400) continue;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      for (let m = 0; m < members.length; m++) {
+        const idx = members[m];
+        const pos = pts[idx];
+        if (!pos) continue;
+        if (pos.x < -50 || pos.x > cw + 50 || pos.y < -50 || pos.y > ch + 50) continue;
+        drawMacroStar(idx, pos, total, time, labelCandidates);
+      }
     }
+
     if (!gcount) continue;
     gx /= gcount; gy /= gcount;
+
     const showGroupLabel = total <= 250 || level <= 1 || galaxySelectedMacro === group.index;
     if (showGroupLabel && gx > -80 && gx < cw + 80 && gy > -80 && gy < ch + 80) {
       let groupName = (typeof galaxyMacroName === 'function')
         ? galaxyMacroName(level, group.index)
         : (((typeof galaxyLodMeta === 'function' ? galaxyLodMeta(level) : null) || {}).label || 'Объект');
-      const midIdx = members[Math.floor((members.length - 1) / 2)];
-      const mid = pts[midIdx];
+      if (level < 3 && chunks.length > 1) {
+        const childMeta = (typeof galaxyLodMeta === 'function') ? galaxyLodMeta(level + 1) : null;
+        if (childMeta && childMeta.label) {
+          groupName += ' · ' + galaxyChildCountLabel(childMeta.label, chunks.length);
+        }
+      }
+      const centerIdx = (group.start + group.end - 1) / 2;
+      let mid = null, bestD = Infinity;
+      for (let ci = 0; ci < chunks.length; ci++) {
+        const mm = chunks[ci].members;
+        for (let m = 0; m < mm.length; m++) {
+          const idx = mm[m];
+          const d = Math.abs(idx - centerIdx);
+          if (d < bestD && parentPts[idx]) { bestD = d; mid = parentPts[idx]; }
+        }
+      }
       groupLabels.push({
         x: mid ? mid.x : gx,
         y: (mid ? mid.y : gy) - 28,
@@ -1382,7 +1532,6 @@ function drawGalaxyMacroView(time, total, level) {
       });
     }
 
-    // Подсветка выбранной группы — без сплошной заливки.
     if (galaxySelectedMacro === group.index) {
       const o = objects[group.index];
       if (o) {
@@ -1394,83 +1543,6 @@ function drawGalaxyMacroView(time, total, level) {
         ctx.arc(gx, gy, Math.max(24, o.r * 0.9), 0, Math.PI * 2);
         ctx.stroke();
         ctx.restore();
-      }
-    }
-
-    for (let m = 0; m < members.length; m++) {
-      const idx = members[m];
-      const pos = pts[idx];
-      if (!pos) continue;
-      if (pos.x < -50 || pos.x > cw + 50 || pos.y < -50 || pos.y > ch + 50) continue;
-
-      const isActive = idx === S.activeSystemIdx;
-      const size = isActive ? 10 : (total > 400 ? 5 : 6);
-
-      let isPrime = false;
-      let primeData = null;
-      if (idx === S.activeSystemIdx) {
-        if (S.primeSystem) { isPrime = true; primeData = S.primeSystem; }
-      } else if (S.otherSystems && S.otherSystems[idx] &&
-                 (S.otherSystems[idx].isPrime ||
-                  (typeof isPrimeSystemData === 'function' && isPrimeSystemData(S.otherSystems[idx])))) {
-        isPrime = true;
-        primeData = S.otherSystems[idx].primeData || S.otherSystems[idx].primeSystem || null;
-      }
-
-      if (isPrime) {
-        const pulse = 1 + 0.1 * Math.sin(time * 2);
-        ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
-        const extGlow = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, size * 3.5 * pulse);
-        extGlow.addColorStop(0, 'rgba(255, 200, 50, 0.35)');
-        extGlow.addColorStop(0.6, 'rgba(255, 150, 0, 0.1)');
-        extGlow.addColorStop(1, 'rgba(255, 100, 0, 0)');
-        ctx.fillStyle = extGlow;
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, size * 3.5 * pulse, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-        if (typeof drawPrimeIcon === 'function' && primeData) {
-          const iconKey = primeData.objectIcon || primeData.objectKey;
-          drawPrimeIcon(ctx, pos.x, pos.y, iconKey, time, size);
-        } else {
-          ctx.fillStyle = '#ffe8a0';
-          ctx.beginPath();
-          ctx.arc(pos.x, pos.y, size * 0.4, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      } else {
-        const twinkle = 0.82 + 0.18 * Math.sin(time * 1.8 + idx * 1.7);
-        drawStarGlow(pos.x, pos.y, size, isActive, total, twinkle);
-        const hue = 50 + (idx * 37) % 100;
-        ctx.save();
-        ctx.globalAlpha = Math.max(0.25, twinkle);
-        ctx.fillStyle = isActive ? '#fff' : 'hsla(' + hue + ', 85%, 84%, 0.95)';
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, size * 0.42, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      }
-
-      if (idx === S.galaxySelectedIdx) {
-        ctx.save();
-        ctx.strokeStyle = 'rgba(255,215,106,0.95)';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, size * 2.6 + 5, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      if (total <= 250) {
-        let nm = galaxySystemNameAt(idx);
-        if (isPrime) nm = '👑 ' + nm;
-        const dvx = pos.x - (cx || 0), dvy = pos.y - (cy || 0);
-        labelCandidates.push({
-          x: pos.x, y: pos.y + size * 2.5 + 2, name: nm,
-          isActive: isActive, isPrime: isPrime, isSelected: idx === S.galaxySelectedIdx,
-          dist2: dvx * dvx + dvy * dvy
-        });
       }
     }
   }
