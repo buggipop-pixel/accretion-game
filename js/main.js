@@ -546,6 +546,7 @@ function onPointerRelease(e) {
       const nextLevel = Math.max(0, galaxyLodLevel() - 1);
       if (nextLevel !== galaxyLodLevel()) {
         S.galaxyZoomLevel = nextLevel;
+        S.galaxyManualLod = true;
         if (nextLevel < 4) S.galaxyFocus = null;
         galaxySelectedMacro = -1;
         S.galaxySelectedIdx = -1;
@@ -689,8 +690,17 @@ function galaxyLodLevel() {
     lvl = (typeof galaxyLodForTotal === 'function')
       ? galaxyLodForTotal(S.totalSystemsCreated || 1) : 4;
   }
-  if (S.galaxyFocus && lvl >= 4) return 4;
   const total = Math.max(1, Number(S.totalSystemsCreated) || 1);
+  if (S.galaxyFocus && lvl >= 4) return 4;
+  const auto = (typeof galaxyLodForTotal === 'function')
+    ? galaxyLodForTotal(total) : 4;
+  // Без явного drill-а игра не должна открывать более детальный LOD,
+  // чем безопасный для текущего числа систем. Иначе старый сейв с LOD 4
+  // снова показывал бы все системы с подписями.
+  if (!S.galaxyManualLod && lvl > auto) lvl = auto;
+  // Полный звёздный вид — только для маленькой галактики или после
+  // раскрытия конкретного созвездия.
+  if (!S.galaxyFocus && lvl >= 4 && total > 9) lvl = 3;
   if (typeof clampGalaxyLodForTotal === 'function') {
     return clampGalaxyLodForTotal(lvl, total);
   }
@@ -878,6 +888,7 @@ function updateGalaxyMacroDrill(now) {
   if (p >= 1) {
     if (d.targetLevel !== d.fromLevel) {
       S.galaxyZoomLevel = d.targetLevel;
+      S.galaxyManualLod = true;
       S.galaxyFocus = d.focus || null;
       galaxySelectedMacro = -1;
       S.galaxySelectedIdx = -1;
@@ -1082,7 +1093,7 @@ function checkGalaxyMergeThresholds(prevTotal, newTotal) {
   const auto = (typeof galaxyLodForTotal === 'function')
     ? galaxyLodForTotal(to) : galaxyLodLevel();
   // На пороге переключаемся на более безопасный (крупный) LOD.
-  if (galaxyLodLevel() > auto) { S.galaxyZoomLevel = auto; S.galaxyFocus = null; }
+  if (galaxyLodLevel() > auto) { S.galaxyZoomLevel = auto; S.galaxyFocus = null; S.galaxyManualLod = false; }
   const thresholds = (typeof GALAXY_LOD_CFG !== 'undefined' && Array.isArray(GALAXY_LOD_CFG.mergeThresholds))
     ? GALAXY_LOD_CFG.mergeThresholds : [10, 50, 150, 450];
   for (let i = 0; i < thresholds.length; i++) {

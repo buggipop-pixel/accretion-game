@@ -474,6 +474,7 @@ function performSupernova(level) {
     S.totalSystemsCreated = S.systems;
     S.galaxyZoomLevel = (typeof galaxyLodForTotal === 'function')
       ? galaxyLodForTotal(S.totalSystemsCreated) : S.galaxyZoomLevel;
+    S.galaxyFocus = null; S.galaxyManualLod = false;
 
     if (kept.length > 0) {
       // ★ Сохраняем ЛУЧШУЮ Прайм-систему: она уже стоит первой в kept,
