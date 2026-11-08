@@ -52,9 +52,10 @@ function currentMacroObjectName() {
   if (lvl >= 4) return 'Звёздное поле (' + total + ' сист.)';
   const size = galaxyGroupSizeForLevel(lvl);
   const count = Math.max(1, Math.ceil(total / size));
-  const meta = (typeof galaxyLodMeta === 'function') ? galaxyLodMeta(lvl) : null;
-  const label = (meta && meta.label) || 'Объект';
-  return label + ' №' + count + ' (' + total + ' сист.)';
+  const name = (typeof galaxyMacroName === 'function')
+    ? galaxyMacroName(lvl, count - 1)
+    : (((typeof galaxyLodMeta === 'function' ? galaxyLodMeta(lvl) : null) || {}).label || 'Объект');
+  return name + ' (' + total + ' сист.)';
 }
 
 // Лучшая Прайм-система (по редкости) среди активной и остальных.

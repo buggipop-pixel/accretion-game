@@ -435,12 +435,12 @@ canvas.addEventListener('pointerdown', function(e) {
         }
         const macroHit = galaxyMacroAt(pos.x, pos.y);
         if (macroHit >= 0) {
-          // Двойной тап по макро-объекту меняет LOD на более крупный.
+          // Двойной тап раскрывает объект: камера подлетает, затем LOD становится детальнее.
           if (galaxyTap.macro === macroHit && nowTap - galaxyTap.at <= GALAXY_DOUBLE_TAP_MS) {
             galaxyTap.macro = -1;
             galaxyTap.idx = -1;
             galaxyTap.at = 0;
-            S.galaxyZoomLevel = Math.max(0, lod - 1);
+            startGalaxyMacroDrill(macroHit);
             galaxySelectedMacro = -1;
             S.galaxySelectedIdx = -1;
             if (typeof playSFX === 'function') playSFX('ui_click');
@@ -567,11 +567,7 @@ function onPointerRelease(e) {
   pointers.delete(e.pointerId);
   if (pointers.size < 2) {
     if (pinchZoomOutDetected && S.stage === 'galaxy' && (S.zoom || 1) < 0.3) {
-      const nextLevel = Math.min(
-        (typeof galaxyMaxLodForTotal === 'function'
-          ? galaxyMaxLodForTotal(S.totalSystemsCreated || 1) : 4),
-        galaxyLodLevel() + 1
-      );
+      const nextLevel = Math.max(0, galaxyLodLevel() - 1);
       if (nextLevel !== galaxyLodLevel()) {
         S.galaxyZoomLevel = nextLevel;
         galaxySelectedMacro = -1;
@@ -760,14 +756,10 @@ function getGalaxyMacroGroups(total, level, now) {
 }
 
 function galaxyMacroLabel(obj, level) {
-  let base;
-  if (level === 3 && typeof REAL_CONSTELLATIONS !== 'undefined') {
-    const pattern = REAL_CONSTELLATIONS[obj.index % REAL_CONSTELLATIONS.length];
-    base = 'Созвездие ' + pattern.name;
-  } else {
-    const meta = (typeof galaxyLodMeta === 'function') ? galaxyLodMeta(level) : null;
-    base = ((meta && meta.label) || 'Объект') + ' №' + (obj.index + 1);
-  }
+  const lvl = Math.max(0, Math.min(3, Math.floor(Number(level) || 0)));
+  const base = (typeof galaxyMacroName === 'function')
+    ? galaxyMacroName(lvl, obj.index)
+    : (((typeof galaxyLodMeta === 'function' ? galaxyLodMeta(lvl) : null) || {}).label || 'Объект');
   return base + ' (' + obj.count + ' сист.' + (obj.primeCount > 0 ? ' 👑' + obj.primeCount : '') + ')';
 }
 
@@ -791,7 +783,8 @@ function galaxyMacroObjects(time, total, level) {
     const pos = galaxyProjectWorld(base.x, base.y);
     objects.push({
       index: g.index, start: g.start, end: g.end, count: g.count,
-      primeCount: g.primeCount, x: pos.x, y: pos.y, r: 24,
+      primeCount: g.primeCount, x: pos.x, y: pos.y,
+      worldX: base.x, worldY: base.y, r: 24,
       label: galaxyMacroLabel(g, level)
     });
   }
@@ -831,6 +824,95 @@ function galaxyMacroAt(x, y) {
   }
   return best;
 }
+// ─── Раскрытие макро-объекта ────────────────────────────────────
+// Двойной тап по объекту не просто меняет LOD: камера плавно
+// подлетает к нему, а затем раскрывается следующий уровень.
+function startGalaxyMacroDrill(index) {
+  const total = Math.max(1, S.totalSystemsCreated || 1);
+  const level = galaxyLodLevel();
+  if (level >= 4) return false;
+  const objects = galaxyMacroObjects(performance.now() / 1000, total, level);
+  const o = objects[index];
+  if (!o) return false;
+  const maxLod = (typeof galaxyMaxLodForTotal === 'function')
+    ? galaxyMaxLodForTotal(total) : 4;
+  const targetLevel = Math.min(maxLod, level + 1);
+  const fromZoom = Math.max(0.00002, Number(S.zoom) || 1);
+  const targetZoom = Math.min(3, Math.max(fromZoom * 2.0, fromZoom + 0.25, 0.55));
+  const fromPanX = Number(S.panX) || 0;
+  const fromPanY = Number(S.panY) || 0;
+  const tx = (o.x - cx - fromPanX) / fromZoom;
+  const ty = (o.y - cy - fromPanY) / fromZoom;
+  const toPanX = -tx * targetZoom;
+  const toPanY = -ty * targetZoom;
+  if (!S.vis) S.vis = { collapse: 0, macroMergeAnims: {} };
+  S.vis.macroDrill = {
+    start: performance.now(),
+    duration: 680,
+    fromLevel: level,
+    targetLevel: targetLevel,
+    focusIndex: index,
+    startX: o.x,
+    startY: o.y,
+    fromZoom: fromZoom,
+    toZoom: targetZoom,
+    fromPanX: fromPanX,
+    fromPanY: fromPanY,
+    toPanX: toPanX,
+    toPanY: toPanY
+  };
+  return true;
+}
+
+function updateGalaxyMacroDrill(now) {
+  const d = S.vis && S.vis.macroDrill;
+  if (!d) return;
+  const raw = (Number(now) - d.start) / d.duration;
+  const p = Math.max(0, Math.min(1, raw));
+  const ease = p * p * (3 - 2 * p);
+  S.zoom = d.fromZoom + (d.toZoom - d.fromZoom) * ease;
+  S.panX = d.fromPanX + (d.toPanX - d.fromPanX) * ease;
+  S.panY = d.fromPanY + (d.toPanY - d.fromPanY) * ease;
+  if (p >= 1) {
+    if (d.targetLevel !== d.fromLevel) {
+      S.galaxyZoomLevel = d.targetLevel;
+      galaxySelectedMacro = -1;
+      S.galaxySelectedIdx = -1;
+    } else {
+      galaxySelectedMacro = d.focusIndex;
+    }
+    S.vis.macroDrill = null;
+  }
+}
+
+function drawGalaxyMacroDrillEffect() {
+  const d = S.vis && S.vis.macroDrill;
+  if (!d) return;
+  const raw = (performance.now() - d.start) / d.duration;
+  const p = Math.max(0, Math.min(1, raw));
+  if (p >= 1) return;
+  const ease = p * p * (3 - 2 * p);
+  const x = d.startX + (cx - d.startX) * ease;
+  const y = d.startY + (cy - d.startY) * ease;
+  const radius = 18 + ease * 120;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const glow = ctx.createRadialGradient(x, y, 0, x, y, radius);
+  glow.addColorStop(0, 'rgba(210, 195, 255, ' + (0.26 * (1 - p)) + ')');
+  glow.addColorStop(0.55, 'rgba(150, 120, 255, ' + (0.10 * (1 - p)) + ')');
+  glow.addColorStop(1, 'rgba(120, 90, 255, 0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(220, 210, 255, ' + (0.55 * (1 - p)) + ')';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(x, y, radius * 0.78, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
 
 // ─── Кэш созвездий ──────────────────────────────────────────────
 // Группируем звёзды по близости на карте, а не по порядку индексов:
@@ -960,12 +1042,13 @@ function getStarGlowSprite() {
   return off;
 }
 
-function drawStarGlow(x, y, size, isActive, total) {
+function drawStarGlow(x, y, size, isActive, total, alphaScale) {
   const sprite = getStarGlowSprite();
   const r = size * (isActive ? 3.6 : 3.2);
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
-  ctx.globalAlpha = isActive ? 0.85 : (total > 400 ? 0.42 : 0.6);
+  const twinkle = (typeof alphaScale === 'number') ? Math.max(0, alphaScale) : 1;
+  ctx.globalAlpha = (isActive ? 0.85 : (total > 400 ? 0.42 : 0.6)) * twinkle;
   ctx.drawImage(sprite, x - r, y - r, r * 2, r * 2);
   ctx.restore();
 }
@@ -1244,6 +1327,7 @@ function drawGalaxyMacroView(time, total, level) {
   const ch = (typeof window !== 'undefined' && window.CANVAS_H) || H || 700;
   const labelCandidates = [];
   const groupLabels = [];
+  const groupLabelBoxes = [];
 
   ctx.save();
   for (let gi = 0; gi < groups.length; gi++) {
@@ -1259,7 +1343,8 @@ function drawGalaxyMacroView(time, total, level) {
     // Связи — минимальное остовное дерево по реальным позициям.
     const edges = constellationMst(pts, members);
     ctx.save();
-    ctx.strokeStyle = 'rgba(150, 140, 215, 0.14)';
+    const linePulse = 0.09 + 0.06 * (0.5 + 0.5 * Math.sin(time * 0.8 + group.index));
+    ctx.strokeStyle = 'rgba(150, 140, 215, ' + linePulse.toFixed(3) + ')';
     ctx.lineWidth = 1;
     for (let e = 0; e < edges.length; e++) {
       const a = pts[members[edges[e][0]]];
@@ -1283,19 +1368,16 @@ function drawGalaxyMacroView(time, total, level) {
     }
     if (!gcount) continue;
     gx /= gcount; gy /= gcount;
-    if (total <= 250 && gx > -80 && gx < cw + 80 && gy > -80 && gy < ch + 80) {
-      let groupName;
-      if (level === 3 && typeof REAL_CONSTELLATIONS !== 'undefined' && REAL_CONSTELLATIONS.length) {
-        groupName = REAL_CONSTELLATIONS[group.index % REAL_CONSTELLATIONS.length].name;
-      } else {
-        const meta = (typeof galaxyLodMeta === 'function') ? galaxyLodMeta(level) : null;
-        groupName = ((meta && meta.label) || 'Объект') + ' №' + (group.index + 1);
-      }
+    const showGroupLabel = total <= 250 || level <= 1 || galaxySelectedMacro === group.index;
+    if (showGroupLabel && gx > -80 && gx < cw + 80 && gy > -80 && gy < ch + 80) {
+      let groupName = (typeof galaxyMacroName === 'function')
+        ? galaxyMacroName(level, group.index)
+        : (((typeof galaxyLodMeta === 'function' ? galaxyLodMeta(level) : null) || {}).label || 'Объект');
       const midIdx = members[Math.floor((members.length - 1) / 2)];
       const mid = pts[midIdx];
       groupLabels.push({
         x: mid ? mid.x : gx,
-        y: (mid ? mid.y : gy) - 18,
+        y: (mid ? mid.y : gy) - 28,
         name: groupName
       });
     }
@@ -1358,12 +1440,16 @@ function drawGalaxyMacroView(time, total, level) {
           ctx.fill();
         }
       } else {
-        drawStarGlow(pos.x, pos.y, size, isActive, total);
+        const twinkle = 0.82 + 0.18 * Math.sin(time * 1.8 + idx * 1.7);
+        drawStarGlow(pos.x, pos.y, size, isActive, total, twinkle);
         const hue = 50 + (idx * 37) % 100;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0.25, twinkle);
         ctx.fillStyle = isActive ? '#fff' : 'hsla(' + hue + ', 85%, 84%, 0.95)';
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, size * 0.42, 0, Math.PI * 2);
         ctx.fill();
+        ctx.restore();
       }
 
       if (idx === S.galaxySelectedIdx) {
@@ -1398,6 +1484,15 @@ function drawGalaxyMacroView(time, total, level) {
     for (let i = 0; i < groupLabels.length; i++) {
       const g = groupLabels[i];
       if (g.x < -80 || g.x > cw + 80 || g.y < -80 || g.y > ch + 80) continue;
+      const gw = Math.max(40, g.name.length * 5.8 + 8);
+      const box = { l: g.x - gw / 2, r: g.x + gw / 2, t: g.y - 9, b: g.y + 4 };
+      let overlaps = false;
+      for (let j = 0; j < groupLabelBoxes.length; j++) {
+        const q = groupLabelBoxes[j];
+        if (box.l < q.r && box.r > q.l && box.t < q.b && box.b > q.t) { overlaps = true; break; }
+      }
+      if (overlaps) continue;
+      groupLabelBoxes.push(box);
       ctx.fillText(g.name, g.x, g.y);
     }
     ctx.restore();
@@ -1405,7 +1500,7 @@ function drawGalaxyMacroView(time, total, level) {
 
   if (labelCandidates.length) {
     const zoomNow = S.zoom || 1;
-    const placed = [];
+    const placed = groupLabelBoxes.slice();
     function prio(l) {
       if (l.isActive) return 5;
       if (l.isSelected) return 4;
@@ -1440,6 +1535,7 @@ function drawGalaxyMacroView(time, total, level) {
 }
 function drawGalaxyView(time) {
   const t = time;
+  updateGalaxyMacroDrill(performance.now());
   const total = S.totalSystemsCreated || 1;
   drawCosmicTrail(time);
   const lod = galaxyLodLevel();
@@ -1449,6 +1545,7 @@ function drawGalaxyView(time) {
     drawGalaxyMacroView(t, total, lod);
     drawMacroMergeAnims(time);
     drawGalaxyPrestigeFlash();
+    drawGalaxyMacroDrillEffect();
     return;
   }
   drawMacroMergeAnims(time);
@@ -1610,6 +1707,7 @@ for (let i = 0; i < labelCandidates.length; i++) {
 }
 })();
 drawGalaxyPrestigeFlash();
+drawGalaxyMacroDrillEffect();
 // Подпись галактики теперь DOM-чипом #galaxyCaption: canvas-текст перекрывался доком.
 }
 // ─── HUD-чипы: подпись галактики и статус Автобороны ────────────
@@ -1648,13 +1746,16 @@ function updateHudChips() {
         const meta = (typeof galaxyLodMeta === 'function') ? galaxyLodMeta(lod) : null;
         const kind = (meta && meta.label) || 'Объект';
         if (galaxySelectedMacro >= 0) {
-          text += ' · ' + kind + ' №' + (galaxySelectedMacro + 1) + ' — двойной тап: сменить масштаб';
+          const macroName = (typeof galaxyMacroName === 'function')
+            ? galaxyMacroName(lod, galaxySelectedMacro)
+            : (kind + ' №' + (galaxySelectedMacro + 1));
+          text += ' · ' + macroName + ' — двойной тап: раскрыть';
         } else {
         const plural = kind === 'Туманность' ? 'Туманности'
           : kind === 'Созвездие' ? 'Созвездия'
           : kind === 'Скопление' ? 'Скопления'
           : kind === 'Сверхскопление' ? 'Сверхскопления' : kind;
-        text += ' · ' + plural + ' · двойной тап по объекту — сменить масштаб';
+        text += ' · ' + plural + ' · двойной тап — раскрыть';
         }
       } else {
         const sel = Number(S.galaxySelectedIdx);
@@ -2224,6 +2325,9 @@ if (typeof saveGame === 'function') saveGame();
 window.galaxyLodLevel = galaxyLodLevel;
 window.galaxyMacroAt = galaxyMacroAt;
 window.galaxyMacroObjects = galaxyMacroObjects;
+window.startGalaxyMacroDrill = startGalaxyMacroDrill;
+window.updateGalaxyMacroDrill = updateGalaxyMacroDrill;
+window.drawGalaxyMacroDrillEffect = drawGalaxyMacroDrillEffect;
 window.triggerGalaxyMerge = triggerGalaxyMerge;
 window.checkGalaxyMergeThresholds = checkGalaxyMergeThresholds;
 start();
