@@ -31,6 +31,16 @@ function toast(title, sub) {
   setTimeout(function() { t.remove(); }, 3500);
 }
 
+// Подпись версии игры в «Настройках»: одна точка правды — js/config.js
+function renderGameVersion() {
+  const el = document.getElementById('gameVersionLabel');
+  if (!el) return;
+  const version = (typeof GAME_VERSION === 'string') ? GAME_VERSION : '—';
+  const build = (typeof GAME_BUILD === 'string') ? GAME_BUILD : '';
+  el.textContent = 'v' + version + (build ? ' · ' + build : '');
+}
+window.renderGameVersion = renderGameVersion;
+
 // ═══════════════════════════════════════════════════════════════
 // Плашка игрока вверху: ник, под ним текущая система
 function updateNameplate() {
@@ -906,6 +916,7 @@ function initUI() {
         soundToggleBtn.classList.toggle('active', S.settings.sound);
       }
       if (pushBtn) pushBtn.textContent = S.settings.pushEnabled !== false ? 'Вкл' : 'Выкл';
+      renderGameVersion();
       settingsModal.classList.add('show');
     });
   }

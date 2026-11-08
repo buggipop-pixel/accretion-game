@@ -400,10 +400,11 @@ function showChestResult(prime) {
   }
 
   if (targetSysIdx !== -1) {
-    if (prime.objectKey === 'blackHole') newPrimeKey = 'massiveBH';
-    else if (prime.objectKey === 'massiveBH') newPrimeKey = 'superBH';
-    else if (prime.objectKey === 'wormhole') newPrimeKey = 'wormhole2';
-    else if (prime.objectKey === 'wormhole2') newPrimeKey = 'wormhole3';
+    // ★ Единая цепочка улучшений (js/prime.js): сундук с дублем повышает
+    //   объект так же, как слияние дублей при вспышке сверхновой.
+    newPrimeKey = (typeof primeMergeUpgrade === 'function')
+      ? primeMergeUpgrade(prime.objectKey)
+      : null;
     
     if (newPrimeKey) {
       const nextObj = PRIME_OBJECTS[newPrimeKey];

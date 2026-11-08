@@ -177,8 +177,8 @@ async function testPrestigeKeepsActiveHomePrime() {
 }
 
 async function testPrestigeKeepsDuplicateChestPrimes() {
-  // Игрок купил два сундука, давших одинаковый объект (старый сейв/сбой
-  // слияния). Каждая оплаченная система обязана выжить — дубли не удаляем.
+  // Игрок купил два сундука, давших одинаковый объект: дубли не сгорают,
+  // а складываются в объект выше рангом (ЧД → Массивная ЧД).
   const g = createGame();
   const S = g.S;
   S.stage = 'galaxy';
@@ -200,10 +200,79 @@ async function testPrestigeKeepsDuplicateChestPrimes() {
   g.performSupernova(1);
   await wait(1700);
 
-  assert('Вспышка: дубли оплаченных Прайм-систем не удаляются', countPrimes(S) === 3);
+  assert('Вспышка: дубли ЧД складываются, а не удаляются', countPrimes(S) === 2);
   const keys = S.otherSystems.filter((s) => s && s.primeData).map((s) => s.primeData.objectKey).sort();
-  assert('Вспышка: сохранились обе ЧД и кротовая нора из сундуков', keys.join(',') === 'blackHole,blackHole,wormhole3');
-  assert('Вспышка: счётчик систем учитывает все дубли', S.systems === S.otherSystems.filter(Boolean).length);
+  assert('Вспышка: две ЧД дали Массивную ЧД, нора осталась', keys.join(',') === 'massiveBH,wormhole3');
+  assert('Вспышка: счётчик систем соответствует выжившим', S.systems === S.otherSystems.filter(Boolean).length);
+}
+
+async function testPrestigeCascadesWormholeMerge() {
+  // Каскад: две малые норы → нора; вместе с ещё одной норой → гигантская.
+  const g = createGame();
+  const S = g.S;
+  S.stage = 'galaxy';
+  S.prestigeLevel = 0;
+  S.galaxies = 1; S.galaxyMultiplier = 1;
+  S.planets = planets();
+  S.primeSystem = null;
+  S.activeSystemIdx = 0;
+  const worm = (key, name, pct, r) => ({ objectKey: key, objectName: name, objectIcon: 'wormhole', bonus: { keepSystems: pct }, absorbRadius: r, createdAt: Date.now() });
+  S.otherSystems = [null,
+    primeSystem('W1', worm('wormhole', 'Малая кротовая нора', 0.2, 90), true),
+    primeSystem('W2', worm('wormhole', 'Малая кротовая нора', 0.2, 90), true),
+    primeSystem('W3', worm('wormhole2', 'Кротовая нора', 0.3, 120), true)];
+  S.systems = S.otherSystems.length;
+
+  g.performSupernova(1);
+  await wait(1700);
+
+  const keys = S.otherSystems.filter((s) => s && s.primeData).map((s) => s.primeData.objectKey);
+  assert('Вспышка: каскад слияния нор даёт Гигантскую кротовую нору', keys.length === 1 && keys[0] === 'wormhole3');
+}
+
+async function testPrestigeKeepsPaidShield() {
+  // Щит куплен за звёзды: его остаток обязан пережить вспышку.
+  const g = createGame();
+  const S = g.S;
+  S.stage = 'galaxy';
+  S.prestigeLevel = 0;
+  S.galaxies = 1; S.galaxyMultiplier = 1;
+  S.planets = planets();
+  S.primeSystem = null;
+  S.activeSystemIdx = 0;
+  S.otherSystems = [null, { name: 'Reg0', starType: 'G', systemType: 'single', planets: planets() }];
+  S.systems = 2;
+  const shieldUntil = Date.now() + 5 * 3600 * 1000;
+  S.shieldUntil = shieldUntil;
+
+  g.performSupernova(1);
+  await wait(1700);
+
+  assert('Вспышка: оплаченный щит не сбрасывается', Number(S.shieldUntil) === shieldUntil);
+}
+
+function testSaveMergesDuplicatePrimes() {
+  // Старый сейв без слияния: дубли ЧД/нор должны схлопнуться уже при загрузке,
+  // а активная система и цели вторжений — остаться корректными.
+  const g = createGame();
+  const S = g.S;
+  S.otherSystems = [null,
+    primeSystem('Home', blackHole(), true),
+    primeSystem('A', blackHole(), true),
+    primeSystem('W1', { objectKey: 'wormhole', objectName: 'Малая кротовая нора', objectIcon: 'wormhole', bonus: { keepSystems: 0.2 }, absorbRadius: 90 }, true),
+    primeSystem('W2', { objectKey: 'wormhole', objectName: 'Малая кротовая нора', objectIcon: 'wormhole', bonus: { keepSystems: 0.2 }, absorbRadius: 90 }, true),
+    { name: 'Reg', starType: 'G', systemType: 'single', planets: planets() }];
+  S.activeSystemIdx = 5;
+  S.systems = 6;
+  S.invasions = [{ id: 'i1', systemIdx: 5, targetType: 'system' }];
+
+  const removed = g.mergeDuplicatePrimesInSave(S);
+  assert('Сейв: дубли схлопываются при загрузке (2 пары)', removed === 2);
+  assert('Сейв: осталось 4 записи и счётчик 1+3', S.otherSystems.filter(Boolean).length === 3 && S.systems === 4);
+  assert('Сейв: две ЧД дали Массивную ЧД', S.otherSystems[1].primeData.objectKey === 'massiveBH');
+  assert('Сейв: две малые норы дали Кротовую нору', S.otherSystems[2].primeData.objectKey === 'wormhole2');
+  assert('Сейв: индекс активной системы пересчитан', S.activeSystemIdx === 3);
+  assert('Сейв: цель вторжения указывает на ту же систему', S.invasions[0].systemIdx === 3);
 }
 
 async function testPrestigeKeepsActiveChestPrime() {
@@ -261,6 +330,34 @@ function testPrestigePreviewShowsChestPrimesSafe() {
   assert('Окно престижа: сундучная система показана среди сохраняемых', /1 прайм/.test(html));
   assert('Окно престижа: счётчик систем включает Прайм', !!total && Number(total[1]) >= 5);
   assert('Окно престижа: теряются только обычные системы', !!lost && !!total && Number(total[1]) + Number(lost[1]) === 10);
+}
+
+function testPrestigePreviewMergesDuplicates() {
+  // Две ЧД в окне вспышки должны показываться как одна Массивная ЧД.
+  const g = createGame();
+  const S = g.S;
+  S.stage = 'galaxy';
+  S.systems = 10;
+  S.prestigeLevel = 0; S.galaxies = 1; S.galaxyMultiplier = 1;
+  S.galaxyForm = 'spiral';
+  S.primeSystem = null;
+  S.activeSystemIdx = 0;
+  S.planets = planets();
+  S.otherSystems = [null,
+    primeSystem('BH1', blackHole(), true),
+    primeSystem('BH2', blackHole(), true)];
+  for (let i = 0; i < 6; i++) {
+    S.otherSystems.push({ name: 'Reg' + i, starType: 'G', systemType: 'single', planets: planets() });
+  }
+
+  let html = '';
+  g.buildModal = (title) => '<div class="modal-title">' + title + '</div><div class="choices"></div>';
+  g.setModal = (h) => { html = String(h); };
+  g.closeEvolutionModal = noop;
+  g.activateSupernova();
+
+  assert('Окно престижа: две ЧД показаны одной Прайм-системой', /1 прайм/.test(html));
+  assert('Окно престижа: слияние дублей отражено в окне', /сливаются в более редкие/.test(html));
 }
 
 function testInvasionNeverTargetsPrime() {
@@ -352,8 +449,12 @@ function testInvasionCannotDamagePrime() {
     await testPrestigeKeepsAllPrimes();
     await testPrestigeKeepsActiveHomePrime();
     await testPrestigeKeepsDuplicateChestPrimes();
+    await testPrestigeCascadesWormholeMerge();
+    await testPrestigeKeepsPaidShield();
+    testSaveMergesDuplicatePrimes();
     await testPrestigeKeepsActiveChestPrime();
     testPrestigePreviewShowsChestPrimesSafe();
+    testPrestigePreviewMergesDuplicates();
     testInvasionNeverTargetsPrime();
     testInvasionCannotDamagePrime();
   } catch (e) {

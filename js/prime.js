@@ -46,6 +46,130 @@ function primeObjectRank(objectKey) {
   return Number.isFinite(rank) ? rank : 0;
 }
 
+// ★ Слияние одинаковых Прайм-объектов: два одинаковых складываются в один
+//   объект следующего ранга. Так оплаченные сундуки не сгорают, а дорожают:
+//   ЧД → Массивная ЧД → Сверхмассивная ЧД → Первичная ЧД,
+//   Малая кротовая нора → Кротовая нора → Гигантская кротовая нора.
+const PRIME_MERGE_UPGRADE = {
+  blackHole: 'massiveBH',
+  massiveBH: 'superBH',
+  superBH:   'primeBH',
+  wormhole:  'wormhole2',
+  wormhole2: 'wormhole3',
+};
+
+function primeMergeUpgrade(objectKey) {
+  return PRIME_MERGE_UPGRADE[objectKey] || null;
+}
+
+function primeSystemKey(sys) {
+  const data = sys ? (sys.primeData || sys.primeSystem) : null;
+  return (data && data.objectKey) ? data.objectKey : null;
+}
+
+function upgradePrimeData(data, upgradeKey) {
+  const next = PRIME_OBJECTS[upgradeKey];
+  if (!next) return null;
+  return Object.assign({}, data || {}, {
+    objectKey: upgradeKey,
+    objectName: next.name,
+    objectIcon: next.icon,
+    bonus: Object.assign({}, next.bonus),
+    absorbRadius: next.absorbRadius,
+    mergedAt: Date.now(),
+  });
+}
+
+// Схлопывает дубли по objectKey на месте (или в копиях при { clone: true }).
+// Из пары выживает первая система (активный Прайм идёт в списке первым), её
+// объект повышается на ранг вперёд; вторая запись исчезает, но не «сгорает»,
+// а переходит в улучшение. Возвращает итоговый список.
+function mergeDuplicatePrimeSystems(list, opts) {
+  if (!Array.isArray(list) || list.length < 2) return list;
+  const clone = !!(opts && opts.clone);
+  const work = clone ? list.map(function(sys) {
+    const copy = Object.assign({}, sys);
+    const data = sys && (sys.primeData || sys.primeSystem);
+    if (data) copy.primeData = Object.assign({}, data);
+    return copy;
+  }) : list;
+
+  let guard = 0;
+  let merged = true;
+  while (merged && guard++ < 64) {
+    merged = false;
+    const groups = {};
+    for (let i = 0; i < work.length; i++) {
+      const key = primeSystemKey(work[i]);
+      if (!key) continue;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(i);
+    }
+    const keys = Object.keys(groups);
+    for (let k = 0; k < keys.length; k++) {
+      const idxs = groups[keys[k]];
+      if (idxs.length < 2) continue;
+      const upgradeKey = primeMergeUpgrade(keys[k]);
+      if (!upgradeKey) continue; // уже предельный ранг — дубли остаются
+      const kept = work[idxs[0]];
+      const data = upgradePrimeData(kept.primeData || kept.primeSystem, upgradeKey);
+      if (!data) continue;
+      kept.primeData = data;
+      kept.isPrime = true;
+      work.splice(idxs[1], 1);
+      merged = true;
+      break;
+    }
+  }
+  return work;
+}
+
+// Применяет слияние дублей к сейву: чистит дубли, оставшиеся от старых
+// версий, и переносит индекс активной системы / целей вторжений.
+// Активную систему не трогаем — её Прайм живёт в S.primeSystem и сольётся
+// при вспышке. Возвращает число схлопнутых систем.
+function mergeDuplicatePrimesInSave(S) {
+  if (!S || !Array.isArray(S.otherSystems)) return 0;
+  const activeIdx = Number(S.activeSystemIdx) || 0;
+  const primeIdxs = [];
+  const candidates = [];
+  for (let i = 0; i < S.otherSystems.length; i++) {
+    if (i === activeIdx) continue;
+    const sys = S.otherSystems[i];
+    if (!sys || typeof sys !== 'object') continue;
+    if (!(sys.isPrime || sys.primeData || sys.primeSystem)) continue;
+    primeIdxs.push(i);
+    candidates.push(sys);
+  }
+  if (candidates.length < 2) return 0;
+  const before = candidates.length;
+  mergeDuplicatePrimeSystems(candidates);
+  const removed = before - candidates.length;
+  if (removed <= 0) return 0;
+
+  const alive = new Set(candidates);
+  const remap = {};
+  const next = [];
+  for (let i = 0; i < S.otherSystems.length; i++) {
+    const sys = S.otherSystems[i];
+    remap[i] = next.length;
+    const mergedAway = primeIdxs.indexOf(i) !== -1 && sys && typeof sys === 'object' && !alive.has(sys);
+    if (mergedAway) continue;
+    next.push(sys);
+  }
+  S.otherSystems = next;
+  if (typeof remap[activeIdx] === 'number') S.activeSystemIdx = remap[activeIdx];
+  if (Array.isArray(S.invasions)) {
+    for (let k = 0; k < S.invasions.length; k++) {
+      const inv = S.invasions[k];
+      if (!inv || typeof inv.systemIdx !== 'number') continue;
+      if (typeof remap[inv.systemIdx] === 'number') inv.systemIdx = remap[inv.systemIdx];
+    }
+  }
+  S.systems = Math.max(1, (Number(S.systems) || 1) - removed);
+  return removed;
+}
+
 function generatePrimeName() {
   const p = PRIME_PREFIX[Math.floor(Math.random() * PRIME_PREFIX.length)];
   const r = PRIME_ROOT[Math.floor(Math.random() * PRIME_ROOT.length)];
@@ -833,3 +957,6 @@ window.drawPrimeIcon = drawPrimeIcon;
 window.drawPrimeMain = drawPrimeMain;
 window.PRIME_OBJECT_RARITY = PRIME_OBJECT_RARITY;
 window.primeObjectRank = primeObjectRank;
+window.primeMergeUpgrade = primeMergeUpgrade;
+window.mergeDuplicatePrimeSystems = mergeDuplicatePrimeSystems;
+window.mergeDuplicatePrimesInSave = mergeDuplicatePrimesInSave;

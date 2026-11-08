@@ -224,22 +224,33 @@ function activateSupernova() {
   // и НЕ входят в лимит обычных систем. Считаем их отдельно, чтобы игрок
   // видел честную картину и не думал, что оплаченные системы сгорят.
   const otherList = S.otherSystems || [];
-  let primeCount = S.primeSystem ? 1 : 0;
+  // ★ Собираем Прайм-системы так же, как это сделает performSupernova,
+  //   чтобы предпросмотр совпал с реальностью (включая слияние дублей).
+  const previewPrimes = [];
   let regularSystemsCount = 0;
+  if (S.primeSystem) previewPrimes.push({ primeData: S.primeSystem });
   for (let i = 0; i < otherList.length; i++) {
     const sys = otherList[i];
     if (!sys || typeof sys !== 'object') continue;
-    if (i === S.activeSystemIdx) {
-      // Активная система после синхронизации уйдёт в лимит, если она не Прайм.
-      if (!S.primeSystem) regularSystemsCount++;
-      continue;
-    }
     const sysIsPrime = (typeof isPrimeSystemData === 'function')
       ? isPrimeSystemData(sys)
       : !!(sys.isPrime || sys.primeData);
-    if (sysIsPrime) primeCount++;
+    if (i === S.activeSystemIdx) {
+      // Активная система синхронизируется с живым состоянием: её Прайм уже
+      // учтён через S.primeSystem выше, иначе она уйдёт в лимит обычных.
+      if (!S.primeSystem) regularSystemsCount++;
+      continue;
+    }
+    if (sysIsPrime) previewPrimes.push(sys);
     else if (sys.planets) regularSystemsCount++;
   }
+  // ★ Дубли складываются в более редкий объект — окно показывает результат.
+  const mergedPreview = (typeof mergeDuplicatePrimeSystems === 'function')
+    ? mergeDuplicatePrimeSystems(previewPrimes, { clone: true })
+    : previewPrimes;
+  const primeCount = mergedPreview.length;
+  // Сколько пар дублей сложилось в объект выше рангом (для честного окна).
+  const mergedUpdates = Math.max(0, previewPrimes.length - primeCount);
   const keepPreview = calculateKeepCount(regularSystemsCount);
   const survivingPreview = 1 + primeCount + keepPreview;
   const lostPreview = Math.max(0, regularSystemsCount - keepPreview);
@@ -248,6 +259,9 @@ function activateSupernova() {
     : 0;
   const wormholeNote = wormholePct > 0
     ? '<div class="row-stat"><span>🌀 Кротовая нора:</span><span>+' + wormholePct + '% обычных систем</span></div>'
+    : '';
+  const mergeNote = mergedUpdates > 0
+    ? '<div class="row-stat"><span>💠 Дубли Прайм:</span><span>сливаются в более редкие (' + mergedUpdates + ')</span></div>'
     : '';
   const gainSing = Math.floor((Number(S.systems) || 1) / 10);
   const macroName = (typeof currentMacroObjectName === 'function')
@@ -265,6 +279,7 @@ function activateSupernova() {
       <div class="row-stat"><span>Систем после:</span><span>${survivingPreview} (родная + ${primeCount} прайм + ${keepPreview} обычных)</span></div>
       <div class="row-stat"><span>Потеряется:</span><span>${lostPreview} обычных</span></div>
       ${wormholeNote}
+      ${mergeNote}
       ${bestPrimeNote}
       <div class="row-stat"><span>Текущий объект:</span><span>${macroName}</span></div>
       <div class="row-stat"><span>Сингулярности:</span><span>+${gainSing} (всего ${(Number(S.singularities)||0) + gainSing})</span></div>
@@ -369,9 +384,14 @@ function performSupernova(level) {
     }
   }
 
-  // 2c. Дубли Прайм-систем НЕ удаляем: каждая оплаченная система из сундука
-  //     обязана выжить при вспышке, даже если объекты совпадают. Дубликат
-  //     активной системы уже исключён через takenIdx выше.
+  // 2c. Дубли Прайм-объектов складываются в более редкий объект:
+  //     две ЧД → Массивная ЧД → Сверхмассивная ЧД → Первичная ЧД;
+  //     две Малые кротовые норы → Кротовая нора → Гигантская кротовая нора.
+  //     Оплаченная система не сгорает — она переходит в улучшение.
+  if (typeof mergeDuplicatePrimeSystems === 'function') {
+    mergeDuplicatePrimeSystems(primeSystems);
+  }
+
   // 2d. Лучшая Прайм-система — первой, чтобы попасть в otherSystems[1].
   //     Редкость важнее дохода: primeBH > superBH > massiveBH > ...
   primeSystems.sort(function(a, b) {
@@ -424,6 +444,9 @@ function performSupernova(level) {
     lastWeeklyEventWeek: Number(S.lastWeeklyEventWeek) || 0,
     weeklyEventPlan: S.weeklyEventPlan ? Object.assign({}, S.weeklyEventPlan) : null,
     firstNightShieldUsed: S.firstNightShieldUsed || false,
+    // ★ Щит куплен за звёзды и живёт по абсолютной метке времени:
+    //   вспышка не должна сжигать остаток оплаченного щита.
+    shieldUntil: Math.max(0, Number(S.shieldUntil) || 0),
     techLevels: S.techLevels || { astro: 0, quantum: 0, cyber: 0, eng: 0 },
     prestigeLevel: level,
     storageLevels: Object.assign({ dust: 1, energy: 1, civ: 1 }, S.storageLevels),

@@ -143,7 +143,8 @@
       'ua=' + navigator.userAgent,
       'tg=' + (tg ? (tg.version || '?') : 'no'),
       'platform=' + (tg ? (tg.platform || '?') : '?'),
-      'href=' + String(location.href).slice(0, 200)
+      'href=' + String(location.href).slice(0, 200),
+      'ver=' + (typeof GAME_VERSION === 'string' ? GAME_VERSION + ' (' + GAME_BUILD + ')' : '?')
     ]);
   } catch (e) { /* ignore */ }
 

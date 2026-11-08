@@ -599,6 +599,14 @@ function loadGame() {
       if (!S.primeSystem.bonus) S.primeSystem.bonus = { dustMult: 0.25 };
     }
 
+    // ★ Слияние дублей Прайм-объектов вернулось: два одинаковых объекта
+    // складываются в один более редкий. Старые сейвы, накопленные без
+    // слияния, чинятся сразу при загрузке; активную систему не трогаем —
+    // её Прайм живёт в S.primeSystem и сольётся при вспышке.
+    if (typeof mergeDuplicatePrimesInSave === 'function') {
+      mergeDuplicatePrimesInSave(S);
+    }
+
     // ─── 7. Ночной режим и защита ───
     if (!S.nightConfig || typeof S.nightConfig !== 'object') {
       S.nightConfig = { mode: 'balanced', defenseEnabled: true, cometHours: 0, expeditionPercent: 0 };
