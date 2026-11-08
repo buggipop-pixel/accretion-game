@@ -409,32 +409,6 @@ canvas.addEventListener('pointerdown', function(e) {
       const lod = galaxyLodLevel();
       const nowTap = performance.now();
       if (lod < 4) {
-        if (lod === 3) {
-          // На LOD 3 звезда — это система; на остальных макро-уровнях объект един.
-        // одиночный тап выбирает, двойной — входит в систему, как раньше.
-        const sysHit = galaxySystemAt(pos.x, pos.y);
-        if (sysHit >= 0) {
-          if (galaxyTap.idx === sysHit && nowTap - galaxyTap.at <= GALAXY_DOUBLE_TAP_MS) {
-            galaxyTap.idx = -1;
-            galaxyTap.at = 0;
-            galaxyTap.macro = -1;
-            openGalaxySystem(sysHit);
-            return;
-          }
-          S.galaxySelectedIdx = sysHit;
-          galaxySelectedMacro = -1;
-          galaxyTap.idx = sysHit;
-          galaxyTap.macro = -1;
-          galaxyTap.at = nowTap;
-          if (typeof playSFX === 'function') playSFX('ui_click');
-          isPanning = true;
-          panStartX = pos.x;
-          panStartY = pos.y;
-          panStartPanX = S.panX || 0;
-          panStartPanY = S.panY || 0;
-          return;
-          }
-        }
         const macroHit = galaxyMacroAt(pos.x, pos.y);
         if (macroHit >= 0) {
           // Двойной тап раскрывает объект: камера подлетает, затем LOD становится детальнее.
