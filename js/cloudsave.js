@@ -1071,10 +1071,28 @@ window.reportRewards = reportRewards;
 window.resetRewardBaseline = resetRewardBaseline;
 
 // ─── Push-уведомления ───────────────────────────────────────────
+// ★ Пуш в Telegram нужен только когда игрок НЕ в игре:
+//   если вкладка/WebView активна — событие и так видно в интерфейсе.
+//   Считаем игрока онлайн, когда страница видима и игровой цикл жив.
+function isPlayerOnlineForPush() {
+  try {
+    if (typeof document !== 'undefined' && document && document.visibilityState
+      && document.visibilityState !== 'visible') return false;
+  } catch (e) { /* ignore */ }
+  try {
+    if (typeof S !== 'undefined' && S && Number(S.lastTick) > 0
+      && Date.now() - Number(S.lastTick) > 2 * 60 * 1000) return false;
+  } catch (e) { /* ignore */ }
+  return true;
+}
+window.isPlayerOnlineForPush = isPlayerOnlineForPush;
+
 async function sendPushNotification(message, type) {
   const initData = getTgInitData();
-  if (!initData || !window.__serverWallet) return; // Только в Telegram и в режиме кошелька
-  if (typeof S !== 'undefined' && S && S.settings && S.settings.pushEnabled === false) return; // Если игрок отключил
+  if (!initData) return; // Вне Telegram пуши недоступны
+  if (typeof S !== 'undefined' && S && S.settings && S.settings.pushEnabled === false) return;
+  if (isPlayerOnlineForPush()) return; // Игрок в игре — TG-пуш не нужен
+  if (typeof message !== 'string' || !message.trim()) return;
 
   try {
     await fetch(CLOUD_API + '/api/notify', {

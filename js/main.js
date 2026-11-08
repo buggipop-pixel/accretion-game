@@ -990,6 +990,19 @@ function updateHudChips() {
       defEl.style.display = 'none';
     }
   }
+  // ★ Постоянный индикатор флота в HUD: показываем, что он на службе.
+  const fleetEl = document.getElementById('fleetChip');
+  if (fleetEl) {
+    const ships = (typeof fleetShipTotal === 'function') ? fleetShipTotal() : 0;
+    if (ships > 0) {
+      const engaged = !!(window.FLEET_VIS && window.FLEET_VIS.phase === 'fight');
+      const txt = '🚀 Флот: ' + ships + ' · ' + (engaged ? 'в бою' : 'на службе');
+      if (fleetEl.textContent !== txt) fleetEl.textContent = txt;
+      if (fleetEl.style.display !== 'block') fleetEl.style.display = 'block';
+    } else if (fleetEl.style.display !== 'none') {
+      fleetEl.style.display = 'none';
+    }
+  }
   const negEl = document.getElementById('neglectChip');
   if (negEl) {
     const txt = (typeof galaxyNeglectChipText === 'function') ? galaxyNeglectChipText() : '';
@@ -1062,7 +1075,12 @@ function checkStorageNotifications() {
     const full = value >= cap;
     if (full && !state[key]) {
       state[key] = true;
-      pushIfPossible(meta.icon + ' <b>Хранилище заполнено!</b> ' + meta.name + ': ' + meta.text + ' Зайдите и потратьте ресурсы.', meta.type);
+      // ★ Подробный пуш о заполнении хранилища (значение / лимит).
+      if (typeof notifyStorageFull === 'function') {
+        notifyStorageFull(meta.name, value, cap, meta.text);
+      } else {
+        pushIfPossible(meta.icon + ' <b>Хранилище заполнено!</b> ' + meta.name + ': ' + meta.text + ' Зайдите и потратьте ресурсы.', meta.type);
+      }
     } else if (!full) {
       state[key] = false;
     }

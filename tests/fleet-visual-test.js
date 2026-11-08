@@ -264,7 +264,7 @@ function testDefenseCostDeferred() {
 
   g.openNightMode();
   const card = g.document.getElementById('modalCard');
-  assert('Окно: кнопка флота вместо ВКЛ', card.innerHTML.includes("toggleFleet('night')") && (card.innerHTML.includes('Флот в системе') || card.innerHTML.includes('Флот скрыт')) && !card.innerHTML.includes('✓ ВКЛ'));
+  assert('Окно: кнопка флота вместо ВКЛ', card.innerHTML.includes("toggleFleet('night')") && card.innerHTML.includes('Флот на службе постоянно') && !card.innerHTML.includes('✓ ВКЛ'));
   const opens = (card.innerHTML.match(/<div/g) || []).length;
   const closes = (card.innerHTML.match(/<\/div>/g) || []).length;
   assert('Окно: HTML div сбалансирован', opens === closes);

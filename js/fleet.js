@@ -154,6 +154,13 @@ function tickFleet(dt, time) {
     if (now - FLEET_VIS.startedAt >= FLEET_VIS.durationMs) {
       FLEET_VIS.phase = 'idle';
       FLEET_VIS.returnFrom = null;
+      // ★ Действие флота завершено — короткое уведомление в Telegram.
+      if (typeof notifyFleetEvent === 'function') {
+        notifyFleetEvent('Флот завершил действие', [
+          '🏠 Корабли вернулись в строй.',
+          '🚀 В строю: ' + (typeof fleetShipTotal === 'function' ? fleetShipTotal() : 0),
+        ]);
+      }
     }
     return;
   }
@@ -201,8 +208,10 @@ function fleetScreenPos(time) {
 }
 
 function drawFleet(ctx, time) {
-  if (!S.fleetActive) return; // Тумблер флота выключен — не рисуем флагман
-  if (typeof isFleetActive !== 'function' || !isFleetActive()) return;
+  // ★ Флагман виден всегда, пока в Верфи есть корабли: флот не надо
+  //   активировать, он постоянно на службе.
+  if (typeof fleetShipTotal !== 'function' || fleetShipTotal() <= 0) return;
+  if (!S.fleetActive) S.fleetActive = true; // синхронизируем старые сейвы
   if (S.activeMinigame) return;
   const pos = fleetScreenPos(time);
   if (!pos || !isFinite(pos.x) || !isFinite(pos.y)) return;

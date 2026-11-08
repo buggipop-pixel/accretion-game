@@ -347,17 +347,19 @@ function payFleetUpkeep(dt) {
   }
 
   S.metalAmount = 0;
-  if (S.fleetActive) {
-    S.fleetActive = false;
-    if (typeof toast === 'function' && !window.__fleetUpkeepWarned) {
-      window.__fleetUpkeepWarned = true;
-      toast('Флот в резерве', 'Не хватило металла на содержание флота');
-      setTimeout(function () { window.__fleetUpkeepWarned = false; }, 5000);
-    }
-    if (typeof sendPushNotification === 'function') {
-      sendPushNotification('🚀 <b>Действие флота закончилось.</b> Причина: не хватило металла на содержание.', 'fleet');
+  // ★ Флот больше не уходит в резерв из-за нехватки металла:
+  //   купленные корабли работают всегда. Просто уведомляем об этом.
+  if (!window.__fleetUpkeepWarned || Date.now() - window.__fleetUpkeepWarned > 10 * 60 * 1000) {
+    window.__fleetUpkeepWarned = Date.now();
+    if (typeof toast === 'function') toast('Флот на голодном пайке', 'Металла на содержание нет — флот продолжает службу');
+    if (typeof notifyFleetEvent === 'function') {
+      notifyFleetEvent('Флоту не хватает металла', [
+        '⚙ Металл на содержание закончился.',
+        '🚀 Корабли продолжают службу (флот не отключается).',
+      ], 'fleet_upkeep:' + Math.floor(Date.now() / (10 * 60 * 1000)));
     }
   }
+  return have;
   return have;
 }
 window.payFleetUpkeep = payFleetUpkeep;
@@ -970,6 +972,19 @@ function simulateOfflineInvasions(elapsedSec, out) {
   out.invasionLostDust = Math.floor(lostDust);
   out.invasionLostMetals = Math.floor(lostM);
 
+  // ★ Подробный отчёт в Telegram после возвращения в игру.
+  if (executed > 0 && typeof notifyEvent === 'function') {
+    const lines = [
+      '⏳ Отсутствие: ' + out.awayHours + ' ч',
+      '⚔️ Атак: ' + executed + ' · отбито: ' + defended,
+      '💸 Потери: ✦ ' + Math.floor(lostDust) + ', ⚡ ' + Math.floor(lostE) + ', 🧬 ' + (Math.round(lostC * 100) / 100) + ', ⚙ ' + Math.floor(lostM),
+      '🪐 Планет в простое: ' + disabled + (systemsDamaged > 0 ? ' · систем: ' + systemsDamaged : ''),
+    ];
+    if (level > 0) lines.push('☠️ Запустение: ур.' + level);
+    if (out.shieldProtected) lines.push('🛡 Щит покрыл часть отсутствия.');
+    notifyEvent('invasion_end', 'Отчёт о вторжениях за время отсутствия', lines, { key: 'offline_inv:' + Math.floor(Date.now() / 60000), immediate: true, ignoreCooldown: true });
+  }
+
   if (disabled > 0 && typeof addEvent === 'function') {
     addEvent('invasion_destroy', 'Вторжения повредили ' + disabled + ' планет(ы)', { meta: { count: disabled, source: 'offline' } });
   }
@@ -988,7 +1003,7 @@ function applyInvasionHit(tierKey, caps, targetIdx, opts) {
   const cfg = INVASION_CFG;
   const n = (cfg && cfg.neglect) || {};
   const tier = cfg.tiers[tierKey] || cfg.tiers.raid;
-  const out = { dust: 0, energy: 0, civ: 0, metals: 0, disabled: 0 };
+  const out = { dust: 0, energy: 0, civ: 0, metals: 0, disabled: 0, difficulty: Math.max(1, Math.min(3, Number(tier.difficulty) || 1)), tierLabel: tier.label || tierKey };
   const level = Math.max(0, Number(opts.neglectLevel) || 0);
   const target = (typeof targetIdx === 'number' && isFinite(targetIdx))
     ? targetIdx

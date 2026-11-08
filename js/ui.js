@@ -1099,8 +1099,8 @@ function openNightMode() {
   const fleetChancePct = (typeof fleetRepelChance === 'function') ? fleetRepelChance() * 100 : 0;
   const expPenalty = (nc.expeditionPercent / 100) * (NIGHT_CFG.expeditionDefensePenaltyMax || 0.30) * 100;
   const shieldActive = !!(S.shieldUntil && S.shieldUntil > Date.now());
-  const fleetReqPreview = Number(FLEET_CFG.activationDefenseLevel) || 5;
-  const previewFleetPct = selDefLvl >= fleetReqPreview ? fleetChancePct : 0;
+  // ★ Флот даёт вклад в отбитие всегда, без уровня Автобороны.
+  const previewFleetPct = fleetChancePct;
   const totalChancePct = shieldActive
     ? 100
     : Math.max(0, Math.min(80, defChancePct + previewFleetPct) - expPenalty);
@@ -1155,16 +1155,11 @@ function openNightMode() {
     defenseLabel = `Ур.${selDefLvl} · +${selPct}% (${tag})`;
   }
 
-  // ★ Флот: активация возможна только при активной Автобороне ур.5.
+  // ★ Флот всегда на службе, активация больше не нужна.
   const fleetActiveNow = (typeof isFleetActive === 'function') ? isFleetActive() : false;
-  const fleetReqLvl = (typeof fleetDefenseLevelReq === 'function') ? fleetDefenseLevelReq() : 5;
   const fleetShips = (typeof fleetShipTotal === 'function') ? fleetShipTotal() : 0;
-  const fleetCanActivate = activeDefLvl >= fleetReqLvl;
-  let fleetLabel = 'заблокирован';
-  if (fleetActiveNow) fleetLabel = 'в бою';
-  else if (fleetShips <= 0) fleetLabel = 'нет кораблей';
-  else if (fleetCanActivate) fleetLabel = 'в резерве';
-  const fleetColor = fleetActiveNow ? '#7ee0a8' : (fleetCanActivate && fleetShips > 0 ? '#b9a8ff' : '#ffb347');
+  const fleetLabel = fleetShips > 0 ? 'на службе' : 'нет кораблей';
+  const fleetColor = fleetShips > 0 ? '#7ee0a8' : '#ffb347';
 
   card.innerHTML = `
     <div class="modal-title">🛡 Активная оборона</div>
@@ -1185,7 +1180,7 @@ function openNightMode() {
       </div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;margin-top:4px;">
         <span>🚀 Флот: <span style="color:${fleetColor}">${fleetLabel}</span></span>
-        <span>${fleetChancePct > 0 ? '+' + Math.round(fleetChancePct) + '% к отбитию' : 'активация с ур.' + fleetReqLvl}</span>
+        <span>${fleetChancePct > 0 ? '+' + Math.round(fleetChancePct) + '% к отбитию' : 'всегда в строю'}</span>
       </div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;margin-top:4px;">
         <span>Металлы: ${fmt(S.metalAmount || 0)} / ${fmt(typeof metalsCap === 'function' ? metalsCap() : 0)} ⚙</span>
@@ -1193,9 +1188,8 @@ function openNightMode() {
       </div>
       <div class="pour-btn-group" style="margin-top:4px;">
         <button class="pour-btn" onclick="toggleFleet('night')"
-          style="background:${fleetActiveNow ? 'rgba(46,170,119,0.4)' : 'rgba(139,127,212,0.25)'};border-color:${fleetActiveNow ? '#2eaa77' : 'rgba(139,127,212,0.6)'};"
-          ${(fleetActiveNow || (fleetCanActivate && fleetShips > 0)) ? '' : 'disabled'}>
-          ${fleetActiveNow ? '✓ Флот в системе' : '✕ Флот скрыт'}
+          style="background:rgba(46,170,119,0.4);border-color:#2eaa77;">
+          ✓ Флот на службе постоянно
         </button>
       </div>
     </div>

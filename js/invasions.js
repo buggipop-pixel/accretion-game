@@ -42,19 +42,19 @@ function fleetDps() {
 }
 
 function fleetDefenseLevelReq() {
-  return Math.max(1, Math.floor(Number(FLEET_CFG.activationDefenseLevel) || 5));
+  return 0; // флоту больше не нужна Автоборона определённого уровня
 }
 
-// Условие активации: активная Автоборона уровня >= 5. Уровень считает
-// общий хелпер activeDefenseLevel() (платная активация + трофеи).
+// ★ Флот всегда готов, если в Верфи есть хотя бы один корабль.
+//   Раньше требовалась активная Автоборона ур.5 — игрок покупал флот,
+//   но он «спал». Теперь купленные корабли работают всегда.
 function fleetDefenseReady(now) {
-  return activeDefenseLevel(now) >= fleetDefenseLevelReq();
+  return fleetShipTotal() > 0;
 }
 
 function isFleetActive(now) {
-  return S.fleetActive === true && fleetShipTotal() > 0 && fleetDefenseReady(now);
+  return fleetShipTotal() > 0;
 }
-
 
 // Наносит накопленный урон флота кораблям вторжения. HP врагов хранится
 // в сейве вместе с кораблями; для старых сейвов HP проставляется лениво.
@@ -89,7 +89,14 @@ function applyFleetAutoDefense(inv, dt) {
   if (!inv.fleetEngaged) {
     inv.fleetEngaged = true;
     if (inv.notified && typeof toast === 'function') {
-      toast('🚀 Флот в бой', 'Автоборона ур.' + activeDefenseLevel());
+      toast('🚀 Флот в бой', 'Автооборона ур.' + activeDefenseLevel());
+    }
+    if (typeof notifyFleetEvent === 'function') {
+      notifyFleetEvent('Флот вступил в бой', [
+        '🚀 Кораблей в строю: ' + fleetShipTotal(),
+        '🎯 Цель: ' + (inv.planetName || inv.systemName || 'система'),
+        '⚔️ Сложность: ' + (Number(inv.difficulty) || 1) + '/3',
+      ], 'fleet_engage:' + inv.id);
     }
   }
   return destroyed;
@@ -114,21 +121,75 @@ function rollInvasionTier() {
 }
 
 // ─── Создание кораблей ──────────────────────────────────────────
-function makeShips(count) {
+function makeShips(count, opts) {
+  opts = opts || {};
+  const cfg = INVASION_CFG || {};
+  const types = cfg.shipTypes || {};
+  const tierKey = opts.tierKey || 'raid';
+  const tier = (cfg.tiers && cfg.tiers[tierKey]) || {};
+  const difficulty = Math.max(1, Math.min(3, Number(opts.difficulty || tier.difficulty) || 1));
+  const pool = (Array.isArray(tier.shipTypes) && tier.shipTypes.length)
+    ? tier.shipTypes
+    : Object.keys(types);
+  const pMin = Number(tier.powerMin) || 0.6;
+  const pMax = Number(tier.powerMax) || 1.2;
+  const fleetPower = (Number(opts.power) > 0)
+    ? Number(opts.power)
+    : (pMin + Math.random() * Math.max(0, pMax - pMin));
+  const n = Math.max(0, Math.floor(Number(count) || 0));
   const ships = [];
-  const shipHp = Math.max(1, Number(FLEET_CFG.invaderShipHp) || 100);
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < n; i++) {
+    const typeKey = pool[Math.floor(Math.random() * pool.length)] || 'fighter';
+    const type = types[typeKey] || {};
+    // У каждого корабля своя случайная мощность ±25% от силы эскадры.
+    const shipPower = fleetPower * (0.75 + Math.random() * 0.5);
+    const diffScale = 1 + (difficulty - 1) * 0.25;
+    const maxHp = Math.max(1, Math.round((Number(type.hp) || 45) * shipPower * diffScale));
+    const bounty = type.bounty || {};
     ships.push({
-      angle: (i / count) * Math.PI * 2 + Math.random() * 0.5,
+      type: typeKey,
+      name: type.name || typeKey,
+      color: type.color || '#ff5e5e',
+      size: Number(type.size) || 1,
+      power: Math.round(shipPower * 100) / 100,
+      damage: Math.max(0, (Number(type.damage) || 2) * shipPower),
+      bounty: {
+        metals: Math.round((Number(bounty.metals) || 0) * shipPower * diffScale),
+        dust: Math.round((Number(bounty.dust) || 0) * shipPower * diffScale),
+        energy: Math.round((Number(bounty.energy) || 0) * shipPower * diffScale),
+        civ: (Number(bounty.civ) || 0) * shipPower * diffScale,
+      },
+      angle: (n > 0 ? (i / n) * Math.PI * 2 : 0) + Math.random() * 0.5,
       dist: 1.2 + Math.random() * 0.6,
-      speed: 0.8 + Math.random() * 0.6,
-      hp: shipHp,
-      maxHp: shipHp,
+      speed: (Number(type.speed) || 1) * (0.8 + Math.random() * 0.4),
+      hp: maxHp,
+      maxHp: maxHp,
       destroyed: false,
     });
   }
   return ships;
 }
+
+// Случайное число кораблей/сила эскадры по сложности.
+function rollInvasionShips(tierKey) {
+  const tier = (INVASION_CFG.tiers && INVASION_CFG.tiers[tierKey]) || {};
+  const min = Math.max(1, Math.floor(Number(tier.shipsMin) || Number(INVASION_CFG.shipsBase) || 1));
+  const max = Math.max(min, Math.floor(Number(tier.shipsMax) || Number(INVASION_CFG.shipsMax) || min));
+  const count = min + Math.floor(Math.random() * (max - min + 1));
+  return { count: count, ships: makeShips(count, { tierKey: tierKey }) };
+}
+
+// Урон ручного клика по кораблю вторжения.
+function invasionClickDamage() {
+  const cfg = (INVASION_CFG && INVASION_CFG.manual) || {};
+  const defLvl = (typeof activeDefenseLevel === 'function') ? activeDefenseLevel() : 0;
+  const dps = (typeof fleetDps === 'function') ? fleetDps() : 0;
+  const raw = (Number(cfg.clickDamageBase) || 22)
+    + defLvl * (Number(cfg.clickDamagePerDefenseLevel) || 14)
+    + dps * (Number(cfg.clickDamagePerFleetDps) || 0.35);
+  return Math.max(1, Math.min(Number(cfg.clickDamageMax) || 260, Math.round(raw)));
+}
+window.invasionClickDamage = invasionClickDamage;
 
 // ─── Запуск вторжения ───────────────────────────────────────────
 function spawnInvasion() {
@@ -155,13 +216,16 @@ function spawnInvasion() {
     const isActive = (targetIdx === S.activeSystemIdx && S.stage === 'system');
     const sysName = targetIdx === 0 ? 'Родная' : S.otherSystems[targetIdx].name;
 
-    const shipCount = Math.min(INVASION_CFG.shipsMax, INVASION_CFG.shipsBase + 2);
-    S.invasions.push({
+    const rolled = rollInvasionShips(tierKey);
+    const inv = {
       id: Math.random().toString(36).slice(2),
       tierKey: tierKey,
+      difficulty: Math.max(1, Math.min(3, Number(tier.difficulty) || 1)),
       targetType: 'system',
       systemIdx: targetIdx,
-      ships: makeShips(shipCount),
+      systemName: sysName,
+      ships: rolled.ships,
+      shipsTotal: rolled.count,
       fleetShots: [],
       spawnedAt: now,
       robberyEndsAt: now + INVASION_CFG.robberyDuration,
@@ -171,18 +235,18 @@ function spawnInvasion() {
       stolen: 0,
       drainedEnergy: 0,
       drainedCiv: 0,
+      stolenMetals: 0,
       defenseBroken: false,
-      notified: isActive || S.stage === 'galaxy',
-    });
+      notified: true,
+    };
+    S.invasions.push(inv);
 
-    if (typeof sendPushNotification === 'function') {
-      sendPushNotification('⚔️ <b>Вторжение!</b> На вашу систему напали. Срочно зайдите в игру!', 'invasion');
-    }
-
+    // ★ Подробное уведомление в Telegram: сложность, состав, прочность.
+    if (typeof notifyInvasionStart === 'function') notifyInvasionStart(inv);
     // ★ Журнал событий ведём всегда, включая галактическую стадию:
     // иначе атака на другую систему не видна в игре.
     if (typeof addEvent === 'function') {
-      addEvent('invasion_spawn', tier.label + ': атакована система «' + sysName + '»', { meta: { systemIdx: targetIdx, tierKey: tierKey, tierLabel: tier.label, ships: shipCount, systemName: sysName, robberyMinutes: Math.round(INVASION_CFG.robberyDuration / 60000), destructionMinutes: Math.round(INVASION_CFG.destructionDuration / 60000), source: 'live' } });
+      addEvent('invasion_spawn', tier.label + ': атакована система «' + sysName + '»', { meta: { systemIdx: targetIdx, tierKey: tierKey, tierLabel: tier.label, difficulty: inv.difficulty, ships: rolled.count, systemName: sysName, robberyMinutes: Math.round(INVASION_CFG.robberyDuration / 60000), destructionMinutes: Math.round(INVASION_CFG.destructionDuration / 60000), source: 'live' } });
     }
     // Тост не дублируем, только если игрок уже смотрит на атакованную систему.
     if (!isActive) {
@@ -210,14 +274,18 @@ function spawnInvasion() {
     victimNames.push(PLANET_TYPES[victim.type].name);
     victimSeeds.push(victim.seed);
 
-    S.invasions.push({
+    const rolledP = rollInvasionShips(tierKey);
+    const pinv = {
       id: Math.random().toString(36).slice(2),
       waveId: waveId,
       tierKey: tierKey,
+      difficulty: Math.max(1, Math.min(3, Number(tier.difficulty) || 1)),
       targetType: 'planet',
       systemIdx: S.activeSystemIdx,
       planetSeed: victim.seed,
-      ships: makeShips(Math.min(INVASION_CFG.shipsMax, INVASION_CFG.shipsBase + 1)),
+      planetName: PLANET_TYPES[victim.type].name,
+      ships: rolledP.ships,
+      shipsTotal: rolledP.count,
       fleetShots: [],
       spawnedAt: now,
       robberyEndsAt: now + INVASION_CFG.robberyDuration,
@@ -227,18 +295,19 @@ function spawnInvasion() {
       stolen: 0,
       drainedEnergy: 0,
       drainedCiv: 0,
+      stolenMetals: 0,
       defenseBroken: false,
       notified: true,
-    });
+    };
+    S.invasions.push(pinv);
+    // ★ Подробное уведомление по каждой атакованной планете.
+    if (typeof notifyInvasionStart === 'function') notifyInvasionStart(pinv);
   }
   if (wantTargets === 0) return;
 
-  if (typeof sendPushNotification === 'function') {
-    sendPushNotification('⚔️ <b>Вторжение!</b> На вашу систему напали. Срочно зайдите в игру!', 'invasion');
-  }
   toast('⚔️ ' + tier.label + '!', wantTargets > 1 ? ('Атаковано планет: ' + wantTargets) : (victimNames[0] + ' атакована'));
   if (typeof playSFX === 'function') playSFX('invasion');
-  if (typeof addEvent === 'function') addEvent('invasion_spawn', tier.label + ': ' + victimNames.join(', '), { meta: { systemIdx: S.activeSystemIdx, planetSeed: victimSeeds[0], tierKey: tierKey, tierLabel: tier.label, planetNames: victimNames.join(', '), source: 'live' } });
+  if (typeof addEvent === 'function') addEvent('invasion_spawn', tier.label + ': ' + victimNames.join(', '), { meta: { systemIdx: S.activeSystemIdx, planetSeed: victimSeeds[0], tierKey: tierKey, tierLabel: tier.label, difficulty: Math.max(1, Math.min(3, Number(tier.difficulty) || 1)), planetNames: victimNames.join(', '), source: 'live' } });
 }
 
 // ─── Урон второго порядка: оккупация и простой планет ───────────
@@ -260,6 +329,8 @@ function applyInvasionAftermath(inv, victim) {
         pct: Math.min(INVASION_CFG.debuffStackCap || 0.6, cur + pct),
         until: Math.max((S.invasionDebuff && S.invasionDebuff.until) || 0, now + durH * 3600 * 1000),
       };
+      inv.debuffPct = Math.max(Number(inv.debuffPct) || 0, pct);
+      inv.debuffHours = Math.max(Number(inv.debuffHours) || 0, durH);
       if (typeof toast === 'function') toast('⚠️ Оккупация', 'Доход −' + Math.round(pct * 100) + '% на ' + durH.toFixed(1) + ' ч');
     }
   }
@@ -284,11 +355,13 @@ function applyInvasionAftermath(inv, victim) {
     }
   }
   const dur = (tier.disableHours || 2) * 3600 * 1000;
+  let disabledCount = 0;
   for (const p of victims) {
     if (!p) continue;
     if (targetPlanets.length <= 1) break;  // последнюю планету не выключаем
-    p.disabledUntil = now + dur;
+    p.disabledUntil = now + dur; disabledCount++;
   }
+  inv.disabledPlanets = Math.max(Number(inv.disabledPlanets) || 0, disabledCount);
 }
 
 window.applyInvasionAftermath = applyInvasionAftermath;
@@ -315,23 +388,91 @@ function applyLiveRobbery(inv, tier, dt, divisor) {
   if (m > 0) { S.metalAmount -= m; inv.stolenMetals = (inv.stolenMetals || 0) + m; }
 }
 
+// ─── Награда за ручное уничтожение корабля ────────────────────────
+// Игрок, который сам сбивает вражеские корабли, получает ресурсы —
+// это и есть «хороший буст» за активную игру вместо ожидания флота.
+function grantManualKillReward(inv, ship) {
+  const b = (ship && ship.bounty) || {};
+  const manual = (INVASION_CFG && INVASION_CFG.manual) || {};
+  const mult = Number(manual.rewardMult) || 1;
+  const diffMult = (manual.difficultyBonus && manual.difficultyBonus[inv.difficulty]) || 1;
+  const k = mult * diffMult;
+  const metals = Math.round((Number(b.metals) || 0) * k);
+  const dust = Math.round((Number(b.dust) || 0) * k);
+  const energy = Math.round((Number(b.energy) || 0) * k);
+  const civ = (Number(b.civ) || 0) * k;
+  if (metals) S.metalAmount = (Number(S.metalAmount) || 0) + metals;
+  if (dust) { S.dust = (Number(S.dust) || 0) + dust; S.dustTotal = (Number(S.dustTotal) || 0) + dust; }
+  if (energy) S.energy = (Number(S.energy) || 0) + energy;
+  if (civ) S.civLevel = (Number(S.civLevel) || 0) + civ;
+  inv.bountyMetals = (Number(inv.bountyMetals) || 0) + metals;
+  inv.bountyDust = (Number(inv.bountyDust) || 0) + dust;
+  inv.bountyEnergy = (Number(inv.bountyEnergy) || 0) + energy;
+  inv.bountyCiv = (Number(inv.bountyCiv) || 0) + civ;
+  inv.shipsKilledByPlayer = (Number(inv.shipsKilledByPlayer) || 0) + 1;
+  return { metals: metals, dust: dust, energy: energy, civ: civ };
+}
+window.grantManualKillReward = grantManualKillReward;
+
+// ─── Вражеский огонь по флоту ──────────────────────────────────────
+// Пока эскадра жива, она повреждает корабли игрока. Потерянные корабли
+// списываются из S.fleet и сопровождаются уведомлением.
+function applyEnemyFireToFleet(inv, dt) {
+  const cfg = (INVASION_CFG && INVASION_CFG.enemyFire) || {};
+  if (!(dt > 0) || !Array.isArray(inv.ships) || !S.fleet) return 0;
+  let alive = 0, dps = 0;
+  for (let i = 0; i < inv.ships.length; i++) {
+    const ship = inv.ships[i];
+    if (!ship || ship.destroyed) continue;
+    alive++;
+    dps += Math.max(0, Number(ship.damage) || 0);
+  }
+  if (alive === 0) return 0;
+  const dmgPerSec = Math.min(Number(cfg.capDamagePerSec) || 6, dps * (Number(cfg.perShipDamagePerSec) || 0.9));
+  inv.enemyDmgAcc = (Number(inv.enemyDmgAcc) || 0) + dmgPerSec * dt;
+  let lost = 0;
+  const order = ['interceptor', 'cruiser', 'dreadnought'];
+  while (inv.enemyDmgAcc > 0) {
+    let key = null;
+    for (let i = 0; i < order.length; i++) {
+      if ((Number(S.fleet[order[i]]) || 0) > 0) { key = order[i]; break; }
+    }
+    if (!key) { inv.enemyDmgAcc = 0; break; }
+    const hp = Math.max(1, Number(FLEET_CFG.ships[key].hp) || 20);
+    if (inv.enemyDmgAcc >= hp) {
+      inv.enemyDmgAcc -= hp;
+      S.fleet[key] = Math.max(0, (Number(S.fleet[key]) || 0) - 1);
+      lost++;
+    } else break;
+  }
+  if (lost > 0) {
+    if (!S.stats) S.stats = {};
+    S.stats.fleetLost = (Number(S.stats.fleetLost) || 0) + lost;
+    if (typeof toast === 'function') toast('💥 Флот несёт потери', 'Уничтожено кораблей: ' + lost);
+    if (typeof notifyFleetEvent === 'function') {
+      notifyFleetEvent('Флот несёт потери', [
+        '💥 Уничтожено кораблей: ' + lost,
+        '🎯 Вторжение: ' + (inv.planetName || inv.systemName || 'система'),
+        '⚔️ Сложность: ' + (Number(inv.difficulty) || 1) + '/3',
+      ], 'fleet_loss:' + inv.id + ':' + (S.stats.fleetLost || 0));
+    }
+    if (fleetShipTotal() <= 0) {
+      S.fleetActive = false;
+      if (typeof notifyFleetEvent === 'function') notifyFleetEvent('Флот уничтожен', ['Все корабли потеряны в бою.'], 'fleet_dead:' + inv.id);
+    }
+  }
+  return lost;
+}
+window.applyEnemyFireToFleet = applyEnemyFireToFleet;
+
 // ─── Тик вторжений ──────────────────────────────────────────────
 function tickInvasions(dt) {
   if (!S.invasions) S.invasions = [];
   const now = Date.now();
 
-  // Флот активен только пока держится Автоборона ур.5: истекла/снизилась —
-  // отводим корабли, чтобы игрок не получал «бесплатную» защиту.
-  if (S.fleetActive && !isFleetActive(now)) {
-    S.fleetActive = false;
-    const reason = fleetShipTotal() <= 0
-      ? 'Верфь пуста'
-      : 'Нужна активная Автоборона ур.' + fleetDefenseLevelReq();
-    if (typeof toast === 'function') toast('🚀 Флот отведён', reason);
-    if (typeof sendPushNotification === 'function') {
-      sendPushNotification('🚀 <b>Действие флота закончилось.</b> Причина: ' + reason + '.', 'fleet');
-    }
-  }
+  // ★ Флот работает всегда, пока в Верфи есть корабли. Никаких «отводов»
+  //   по истечении Автобороны больше нет (см. isFleetActive).
+  if (S.fleetActive !== true && fleetShipTotal() > 0) S.fleetActive = true;
 
   if (S.activeTrophyEffects) {
     S.activeTrophyEffects = S.activeTrophyEffects.filter(e => !e.expiresAt || e.expiresAt > now);
@@ -399,8 +540,7 @@ function tickInvasions(dt) {
       S.invasions.splice(i, 1);
       continue;
     }
-    // ★ Автооборона: её ведёт только активированный флот.
-    // Никакого автоматического сбития без кораблей больше нет.
+    // ★ Автооборона: флот доступен всегда, пока есть корабли.
     if (isFleetActive(now) && inv.ships && (typeof fleetEngaged !== 'function' || fleetEngaged(inv))) {
       const destroyedByFleet = applyFleetAutoDefense(inv, dt);
       let fleetAlive = 0;
@@ -409,9 +549,12 @@ function tickInvasions(dt) {
         if (destroyedByFleet > 0 && inv.notified) toast('✓ Отбито', 'Флот уничтожил вражескую эскадру');
         if (!S.stats) S.stats = {};
         S.stats.invasionsDefeated = (S.stats.invasionsDefeated || 0) + 1;
+        if (typeof notifyInvasionEnd === 'function') notifyInvasionEnd(inv, 'defeated');
         S.invasions.splice(i, 1);
         continue;
       }
+      // ★ Враг отвечает огнём по кораблям игрока.
+      applyEnemyFireToFleet(inv, dt);
     }
     // ─── Очистка устаревших трассеров флота ───
     if (Array.isArray(inv.fleetShots) && inv.fleetShots.length > 0) {
@@ -428,6 +571,7 @@ function tickInvasions(dt) {
         if (inv.notified) toast('✓ Вторжение отбито', 'Система спасена');
         if (!S.stats) S.stats = {};
         S.stats.invasionsDefeated = (S.stats.invasionsDefeated || 0) + 1;
+        if (typeof notifyInvasionEnd === 'function') notifyInvasionEnd(inv, 'defeated');
         S.invasions.splice(i, 1);
         continue;
       }
@@ -444,7 +588,9 @@ function tickInvasions(dt) {
         inv.hp -= hpDrain * dt;
         if (inv.hp <= 0 || now >= inv.destructionEndsAt) {
           applyInvasionAftermath(inv);
+          inv.systemsDamaged = Math.max(1, Number(inv.systemsDamaged) || 0);
           if (inv.notified) toast('⚠️ Система повреждена', 'Доход снижен, часть планет простаивает');
+          if (typeof notifyInvasionEnd === 'function') notifyInvasionEnd(inv, 'breached');
           S.invasions.splice(i, 1);
           continue;
         }
@@ -469,6 +615,7 @@ function tickInvasions(dt) {
       toast('✓ Вторжение отбито', PLANET_TYPES[victim.type].name + ' свободна');
       if (!S.stats) S.stats = {};
       S.stats.invasionsDefeated = (S.stats.invasionsDefeated || 0) + 1;
+      if (typeof notifyInvasionEnd === 'function') notifyInvasionEnd(inv, 'defeated');
       S.invasions.splice(i, 1);
       continue;
     }
@@ -481,6 +628,7 @@ function tickInvasions(dt) {
     if (robbingDone && aliveShips > 0) {
       if (inv.hp <= 0 || now >= inv.destructionEndsAt) {
         applyInvasionAftermath(inv, victim);
+        if (typeof notifyInvasionEnd === 'function') notifyInvasionEnd(inv, 'breached');
         S.invasions.splice(i, 1);
         continue;
       }
@@ -527,8 +675,16 @@ function tryHitInvasionShip(screenX, screenY) {
         const wy = cyPos + Math.sin(ship.angle) * shipOrbitWorld * ship.dist * 0.5;
         const d = Math.hypot(wx - screenX, wy - screenY);
         if (d < hitR) {
-          ship.destroyed = true;
-          S.explosions.push({ x: wx, y: wy, type: 'destroy', startAt: Date.now(), endAt: Date.now() + 500, size: 18 });
+          const hitDmg = invasionClickDamage();
+          ship.hp = Math.max(0, (Number(ship.hp) || 0) - hitDmg);
+          if (ship.hp <= 0) {
+            ship.destroyed = true;
+            S.explosions.push({ x: wx, y: wy, type: 'destroy', startAt: Date.now(), endAt: Date.now() + 500, size: 18 });
+            const reward = grantManualKillReward(inv, ship);
+            if (typeof toast === 'function') toast('🏆 Корабль уничтожен', '+' + Math.round(reward.metals) + '⚙ +' + Math.round(reward.dust) + '✦');
+          } else {
+            S.explosions.push({ x: wx, y: wy, type: 'hit', startAt: Date.now(), endAt: Date.now() + 250, size: 10 });
+          }
           return true;
         }
       }
@@ -551,8 +707,16 @@ function tryHitInvasionShip(screenX, screenY) {
           const sp = worldToScreen(wx, wy);
           const d = Math.hypot(sp.x - screenX, sp.y - screenY);
           if (d < hitR) {
-            ship.destroyed = true;
-            S.explosions.push({ x: sp.x, y: sp.y, type: 'destroy', startAt: Date.now(), endAt: Date.now() + 500, size: 18 });
+            const hitDmg = invasionClickDamage();
+            ship.hp = Math.max(0, (Number(ship.hp) || 0) - hitDmg);
+            if (ship.hp <= 0) {
+              ship.destroyed = true;
+              S.explosions.push({ x: sp.x, y: sp.y, type: 'destroy', startAt: Date.now(), endAt: Date.now() + 500, size: 18 });
+              const reward = grantManualKillReward(inv, ship);
+              if (typeof toast === 'function') toast('🏆 Корабль уничтожен', '+' + Math.round(reward.metals) + '⚙ +' + Math.round(reward.dust) + '✦');
+            } else {
+              S.explosions.push({ x: sp.x, y: sp.y, type: 'hit', startAt: Date.now(), endAt: Date.now() + 250, size: 10 });
+            }
             return true;
           }
         }
@@ -583,6 +747,26 @@ function drawFleetShots(ctx, inv, z, shipScreenPos) {
   }
   ctx.restore();
 }
+
+// Корабль вторжения: форма/цвет/размер зависят от типа, поверх — HP-бар.
+function drawInvaderShip(ctx, ship, z) {
+  const s = Math.max(0.6, Number(ship.size) || 1) * z;
+  ctx.fillStyle = ship.color || '#ff3030';
+  ctx.beginPath();
+  ctx.moveTo(7 * s, 0); ctx.lineTo(-4 * s, -5 * s); ctx.lineTo(-2 * s, 0); ctx.lineTo(-4 * s, 5 * s);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.75)';
+  ctx.beginPath(); ctx.arc(1.5 * s, 0, 1.5 * s, 0, Math.PI * 2); ctx.fill();
+  if (ship.maxHp > 0 && ship.hp < ship.maxHp) {
+    const w = 18 * s, h = Math.max(1.5, 2 * z);
+    const ratio = Math.max(0, Math.min(1, ship.hp / ship.maxHp));
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+    ctx.fillRect(-w / 2, -11 * s, w, h);
+    ctx.fillStyle = ratio > 0.5 ? '#7ee0a8' : (ratio > 0.25 ? '#ffb347' : '#ff4040');
+    ctx.fillRect(-w / 2, -11 * s, w * ratio, h);
+  }
+}
+window.drawInvaderShip = drawInvaderShip;
 
 function drawInvasions(ctx, time) {
   if (!S.invasions || S.invasions.length === 0) return;
@@ -626,9 +810,7 @@ function drawInvasions(ctx, time) {
         ctx.save();
         ctx.translate(wx, wy);
         ctx.rotate(ship.angle + Math.PI / 2);
-        ctx.fillStyle = '#ff3030';
-        ctx.beginPath();
-        ctx.moveTo(6 * z, 0); ctx.lineTo(-4 * z, -5 * z); ctx.lineTo(-2 * z, 0); ctx.lineTo(-4 * z, 5 * z); ctx.closePath(); ctx.fill();
+        drawInvaderShip(ctx, ship, z);
         ctx.restore();
       }
 
@@ -685,8 +867,7 @@ function drawInvasions(ctx, time) {
         const wy = pos.y + Math.sin(ship.angle) * shipOrbitWorld * ship.dist * 0.5;
         const ssp = worldToScreen(wx, wy);
         ctx.save(); ctx.translate(ssp.x, ssp.y); ctx.rotate(ship.angle + Math.PI / 2);
-        ctx.fillStyle = '#ff3030'; ctx.beginPath();
-        ctx.moveTo(6 * z, 0); ctx.lineTo(-4 * z, -5 * z); ctx.lineTo(-2 * z, 0); ctx.lineTo(-4 * z, 5 * z); ctx.closePath(); ctx.fill();
+        drawInvaderShip(ctx, ship, z);
         ctx.restore();
       }
 

@@ -199,9 +199,33 @@ const INVASION_CFG = {
   // theftMin — сколько минут дохода уносит; debuffPct/debuffHours — штраф к доходу;
   // targets — сколько планет атакуется одновременно; disablePlanets/disableHours — простой.
   tiers: {
-    scout:  { weight: 0.55, targets: 1, theftMin: 25, debuffPct: 0.15, debuffHours: 2, disablePlanets: 1, disableHours: 1.5, label: 'Разведка' },
-    raid:   { weight: 0.30, targets: 2, theftMin: 50, debuffPct: 0.25, debuffHours: 3, disablePlanets: 2, disableHours: 2, label: 'Рейд' },
-    siege:  { weight: 0.15, targets: 3, theftMin: 90, debuffPct: 0.35, debuffHours: 5, disablePlanets: 3, disableHours: 3, label: 'Осада' },
+    scout:  { difficulty: 1, weight: 0.55, targets: 1, theftMin: 25, debuffPct: 0.15, debuffHours: 2, disablePlanets: 1, disableHours: 1.5, label: 'Лёгкое (1)', shipsMin: 1, shipsMax: 3, powerMin: 0.6, powerMax: 1.2, shipTypes: ['fighter', 'fighter', 'corvette'] },
+    raid:   { difficulty: 2, weight: 0.30, targets: 2, theftMin: 50, debuffPct: 0.25, debuffHours: 3, disablePlanets: 2, disableHours: 2, label: 'Среднее (2)', shipsMin: 3, shipsMax: 6, powerMin: 0.9, powerMax: 1.8, shipTypes: ['fighter', 'corvette', 'corvette', 'frigate'] },
+    siege:  { difficulty: 3, weight: 0.15, targets: 3, theftMin: 90, debuffPct: 0.35, debuffHours: 5, disablePlanets: 3, disableHours: 3, label: 'Тяжёлое (3)', shipsMin: 5, shipsMax: 9, powerMin: 1.2, powerMax: 2.4, shipTypes: ['corvette', 'frigate', 'frigate', 'dread'] },
+  },
+  // ★ Типы кораблей вторжения (как корабли флота). hp/damage — база,
+  //   в спавне масштабируются случайной мощностью эскадры и сложностью.
+  shipTypes: {
+    fighter:  { name: 'Истребитель', hp: 45,  damage: 2,  speed: 1.10, size: 0.80, color: '#ff6b6b', bounty: { metals: 25,  dust: 800,   energy: 300,  civ: 0.01 } },
+    corvette: { name: 'Корвет',     hp: 90,  damage: 4,  speed: 0.90, size: 1.00, color: '#ff9944', bounty: { metals: 70,  dust: 2200,  energy: 900,  civ: 0.03 } },
+    frigate:  { name: 'Фрегат',     hp: 160, damage: 7,  speed: 0.70, size: 1.25, color: '#ff4fd8', bounty: { metals: 180, dust: 6000,  energy: 2500, civ: 0.08 } },
+    dread:    { name: 'Дредноут',   hp: 320, damage: 12, speed: 0.50, size: 1.60, color: '#b23bff', bounty: { metals: 450, dust: 16000, energy: 7000, civ: 0.20 } },
+  },
+  // ★ Ручное уничтожение вторжения: урон клика и бонусные ресурсы.
+  manual: {
+    clickDamageBase: 22,
+    clickDamagePerDefenseLevel: 14,
+    clickDamagePerFleetDps: 0.35,
+    clickDamageMax: 260,
+    rewardMult: 1.0,
+    difficultyBonus: { 1: 1.0, 2: 1.6, 3: 2.4 },
+    messageCooldownMs: 2500,
+  },
+  // ★ Вражеский огонь по флоту: пока эскадра жива, она повреждает корабли игрока.
+  enemyFire: {
+    perShipDamagePerSec: 0.9,
+    capDamagePerSec: 6,
+    notifyShipLoss: true,
   },
   // ★ Шанс отбить вторжение: уровни обороны + вклад флота, общий кап 80%.
   repelDefensePerLevel: 0.10,      // 10% за уровень, ур.5 = 50%
@@ -367,8 +391,11 @@ const FLEET_CFG = {
     dreadnought: { name: 'Дредноут',    costMetals: 8000, costEnergy: 16000, costCiv: 80, damage: 40, fireRate: 0.4, hp: 200 },
   },
   shotLifetimeMs: 350,
-  // ★ Флот активируется только при активной Автобороне этого уровня.
-  activationDefenseLevel: 5,
+  // ★ Флот больше не требует активации: купленные корабли всегда на службе
+  //   и всегда отображаются в игре. activationDefenseLevel оставлен для
+  //   совместимости старого сейва/тестов, но больше не блокирует флот.
+  alwaysActive: true,
+  activationDefenseLevel: 0,
   // HP одного корабля вторжения (автооборона флотом тратит урон в HP).
   invaderShipHp: 100,
   // ★ Визуал флагмана и перелёты к атакованной цели.

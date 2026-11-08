@@ -179,6 +179,7 @@ function _eventMetaValue(key, value) {
     const t = INVASION_CFG.tiers && INVASION_CFG.tiers[value];
     if (t && t.label) return t.label;
   }
+  if (key === 'difficulty') return String(value) + '/3';
   if (key === 'source') {
     if (value === 'offline') return 'офлайн-вторжение';
     if (value === 'live') return 'живое вторжение';

@@ -197,7 +197,7 @@ function testFleetInvestment() {
   setDefense(S, 5);
   S.fleet = { interceptor: 10, cruiser: 0, dreadnought: 0 };
   S.fleetActive = false;
-  assert('Флот в резерве: бонуса нет', g.fleetRepelChance() === 0);
+  assert('Флот на службе без ручной активации: +10%', close(g.fleetRepelChance(), 0.10));
 
   S.fleetActive = true;
   assert('10 перехватчиков (5000 ⚙): +10%', close(g.fleetRepelChance(), 0.10));
@@ -206,7 +206,7 @@ function testFleetInvestment() {
   assert('Флот за 30 000 ⚙: кап +30%', close(g.fleetRepelChance(), 0.30));
 
   setDefense(S, 4);
-  assert('Флот не активен без обороны ур.5', g.fleetRepelChance() === 0);
+  assert('Флот работает и без обороны ур.5: +30%', close(g.fleetRepelChance(), 0.30));
 }
 
 function testTotalAndCap() {
@@ -221,7 +221,7 @@ function testTotalAndCap() {
   setDefense(S, 3);
   S.fleet = { interceptor: 10, cruiser: 0, dreadnought: 0 };
   S.fleetActive = true;
-  assert('Ур.3 без флота: 30%', close(g.invasionRepelChance(), 0.30));
+  assert('Ур.3 + флот: 30% + 10% = 40%', close(g.invasionRepelChance(), 0.40));
 }
 
 function testShieldAndExpedition() {
@@ -251,7 +251,7 @@ function testTrophyLevel() {
   assert('Трофей ур.5 + флот: 80%', close(g.invasionRepelChance(), 0.80));
 
   S.nightConfig.defenseEnabled = false;
-  assert('Трофей при выключенной Автобороне не работает', g.invasionRepelChance() === 0);
+  assert('Трофей выключен, но флот даёт +30%', close(g.invasionRepelChance(), 0.30));
 }
 
 function testNoDamageReduction() {

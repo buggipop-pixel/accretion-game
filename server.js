@@ -1609,29 +1609,97 @@ app.post('/admin/api/player/:id/invasion', adminGuard, async (req, res) => {
 // ─── Push-уведомления от клиента ────────────────────────────────
 app.post('/api/notify', async (req, res) => {
   try {
-    const { initData, type, message } = req.body || {};
+    const { initData, type, message, messages } = req.body || {};
     const user = validateInitData(initData);
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
-    if (typeof message !== 'string' || !message.trim()) {
-      return res.status(400).json({ error: 'Empty message' });
-    }
 
-    // Троттлинг: не чаще 1 уведомления в минуту на категорию.
-    // Разные категории (вторжение, событие, хранилище, щит, флот)
-    // не блокируют друг друга.
-    const rawType = (typeof type === 'string') ? type : 'info';
-    const notifyType = /^[a-z0-9_]{1,32}$/.test(rawType) ? rawType : 'info';
-    const rlKey = `notify_rl:${user.id}:${notifyType}`;
-    const last = await redisGet(rlKey);
-    if (last && Date.now() - Number(last) < 60000) {
+    // Поддерживаем и одиночное сообщение, и пачку (клиент склеивает всплески).
+    const batch = [];
+    if (Array.isArray(messages)) {
+      for (const item of messages.slice(0, 10)) {
+        if (typeof item === 'string' && item.trim()) batch.push({ type: 'info', message: item });
+        else if (item && typeof item.message === 'string' && item.message.trim()) {
+          batch.push({ type: item.type || 'info', message: item.message });
+        }
+      }
+    }
+    if (typeof message === 'string' && message.trim()) {
+      batch.push({ type: type || 'info', message: message });
+    }
+    if (!batch.length) return res.status(400).json({ error: 'Empty message' });
+
+    // Защита от спама через API: не более 40 пушей в час на игрока.
+    const hourKey = `notify_hour:${user.id}:${Math.floor(Date.now() / 3600000)}`;
+    if (await bumpCounter(hourKey, 3700) > 40) {
       return res.json({ ok: true, throttled: true });
     }
-    await redisSet(rlKey, String(Date.now()));
 
-    await sendNotification(user.id, message.slice(0, 1000));
-    res.json({ ok: true });
+    let sent = 0;
+    for (const item of batch) {
+      const rawType = (typeof item.type === 'string') ? item.type : 'info';
+      const notifyType = /^[a-z0-9_]{1,32}$/.test(rawType) ? rawType : 'info';
+      const text = String(item.message).slice(0, 1000);
+
+      // Дедупликация одинаковых сообщений в течение 5 минут
+      // (одно и то же событие не должно приходить дважды).
+      let hash = 5381;
+      for (let i = 0; i < text.length; i++) hash = ((hash * 33) ^ text.charCodeAt(i)) >>> 0;
+      const seenKey = `notify_seen:${user.id}:${notifyType}:${hash.toString(36)}`;
+      const seen = await redisGet(seenKey);
+      if (seen) continue;
+      await redisSet(seenKey, String(Date.now()));
+      try { await redisCommand('EXPIRE', seenKey, 300); } catch (e) { /* некритично */ }
+
+      await sendNotification(user.id, text);
+      sent++;
+    }
+    res.json({ ok: true, sent: sent });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── Cron: пуш об офлайн-вторжениях ────────────────────────────
+// Игрок закрыл игру — клиент не может оповестить. Раз в 10 минут
+// смотрим сейвы: кто отсутствует > 2 ч и по кому набегают волны
+// вторжений, шлём одно предупреждение (не чаще раза в 3 часа).
+cron.schedule('*/10 * * * *', async () => {
+  if (!gameCore) return;
+  try {
+    const keys = await redisScanAll('cloudsave:*', 500);
+    const now = Date.now();
+    for (const key of keys) {
+      const userId = key.split(':')[1];
+      if (!userId) continue;
+      const payload = parseRedisJson(await redisGet(key));
+      if (!payload || !payload.data || !payload.saved_at) continue;
+      const data = payload.data;
+      if (!(data.stage === 'system' || data.stage === 'galaxy')) continue;
+      const psettings = data.settings;
+      if (psettings && psettings.pushEnabled === false) continue;
+
+      const elapsedSec = Math.max(0, (now - Number(payload.saved_at)) / 1000);
+      if (elapsedSec < 2 * 3600) continue;
+
+      const preview = gameCore.previewOfflineInvasions(data, Math.min(elapsedSec, 30 * 24 * 3600));
+      if (!preview || preview.skipped) continue;
+
+      const lockKey = `tg_attack_notice:${userId}`;
+      const last = await redisGet(lockKey);
+      if (last && now - Number(last) < 3 * 3600 * 1000) continue;
+      await redisSet(lockKey, String(now));
+      try { await redisCommand('EXPIRE', lockKey, 3 * 3600); } catch (e) { /* некритично */ }
+
+      const lines = [
+        '⏳ Вас не было ' + (Math.round(Number(preview.awayHours || 0) * 10) / 10) + ' ч — зафиксировано ~' + preview.attacks + ' волн вторжений.',
+        '💀 Максимальная сложность: ' + preview.maxDifficulty + '/3.',
+      ];
+      if (preview.shieldProtected) lines.push('🛡 Щит покрыл часть отсутствия.');
+      lines.push('Зайдите в игру, чтобы увидеть точные потери и отбить атаку.');
+      await sendNotification(userId, '⚠️ <b>Галактика под атакой!</b>\n' + lines.join('\n'));
+    }
+  } catch (e) {
+    console.error('[cron] офлайн-вторжения:', e.message);
   }
 });
 

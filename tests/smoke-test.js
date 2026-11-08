@@ -189,6 +189,8 @@ const files = [
   'cloudsave.js',
   'prestige.js',
   'random-events.js',
+  'notifications.js',
+  'fleet.js',
 ];
 
 files.forEach((f) => {

@@ -151,38 +151,27 @@ function makeInvasion(g, shipCount) {
   };
 }
 
-function testDefenseGating() {
+function testFleetReadyWithShips() {
   const g = createGame();
   const S = prepareGame(g);
 
-  S.fleet = { interceptor: 3, cruiser: 0, dreadnought: 0 };
-  activateDefense(S, 4);
-  assert('Активация: ур.4 не даёт допуск флоту', g.fleetDefenseReady() === false);
+  assert('Флот: без кораблей не готов', g.fleetDefenseReady() === false);
 
-  activateDefense(S, 5);
-  assert('Активация: активная Автоборона ур.5 даёт допуск', g.fleetDefenseReady() === true);
-
-  S.nightDefenseExpiresAt = Date.now() - 1000;
-  assert('Активация: истёкшая Автоборона ур.5 не даёт допуск', g.fleetDefenseReady() === false);
-
-  activateDefense(S, 5);
-  S.nightConfig.defenseEnabled = false;
-  assert('Активация: выключенный тумблер Автобороны блокирует флот', g.fleetDefenseReady() === false);
+  S.fleet = { interceptor: 1, cruiser: 0, dreadnought: 0 };
+  activateDefense(S, 0);
+  assert('Флот: с кораблями готов без Автобороны', g.fleetDefenseReady() === true);
+  assert('Флот: уровень Автобороны не требуется', g.fleetDefenseLevelReq() === 0);
 }
 
-function testFleetActiveNeedsToggleAndShips() {
+function testFleetAlwaysActive() {
   const g = createGame();
   const S = prepareGame(g);
 
   S.fleet = { interceptor: 3, cruiser: 0, dreadnought: 0 };
-  activateDefense(S, 5);
-  assert('Флот: без тумблера не активен', g.isFleetActive() === false);
-
-  S.fleetActive = true;
-  assert('Флот: при ур.5 и кораблях активен', g.isFleetActive() === true);
+  assert('Флот: активен без тумблера', g.isFleetActive() === true);
 
   S.fleet = { interceptor: 0, cruiser: 0, dreadnought: 0 };
-  assert('Флот: без кораблей не активен даже с тумблером', g.isFleetActive() === false);
+  assert('Флот: без кораблей не активен', g.isFleetActive() === false);
 }
 
 function testShipsHaveHp() {
@@ -191,19 +180,17 @@ function testShipsHaveHp() {
   assert('Спавн: у каждого корабля вторжения есть HP', ships.every((s) => s.hp > 0 && s.maxHp === s.hp));
 }
 
-function testNoFreeAutoDefense() {
+function testFleetAutoDefendsWithoutToggle() {
   const g = createGame();
   const S = prepareGame(g);
-  S.fleet = { interceptor: 3, cruiser: 0, dreadnought: 0 };
-  activateDefense(S, 5);
+  S.fleet = { interceptor: 10, cruiser: 0, dreadnought: 0 };
   S.fleetActive = false;
   S.invasions = [makeInvasion(g, 3)];
 
-  g.tickInvasions(600);
+  g.tickInvasions(60);
 
-  const alive = S.invasions.length === 1 ? S.invasions[0].ships.filter((s) => !s.destroyed).length : 0;
-  assert('Автоборона: без активации флота корабли врага целы', alive === 3);
-  assert('Автоборона: флот не включился сам', S.fleetActive === false);
+  assert('Автоборона: флот работает без ручной активации', S.invasions.length === 0);
+  assert('Автоборона: тумблер включается автоматически', S.fleetActive === true);
 }
 
 function testFleetDestroysInvasion() {
@@ -215,21 +202,21 @@ function testFleetDestroysInvasion() {
   S.invasions = [makeInvasion(g, 3)];
 
   assert('Бой: урон флота считается', g.fleetDps() > 0);
-  g.tickInvasions(10);
+  g.tickInvasions(60);
 
   assert('Бой: флот уничтожил эскадру и снял вторжение', S.invasions.length === 0);
   assert('Бой: победа засчитана в статистику', S.stats.invasionsDefeated === 1);
 }
 
-function testFleetDeactivatesWhenDefenseLapses() {
+function testFleetStaysActiveWithoutDefense() {
   const g = createGame();
   const S = prepareGame(g);
   S.fleet = { interceptor: 3, cruiser: 0, dreadnought: 0 };
-  activateDefense(S, 5, -1); // уже истекла
+  activateDefense(S, 5, -1); // Автоборона уже истекла
   S.fleetActive = true;
 
   g.tickInvasions(1);
-  assert('Срок: флот отключается, когда Автоборона истекла', S.fleetActive === false);
+  assert('Срок: флот не отключается при истёкшей Автобороне', S.fleetActive === true);
 }
 
 function testSpawnedInvasionHasHp() {
@@ -246,12 +233,12 @@ function testSpawnedInvasionHasHp() {
   console.log('🧪 ТЕСТЫ ФЛОТА (автооборона)');
   console.log('========================================');
   try {
-    testDefenseGating();
-    testFleetActiveNeedsToggleAndShips();
+    testFleetReadyWithShips();
+    testFleetAlwaysActive();
     testShipsHaveHp();
-    testNoFreeAutoDefense();
+    testFleetAutoDefendsWithoutToggle();
     testFleetDestroysInvasion();
-    testFleetDeactivatesWhenDefenseLapses();
+    testFleetStaysActiveWithoutDefense();
     testSpawnedInvasionHasHp();
   } catch (e) {
     console.error('❌ Исключение в тестах: ' + (e && e.stack || e));

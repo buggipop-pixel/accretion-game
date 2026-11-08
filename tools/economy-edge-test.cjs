@@ -263,7 +263,7 @@ S.nightDefenseLevel = 5;
 S.nightDefenseExpiresAt = Date.now() + 3600 * 1000;
 S.fleet = { interceptor: 0, cruiser: 0, dreadnought: 2 };
 S.fleetActive = false;
-assert('резерв: содержание 0', w.fleetUpkeepShare() === 0);
+assert('флот всегда на службе: содержание > 0', w.fleetUpkeepShare() > 0);
 assert('резерв: потенциал > 0', w.fleetUpkeepShare(true) > 0, w.fleetUpkeepShare(true));
 S.fleetActive = true;
 const share = w.fleetUpkeepShare();
@@ -278,7 +278,7 @@ assert('содержание списывается', paid > 0 && S.metalAmount 
 S.metalAmount = 0;
 S.fleetActive = true;
 w.payFleetUpkeep(1);
-assert('нет металла → флот в резерв', S.fleetActive === false);
+assert('нет металла → флот остаётся на службе', S.fleetActive === true);
 
 console.log('\n─── 13. Экспедиция: цена в металле ───');
 resetGalaxy();

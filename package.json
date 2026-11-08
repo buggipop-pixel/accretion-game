@@ -23,10 +23,11 @@
     "test:events": "node tests/random-events-test.js",
     "test:prestige-events": "node tests/prestige-world-events-test.js",
     "test:worker": "node tests/worker-proxy-test.js",
+    "test:invasion-rework": "node tests/invasion-rework-test.js",
     "test:empire": "node tools/economy-edge-test.cjs",
     "audit:economy": "node tools/economy-audit.cjs",
     "balance:systems": "node tools/system-curve.cjs",
-    "test:all": "node tests/smoke-test.js && node tests/prime-protection-test.js && node tests/fleet-test.js && node tests/defense-levels-test.js && node tests/neglect-test.js && node tests/eventlog-test.js && node tests/fleet-visual-test.js && node tests/audio-test.js && node tests/cloud-sync-test.js && node tests/save-validation-test.js && node tests/game-core-test.js && node tests/economy-actions-test.js && node tests/wallet-test.js && node tests/chest-test.js && node tests/reward-test.js && node tests/capability-test.js && node tests/random-events-test.js && node tests/prestige-world-events-test.js && node tests/worker-proxy-test.js && node tools/economy-edge-test.cjs && node tests/system-shop-test.js"
+    "test:all": "node tests/smoke-test.js && node tests/prime-protection-test.js && node tests/fleet-test.js && node tests/defense-levels-test.js && node tests/neglect-test.js && node tests/eventlog-test.js && node tests/fleet-visual-test.js && node tests/audio-test.js && node tests/cloud-sync-test.js && node tests/save-validation-test.js && node tests/game-core-test.js && node tests/economy-actions-test.js && node tests/wallet-test.js && node tests/chest-test.js && node tests/reward-test.js && node tests/capability-test.js && node tests/random-events-test.js && node tests/prestige-world-events-test.js && node tests/worker-proxy-test.js && node tests/invasion-rework-test.js && node tools/economy-edge-test.cjs && node tests/system-shop-test.js"
   },
   "dependencies": {
     "express": "^4.19.2",
