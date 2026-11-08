@@ -35,6 +35,15 @@ const RE_EFFECT_LABELS = {
 
 function reNow() { return Date.now(); }
 
+// Щит: 24 ч полной защиты. Используем общий helper, но с фоллбеком,
+// чтобы модуль событий можно было грузить отдельно в тестах/консоли.
+function reShieldActive(now) {
+  if (typeof isShieldActive === 'function') return isShieldActive(now);
+  const t = Number(now);
+  const ts = (isFinite(t) && t > 0) ? t : Date.now();
+  return !!(typeof S !== 'undefined' && S && Number(S.shieldUntil) > ts);
+}
+
 function reEscapeHtml(value) {
   return String(value == null ? '' : value).replace(/[&<>"']/g, function(ch) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
@@ -182,11 +191,16 @@ function reAggregateMods(now) {
     metalsMult: 1, clickMult: 1, cometMult: 1, expeditionMult: 1
   };
   const list = reSanitizeWorldEvents(now);
+  const shielded = reShieldActive(now);
   for (let i = 0; i < list.length; i++) {
     const cfg = reEventById(list[i].id);
     if (!cfg || !cfg.mods) continue;
     for (const key in mods) {
-      if (typeof cfg.mods[key] === 'number') mods[key] *= cfg.mods[key];
+      if (typeof cfg.mods[key] !== 'number') continue;
+      // ★ Щит — альтернатива обороне: негативную часть мировых событий
+      //   он нейтрализует (v < 1), а положительную оставляет игроку.
+      if (shielded && cfg.mods[key] < 1) continue;
+      mods[key] *= cfg.mods[key];
     }
   }
   return mods;
@@ -204,11 +218,12 @@ function reEventMult(kind, now) {
 
 function reGetActiveWorldEvents(now) {
   const t = Number(now) || reNow();
+  const shielded = reShieldActive(t);
   const list = reSanitizeWorldEvents(t);
   const out = [];
   for (let i = 0; i < list.length; i++) {
     const cfg = reEventById(list[i].id);
-    if (cfg) out.push({ state: list[i], cfg: cfg });
+    if (cfg) out.push({ state: list[i], cfg: cfg, shielded: shielded && reEventPolarity(cfg) !== 'positive' });
   }
   out.sort(function(a, b) {
     if (a.state.tier === 'weekly' && b.state.tier !== 'weekly') return -1;
@@ -294,6 +309,13 @@ function reApplyPenalty(penalty, sourceTitle) {
   const parts = [];
   if (!penalty) return parts;
   const title = sourceTitle || 'событие';
+
+  // ★ Щит — альтернатива обороне: любые штрафы случайных событий
+  //   (плохая ежедневка, провал босса/тапов/выбора, негативное world-событие)
+  //   при активном щите не применяются.
+  if (reShieldActive()) {
+    return ['🛡 щит поглотил последствия'];
+  }
 
   if (penalty.energyPct) {
     const lost = Math.floor((S.energy || 0) * Number(penalty.energyPct));
@@ -530,17 +552,22 @@ function reResolveRandomEvent(success) {
   reCloseEventModal();
   S.activeRandomEvent = null;
 
+  const shielded = !success && reShieldActive();
   if (success) {
     const parts = reApplyReward(cfg.reward);
     if (typeof toast === 'function') toast('🏆 Победа!', parts.length ? parts.join(' · ') : 'Событие отбито');
     if (typeof addEvent === 'function') addEvent('random_event_win', cfg.icon + ' «' + cfg.title + '» отбито' + (parts.length ? ': ' + parts.join(', ') : ''));
+    if (typeof playSFX === 'function') playSFX('ui_levelup');
+  } else if (shielded) {
+    if (typeof toast === 'function') toast('🛡 Щит', '«' + cfg.title + '» — негативные последствия поглощены');
+    if (typeof addEvent === 'function') addEvent('random_event_shield', cfg.icon + ' «' + cfg.title + '»: щит поглотил последствия');
     if (typeof playSFX === 'function') playSFX('ui_levelup');
   } else {
     const parts = reApplyPenalty(cfg.penalty, cfg.title);
     if (typeof toast === 'function') toast('💀 Событие пропущено', parts.length ? parts.join(' · ') : 'Вы понесли потери');
     if (typeof playSFX === 'function') playSFX('explosion');
   }
-  if (typeof eventVisualOnResolve === 'function') eventVisualOnResolve(cfg, !!success);
+  if (typeof eventVisualOnResolve === 'function') eventVisualOnResolve(cfg, !!success || shielded);
   if (typeof updateUI === 'function') updateUI();
   if (typeof saveGame === 'function') saveGame();
 }
@@ -574,6 +601,7 @@ function reResolveRandomEventChoice(optionId) {
   }
   rePayCost(opt.cost);
   const success = Math.random() < (Number(opt.chance) || 1);
+  const shielded = !success && reShieldActive();
   reCloseEventModal();
   S.activeRandomEvent = null;
 
@@ -581,13 +609,17 @@ function reResolveRandomEventChoice(optionId) {
     const parts = reApplyReward(opt.success);
     if (typeof toast === 'function') toast('🎲 ' + cfg.title, parts.length ? parts.join(' · ') : 'Выбор сделан');
     if (typeof addEvent === 'function') addEvent('random_event_win', cfg.icon + ' «' + cfg.title + '» (' + opt.label + ')' + (parts.length ? ': ' + parts.join(', ') : ''));
+  } else if (shielded) {
+    if (typeof toast === 'function') toast('🛡 Щит', '«' + cfg.title + '» — негативный исход поглощён');
+    if (typeof addEvent === 'function') addEvent('random_event_shield', cfg.icon + ' «' + cfg.title + '» (' + opt.label + '): щит поглотил последствия');
+    if (typeof playSFX === 'function') playSFX('ui_levelup');
   } else {
     const parts = reApplyPenalty(opt.fail, cfg.title);
     if (typeof toast === 'function') toast('💀 ' + cfg.title, parts.length ? parts.join(' · ') : 'Риск не оправдался');
     if (typeof playSFX === 'function') playSFX('explosion');
   }
   if (typeof updateUI === 'function') updateUI();
-  if (typeof eventVisualOnResolve === 'function') eventVisualOnResolve(cfg, success);
+  if (typeof eventVisualOnResolve === 'function') eventVisualOnResolve(cfg, success || shielded);
   if (typeof saveGame === 'function') saveGame();
 }
 
@@ -700,6 +732,16 @@ function reFireDaily(cfg) {
     return true;
   }
   if (cfg.kind === 'bad') {
+    if (reShieldActive()) {
+      if (typeof toast === 'function') toast('🛡 Щит', cfg.icon + ' ' + cfg.title + ' — последствия поглощены');
+      if (typeof addEvent === 'function') addEvent('random_event_shield', cfg.icon + ' ' + cfg.title + ': щит поглотил последствия');
+      if (typeof playSFX === 'function') playSFX('ui_levelup');
+      if (typeof playEventCinematic === 'function') playEventCinematic(cfg, 'positive');
+      rePushEventNotify(cfg, 'event_daily', '🛡 <b>Щит поглотил событие!</b>');
+      if (typeof updateUI === 'function') updateUI();
+      if (typeof saveGame === 'function') saveGame();
+      return true;
+    }
     const parts = reApplyPenalty(cfg.penalty, cfg.title);
     if (typeof toast === 'function') toast(cfg.icon + ' ' + cfg.title, cfg.desc + (parts.length ? ' · ' + parts.join(' · ') : ''));
     if (typeof playSFX === 'function') playSFX('explosion');
@@ -712,10 +754,23 @@ function reFireDaily(cfg) {
   if (cfg.kind === 'world') {
     const hours = Number(cfg.durationHours) || 2;
     const pol = rePolarityInfo(cfg);
+    const shielded = reShieldActive();
+    if (shielded && pol.key === 'negative') {
+      if (typeof toast === 'function') toast('🛡 Щит', pol.icon + ' ' + cfg.icon + ' ' + cfg.title + ' — событие поглощено');
+      if (typeof addEvent === 'function') addEvent('random_event_shield', pol.icon + ' ' + cfg.icon + ' ' + cfg.title + ': щит поглотил событие');
+      rePushEventNotify(cfg, 'event_world', '🛡 <b>Щит поглотил событие!</b>');
+      if (typeof playSFX === 'function') playSFX('ui_levelup');
+      if (typeof playEventCinematic === 'function') playEventCinematic(cfg, 'positive');
+      if (typeof updateEventUI === 'function') updateEventUI();
+      if (typeof updateUI === 'function') updateUI();
+      if (typeof saveGame === 'function') saveGame();
+      return true;
+    }
     const evType = 'world_event_' + (pol.key === 'positive' ? 'buff' : pol.key === 'negative' ? 'debuff' : 'mixed');
     reAddWorldEvent(cfg, hours * 3600 * 1000, 'daily');
-    if (typeof toast === 'function') toast(pol.icon + ' ' + cfg.icon + ' ' + cfg.title, cfg.desc);
-    if (typeof addEvent === 'function') addEvent(evType, pol.icon + ' ' + cfg.icon + ' ' + cfg.title + ' — ' + cfg.desc);
+    const shieldNote = (shielded && pol.key === 'mixed') ? ' · 🛡 негатив поглощён' : '';
+    if (typeof toast === 'function') toast(pol.icon + ' ' + cfg.icon + ' ' + cfg.title, cfg.desc + shieldNote);
+    if (typeof addEvent === 'function') addEvent(evType, pol.icon + ' ' + cfg.icon + ' ' + cfg.title + ' — ' + cfg.desc + shieldNote);
     rePushEventNotify(cfg, 'event_world', '🌍 <b>Мировое событие!</b>');
     if (typeof playSFX === 'function') playSFX(pol.key === 'negative' ? 'explosion' : 'ui_levelup');
     if (typeof playEventCinematic === 'function') playEventCinematic(cfg, pol.key);
@@ -753,13 +808,27 @@ function reFireWeekly(evt, now) {
   reEnsureState();
   // Новое еженедельное событие вытесняет предыдущее недельное.
   S.activeWorldEvents = S.activeWorldEvents.filter(function(e) { return e && e.tier !== 'weekly'; });
+  const pol = rePolarityInfo(evt);
+  const shielded = reShieldActive();
+
+  if (shielded && pol.key === 'negative') {
+    if (typeof toast === 'function') toast('🛡 Щит', pol.icon + ' ' + evt.title + ' — событие поглощено');
+    if (typeof addEvent === 'function') addEvent('random_event_shield', pol.icon + ' ' + evt.title + ': щит поглотил событие');
+    rePushEventNotify(evt, 'event_weekly', '🛡 <b>Щит поглотил событие!</b>');
+    if (typeof playSFX === 'function') playSFX('ui_levelup');
+    if (typeof playEventCinematic === 'function') playEventCinematic(evt, 'positive');
+    if (typeof updateEventUI === 'function') updateEventUI();
+    if (typeof saveGame === 'function') saveGame();
+    return;
+  }
+
   const hours = Number(evt.durationHours) || (EVENTS_CFG.weekly.durationHours || 24);
   reAddWorldEvent(evt, hours * 3600 * 1000, 'weekly');
 
-  const pol = rePolarityInfo(evt);
   const evType = 'weekly_event_' + (pol.key === 'positive' ? 'buff' : pol.key === 'negative' ? 'debuff' : 'mixed');
-  if (typeof toast === 'function') toast(pol.icon + ' ' + evt.title, evt.desc);
-  if (typeof addEvent === 'function') addEvent(evType, pol.icon + ' ' + evt.title + ' — ' + evt.desc);
+  const shieldNote = (shielded && pol.key === 'mixed') ? ' · 🛡 негатив поглощён' : '';
+  if (typeof toast === 'function') toast(pol.icon + ' ' + evt.title, evt.desc + shieldNote);
+  if (typeof addEvent === 'function') addEvent(evType, pol.icon + ' ' + evt.title + ' — ' + evt.desc + shieldNote);
   rePushEventNotify(evt, 'event_weekly', '📅 <b>Событие дня!</b>');
   if (typeof playSFX === 'function') playSFX(pol.key === 'negative' ? 'explosion' : 'ui_levelup');
   if (typeof playEventCinematic === 'function') playEventCinematic(evt, pol.key);
@@ -789,6 +858,8 @@ function reShowWeeklyModal(evt) {
   const hours = Number(evt.durationHours) || 24;
   const effect = reModsSummary(evt.mods);
   const pol = rePolarityInfo(evt);
+  const shielded = reShieldActive();
+  const shieldNote = (shielded && pol.key === 'mixed') ? '<div class="weekly-effect-line" style="color:#7ee0a8;">🛡 Щит нейтрализует негативную часть</div>' : '';
   const html = '' +
     '<div style="font-size:52px; line-height:1; text-align:center; margin-bottom:8px;">' + (evt.icon || '🌟') + '</div>' +
     '<div class="modal-title" style="text-align:center; color:' + (evt.color || '#ffcc55') + ';">' + evt.title + '</div>' +
@@ -796,6 +867,7 @@ function reShowWeeklyModal(evt) {
     '<div style="text-align:center; margin-top:10px;"><span class="weekly-polarity ' + pol.key + '">' + pol.icon + ' ' + pol.label + ' эффект</span></div>' +
     '<div class="weekly-effect-box">' +
       (effect ? '<div class="weekly-effect-line">' + effect + '</div>' : '') +
+      shieldNote +
       '<div class="weekly-effect-line">Длительность: ' + hours + ' ч</div>' +
     '</div>' +
     '<button class="stars-btn" style="width:100%; margin-top:14px;" onclick="closeWeeklyModal()">Принять вызов</button>';

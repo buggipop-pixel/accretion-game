@@ -1259,7 +1259,7 @@ function openNightMode() {
       <div class="ach-sec-title">Прогноз защиты</div>
       <div class="row-stat"><span>Шанс отбития:</span><span style="color:${chanceColor}">${Math.round(totalChancePct)}%</span></div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Оборона +${Math.round(defChancePct)}% · Флот +${Math.round(previewFleetPct)}%${expPenalty > 0 ? ' · Экспедиция −' + expPenalty.toFixed(1) + '%' : ''}</span></div>
-      ${shieldActive ? `<div class="row-stat"><span>⭐ Премиум-щит:</span><span style="color:#7ee0a8">100%</span></div>` : ''}
+      ${shieldActive ? `<div class="row-stat"><span>⭐ Премиум-щит:</span><span style="color:#7ee0a8">100% (вторжения + события)</span></div>` : ''}
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Офлайн-атаки:</span><span>раз в ${offlineIntervalH} ч, до ${offlineMax} при запустении</span></div>
       <div class="row-stat" style="font-size:10px;color:#ff8a8a;"><span>☠️ Запустение:</span><span>с ${neglectFromLabel} отсутствия — больше атак</span></div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Кража за атаку:</span><span>до ${maxTheftMin} мин каждого ресурса</span></div>
@@ -1268,6 +1268,7 @@ function openNightMode() {
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Планеты:</span><span>до ${maxDisablePlanets} в простой на ${maxDisableHours} ч (дольше при запустении)</span></div>
       <div class="row-stat" style="font-size:10px;color:#ffb347;"><span>Системы:</span><span>при запустении выводятся из строя на часы</span></div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Длительность обороны:</span><span>${defenseHours} ч (щит 24 ч)</span></div>
+      <div class="row-stat" style="font-size:10px;color:#7ee0a8;"><span>Альтернатива:</span><span>⭐ щит 24 ч — 100% без уровней и флота</span></div>
     </div>
 
     <div class="pour-btn-group" style="margin-top:10px;">
@@ -1661,9 +1662,11 @@ function updateEventUI() {
   const pol = (typeof RandomEvents !== 'undefined' && typeof RandomEvents.polarityInfo === 'function')
     ? RandomEvents.polarityInfo(cfg)
     : { key: 'mixed', icon: '🌍', color: '#8b7fd4' };
+  const shieldEvent = !!(primary.shielded && pol.key !== 'positive');
   banner.style.display = 'flex';
-  banner.style.borderColor = pol.color;
-  if (pol.key === 'negative') banner.style.background = 'rgba(48,12,20,0.94)';
+  banner.style.borderColor = shieldEvent ? '#7ee0a8' : pol.color;
+  if (shieldEvent) banner.style.background = 'rgba(12,38,28,0.94)';
+  else if (pol.key === 'negative') banner.style.background = 'rgba(48,12,20,0.94)';
   else if (pol.key === 'positive') banner.style.background = 'rgba(12,38,28,0.94)';
   else banner.style.background = 'rgba(46,36,12,0.94)';
   const iconEl = document.getElementById('eventIcon');
@@ -1672,9 +1675,9 @@ function updateEventUI() {
   if (iconEl) iconEl.textContent = cfg.icon || '🌍';
   // ★ Один источник информации: слева иконка события, справа название и таймер.
   // Значок полярности в названии больше не дублируем (было pol.icon + cfg.title).
-  if (nameEl) nameEl.textContent = cfg.title + (list.length > 1 ? ' +' + (list.length - 1) : '');
+  if (nameEl) nameEl.textContent = (shieldEvent ? '🛡 ' : '') + cfg.title + (list.length > 1 ? ' +' + (list.length - 1) : '');
   if (timerEl) timerEl.textContent = '[' + timeStr + ']';
-  banner.title = list.map(function(e) { return e.cfg.title + ' — ' + e.cfg.desc; }).join('\n');
+  banner.title = list.map(function(e) { return e.cfg.title + (e.shielded ? ' (🛡 щит поглощает негатив)' : '') + ' — ' + e.cfg.desc; }).join('\n');
 
   // ★ Баннер кликабельный: открывает брифинг события или журнал событий.
   // Навешиваем один раз — updateEventUI вызывается каждые 250 мс.

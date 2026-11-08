@@ -269,6 +269,14 @@ window.isPrimeSystemAt = isPrimeSystemAt;
 window.bestPrimeWormholePct = bestPrimeWormholePct;
 window.markPrimeSystem = markPrimeSystem;
 
+// ─── Щит: единая проверка для вторжений, событий и UI ──────────
+function isShieldActive(now) {
+  const t = Number(now);
+  const ts = (isFinite(t) && t > 0) ? t : Date.now();
+  return !!(S && Number(S.shieldUntil) > ts);
+}
+window.isShieldActive = isShieldActive;
+
 // ═══════════════════════════════════════════════════════════════
 //  ПЕРЕКЛЮЧЕНИЕ СИСТЕМ (с сохранением Прайм-объектов)
 // ═══════════════════════════════════════════════════════════════

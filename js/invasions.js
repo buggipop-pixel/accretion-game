@@ -195,7 +195,7 @@ window.invasionClickDamage = invasionClickDamage;
 function spawnInvasion() {
   const now = Date.now();
   // Премиум-щит: пока активен, вторжения не создаются вообще.
-  if (S.shieldUntil && S.shieldUntil > now) return;
+  if ((typeof isShieldActive === 'function') ? isShieldActive(now) : (S.shieldUntil && S.shieldUntil > now)) return;
   const tierKey = rollInvasionTier();
   const tier = INVASION_CFG.tiers[tierKey];
 

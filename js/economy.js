@@ -833,7 +833,7 @@ function fleetRepelChance(now) {
 // Уровни + флот не более 80%; премиум-щит даёт гарантированные 100%.
 function invasionRepelChance(now) {
   now = now || Date.now();
-  if (S.shieldUntil && S.shieldUntil > now) return 1;
+  if ((typeof isShieldActive === 'function') ? isShieldActive(now) : (S.shieldUntil && S.shieldUntil > now)) return 1;
   const totalCap = Number(INVASION_CFG.repelTotalCap) || 0.80;
   const base = Math.min(totalCap, defenseRepelChance(now) + fleetRepelChance(now));
   return Math.max(0, Math.min(1, base - calcExpeditionPenalty()));

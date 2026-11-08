@@ -115,8 +115,9 @@ function openPremiumShop() {
     <div class="info-box">
       <div class="row-stat">
         <span>⭐ Премиум Щит (24ч)</span>
-        <span>100% защита от всех угроз</span>
+        <span>100% защита от вторжений и негативных событий</span>
       </div>
+      <div class="modal-sub" style="margin-top:6px;color:#8b7fd4;">Альтернатива обороне: не требует уровней и флота.</div>
       <button class="stars-btn" style="margin-top:8px; background:linear-gradient(135deg,#ffb347,#ffcc00); color:#1a0f35;" onclick="buyPremiumShield()">
         ⭐ Купить за ${CHEST_CFG.shieldStars} Stars
       </button>

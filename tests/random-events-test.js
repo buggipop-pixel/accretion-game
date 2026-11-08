@@ -102,6 +102,7 @@ function resetPlayer() {
   S.civLevel = 12;
   S.storageLevels = { dust: 3, energy: 2, civ: 2 };
   S.boosters = { incomeUntil: 0 };
+  S.shieldUntil = 0;
   S.invasionDebuff = null;
   S.activeWorldEvents = [];
   S.activeRandomEvent = null;
@@ -231,6 +232,88 @@ S.primeSystem = { bonus: {} };
 S.planets = [S.planets[0], S.planets[1]];
 R.applyPenalty({ destroyPlanets: 1 });
 assert('Штраф: Прайм-система защищена', S.planets.length === 2);
+// ─── 7b. Щит: альтернатива обороне и защита от негативных событий ─
+resetPlayer();
+assert('Щит: без щита isShieldActive=false', context.isShieldActive() === false);
+S.shieldUntil = Date.now() + 3600 * 1000;
+assert('Щит: isShieldActive видит активный щит', context.isShieldActive() === true);
+
+const energyShield0 = S.energy;
+const shieldParts = R.applyPenalty({ energyPct: 0.5 });
+assert('Щит: штраф энергии не применён', S.energy === energyShield0, energyShield0 + ' → ' + S.energy);
+assert('Щит: штраф помечен как поглощённый', shieldParts.join(' ').toLowerCase().indexOf('щит') !== -1, shieldParts.join(' '));
+
+resetPlayer();
+S.shieldUntil = Date.now() + 3600 * 1000;
+S.planets = [S.planets[0], S.planets[1]];
+R.applyPenalty({ destroyPlanets: 1 });
+assert('Щит: планеты не уничтожаются', S.planets.length === 2, String(S.planets.length));
+
+resetPlayer();
+S.shieldUntil = Date.now() + 3600 * 1000;
+R.applyPenalty({ disablePlanetHours: 2 });
+assert('Щит: планеты не выключаются', S.planets.every(p => !p.disabledUntil));
+
+resetPlayer();
+S.shieldUntil = Date.now() + 3600 * 1000;
+R.applyPenalty({ worldEvent: 'dust_drought' });
+assert('Щит: негативное world-событие из штрафа не добавлено', !S.activeWorldEvents.some(e => e.id === 'dust_drought'));
+
+resetPlayer();
+S.shieldUntil = Date.now() - 1000;
+const energyNoShield = S.energy;
+R.applyPenalty({ energyPct: 0.5 });
+assert('Щит: истёкший щит не блокирует штраф', S.energy === Math.floor(energyNoShield / 2), energyNoShield + ' → ' + S.energy);
+
+const badEvt = CFG.daily.pool.find(e => e.kind === 'bad');
+const goodEvt = CFG.daily.pool.find(e => e.kind === 'good');
+const negWorld = CFG.daily.pool.find(e => e.kind === 'world' && R.eventPolarity(e) === 'negative');
+const mixedWorld = CFG.daily.pool.find(e => e.kind === 'world' && R.eventPolarity(e) === 'mixed') || CFG.weekly.pool.find(e => R.eventPolarity(e) === 'mixed');
+const negWeekly = CFG.weekly.pool.find(e => R.eventPolarity(e) === 'negative');
+assert('Щит: в конфиге есть события для проверки', !!badEvt && !!goodEvt && !!negWorld && !!mixedWorld && !!negWeekly);
+
+resetPlayer();
+S.shieldUntil = Date.now() + 3600 * 1000;
+const badBefore = { dust: S.dust, energy: S.energy, metals: S.metalAmount };
+R.fireDaily(badEvt);
+assert('Щит: плохая ежедневка не отнимает ресурсы', S.dust === badBefore.dust && S.energy === badBefore.energy && S.metalAmount === badBefore.metals, JSON.stringify(badBefore) + ' → ' + JSON.stringify({ dust: S.dust, energy: S.energy, metals: S.metalAmount }));
+
+resetPlayer();
+S.shieldUntil = Date.now() + 3600 * 1000;
+const goodBefore = { dust: S.dust, energy: S.energy, metals: S.metalAmount, civ: S.civLevel };
+R.fireDaily(goodEvt);
+assert('Щит: хорошая ежедневка всё равно награждает', S.dust > goodBefore.dust || S.energy > goodBefore.energy || S.metalAmount > goodBefore.metals || S.civLevel > goodBefore.civ, JSON.stringify(goodBefore) + ' → ' + JSON.stringify({ dust: S.dust, energy: S.energy, metals: S.metalAmount, civ: S.civLevel }));
+
+resetPlayer();
+S.shieldUntil = Date.now() + 3600 * 1000;
+R.fireDaily(negWorld);
+assert('Щит: негативное daily world-событие не добавлено', !S.activeWorldEvents.some(e => e.id === negWorld.id), negWorld.id);
+
+resetPlayer();
+S.shieldUntil = Date.now() + 3600 * 1000;
+R.addWorldEvent(mixedWorld, 3600 * 1000, 'daily');
+const mixedMods = R.aggregateMods(Date.now());
+let mixedNegNeutral = true;
+let mixedPosKept = true;
+for (const k in mixedWorld.mods) {
+  if (mixedWorld.mods[k] < 1 && mixedMods[k] !== 1) mixedNegNeutral = false;
+  if (mixedWorld.mods[k] > 1 && mixedMods[k] === 1) mixedPosKept = false;
+}
+assert('Щит: негативная часть mixed-события нейтрализована', mixedNegNeutral, JSON.stringify(mixedMods));
+assert('Щит: положительная часть mixed-события сохранена', mixedPosKept, JSON.stringify(mixedMods));
+
+resetPlayer();
+S.shieldUntil = Date.now() + 3600 * 1000;
+R.fireWeekly(negWeekly, Date.now());
+assert('Щит: негативное weekly-событие не добавлено', !S.activeWorldEvents.some(e => e.id === negWeekly.id), negWeekly.id);
+
+resetPlayer();
+S.shieldUntil = Date.now() + 3600 * 1000;
+S.activeRandomEvent = { id: 'leviathan', kind: 'boss', endsAt: Date.now() + 60000, hp: 100, maxHp: 100 };
+const bossBefore = S.energy;
+context.resolveRandomEvent(false);
+assert('Щит: провал босса не отнимает ресурсы', S.energy === bossBefore, bossBefore + ' → ' + S.energy);
+assert('Щит: провал босса записан как поглощённый', logEvents.some(e => e.type === 'random_event_shield'));
 
 // ─── 8. Ежедневный спавн: один раз в день ──────────────────────
 resetPlayer();
