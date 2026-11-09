@@ -1097,7 +1097,15 @@ function simulateOfflineInvasions(elapsedSec, out) {
       lines.push('── по атакам ──');
       for (let w = 0; w < waves.length; w++) lines.push(offlineWaveReportLine(waves[w]));
     }
-    notifyEvent('invasion_end', 'Отчёт о вторжениях за время отсутствия', lines, { key: 'offline_inv:' + Math.floor(Date.now() / 60000), immediate: true, ignoreCooldown: true });
+    const reportOpts = { key: 'offline_inv:' + Math.floor(Date.now() / 60000), immediate: true, ignoreCooldown: true };
+    if (window.__deferOfflineNotify === true) {
+      // ★ Облачная синхронизация ещё не ответила — отчёт мог быть посчитан
+      // по устаревшему локальному lastTick (второе устройство). Отправим его
+      // только если облако не применилось (см. finishCloudStart в main.js).
+      window.__deferredOfflineReport = { title: 'Отчёт о вторжениях за время отсутствия', lines: lines, opts: reportOpts };
+    } else {
+      notifyEvent('invasion_end', 'Отчёт о вторжениях за время отсутствия', lines, reportOpts);
+    }
   }
 
   // ★ Каждая офлайн-волна — отдельная запись в журнале с результатом и потерями.
@@ -1134,6 +1142,16 @@ function simulateOfflineInvasions(elapsedSec, out) {
       { meta: { neglectLevel: level, awayHours: out.awayHours, attacks: executed, defended: defended, lostDust: Math.floor(lostDust), lostEnergy: Math.floor(lostE), lostCiv: Math.floor(lostC), lostMetals: Math.floor(lostM), systemsDamaged: systemsDamaged, planetsDisabled: disabled, shieldProtected: !!out.shieldProtected } });
   }
 }
+
+// ★ Досылает отложенный отчёт об офлайн-вторжениях, когда стало ясно, что
+// облачный сейв не применился (иначе сервер уже посчитал офлайн сам).
+window.__flushDeferredOfflineNotify = function () {
+  const report = window.__deferredOfflineReport;
+  window.__deferredOfflineReport = null;
+  if (report && typeof notifyEvent === 'function') {
+    notifyEvent('invasion_end', report.title, report.lines, report.opts);
+  }
+};
 
 // ★ Наносит урон одного удачного вторжения. Возвращает фактический урон.
 // targetIdx — по какой системе бьёт; opts.neglectLevel усиливает удар.

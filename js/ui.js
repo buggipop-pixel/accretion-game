@@ -1822,6 +1822,8 @@ function saveNickname() {
 // ═══════════════════════════════════════════════════════════════
 //  ТОП ИГРОКОВ
 // ═══════════════════════════════════════════════════════════════
+const LEADERBOARD_CACHE_KEY = 'accretion_leaderboard_cache';
+
 async function openLeaderboard() {
   const card = document.getElementById('modalCard');
   if (!card) return;
@@ -1832,45 +1834,73 @@ async function openLeaderboard() {
 
   card.innerHTML = '<div class="modal-title">🏆 Топ игроков</div><div class="modal-sub">Загрузка рейтинга…</div>';
 
+  let top = [];
+  let cached = null;
+  let lastErr = null;
   try {
-    if (typeof CLOUD_API === 'undefined') throw new Error('Нет адреса сервера');
-    const res = await fetch(CLOUD_API + '/api/leaderboard', { method: 'GET' });
+    // ★ Через cloudFetch: он перебирает API-адреса и умеет пережить
+    // блокировку одного из доменов (Safari в этом случае пишет «Load failed»).
+    let res;
+    if (typeof window.cloudFetch === 'function') {
+      res = await window.cloudFetch('/api/leaderboard', { method: 'GET', cache: 'no-store' });
+    } else if (typeof CLOUD_API !== 'undefined') {
+      res = await fetch(CLOUD_API + '/api/leaderboard', { method: 'GET' });
+    } else {
+      throw new Error('нет адреса сервера');
+    }
     let json = null;
     try { json = await res.json(); } catch (err) { json = null; }
     if (!res.ok || !json) throw new Error((json && json.error) || ('HTTP ' + res.status));
 
-    const top = Array.isArray(json.top) ? json.top : [];
-    let html = '<div class="modal-title">🏆 Топ игроков</div>' +
-      '<div class="modal-sub">Престиж · системы · пыль</div>';
-
-    if (!top.length) {
-      html += '<div class="info-box" style="text-align:center;font-size:12px;color:#8b7fd4;">Пока нет сохранённых игроков</div>';
-    } else {
-      top.forEach((p, i) => {
-        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + '.';
-        html += `<div class="row-stat" style="padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
-          <span>${medal} ${p.name}</span>
-          <span style="text-align:right; font-size:10px; color:#b9a8ff;">
-            👑 ${p.prestigeLevel} | 🌌 ${p.systems} сист.<br>
-            <span style="color:#fff; font-size:12px;">${fmt(p.dustTotal)} ✦</span>
-          </span>
-        </div>`;
-      });
-    }
-
-    html += `<div class="pour-btn-group" style="margin-top:12px; display:flex; gap:8px;">
-      <button class="pour-btn" style="flex:1;" onclick="openLeaderboard()">🔄 Обновить</button>
-      <button class="pour-btn" style="flex:1;" onclick="document.getElementById('modal').classList.remove('show');">Закрыть</button>
-    </div>`;
-    card.innerHTML = html;
+    top = Array.isArray(json.top) ? json.top : [];
+    try {
+      localStorage.setItem(LEADERBOARD_CACHE_KEY, JSON.stringify({ at: Date.now(), top: top }));
+    } catch (e) { /* ignore */ }
   } catch (err) {
-    card.innerHTML = '<div class="modal-title">🏆 Топ игроков</div>' +
-      '<div class="info-box" style="text-align:center;font-size:12px;color:#ff8a8a;">Не удалось загрузить рейтинг<br>' + (err && err.message ? err.message : 'ошибка сети') + '</div>' +
-      '<div class="pour-btn-group" style="margin-top:12px; display:flex; gap:8px;">' +
-        '<button class="pour-btn" style="flex:1;" onclick="openLeaderboard()">🔄 Повторить</button>' +
-        '<button class="pour-btn" style="flex:1;" onclick="document.getElementById(\'modal\').classList.remove(\'show\');">Закрыть</button>' +
-      '</div>';
+    lastErr = err;
+    // ★ Показываем последний удачный рейтинг вместо пустого экрана.
+    try { cached = JSON.parse(localStorage.getItem(LEADERBOARD_CACHE_KEY) || 'null'); } catch (e) { cached = null; }
+    if (cached && Array.isArray(cached.top)) top = cached.top;
   }
+
+  let html = '<div class="modal-title">🏆 Топ игроков</div>' +
+    '<div class="modal-sub">Престиж · системы · пыль</div>';
+
+  if (lastErr) {
+    if (top.length) {
+      const when = cached && cached.at ? new Date(cached.at).toLocaleString() : '';
+      html += '<div class="info-box" style="text-align:center;font-size:11px;color:#ffcf7a;">' +
+        'Сервер недоступен — показан кэш' + (when ? ' от ' + when : '') + '</div>';
+    } else {
+      html += '<div class="info-box" style="text-align:center;font-size:12px;color:#ff8a8a;">' +
+        'Не удалось загрузить рейтинг<br>' + (lastErr && lastErr.message ? lastErr.message : 'ошибка сети') + '</div>' +
+        '<div class="info-box" style="text-align:center;font-size:11px;color:#8b7fd4;">' +
+        'Проверьте интернет/VPN и обновите игру, если ошибка повторяется.</div>';
+    }
+  }
+
+  if (!top.length) {
+    if (!lastErr) {
+      html += '<div class="info-box" style="text-align:center;font-size:12px;color:#8b7fd4;">Пока нет сохранённых игроков</div>';
+    }
+  } else {
+    top.forEach((p, i) => {
+      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + '.';
+      html += `<div class="row-stat" style="padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+        <span>${medal} ${p.name}</span>
+        <span style="text-align:right; font-size:10px; color:#b9a8ff;">
+          👑 ${p.prestigeLevel} | 🌌 ${p.systems} сист.<br>
+          <span style="color:#fff; font-size:12px;">${fmt(p.dustTotal)} ✦</span>
+        </span>
+      </div>`;
+    });
+  }
+
+  html += `<div class="pour-btn-group" style="margin-top:12px; display:flex; gap:8px;">
+    <button class="pour-btn" style="flex:1;" onclick="openLeaderboard()">🔄 Обновить</button>
+    <button class="pour-btn" style="flex:1;" onclick="document.getElementById('modal').classList.remove('show');">Закрыть</button>
+  </div>`;
+  card.innerHTML = html;
 }
 
 // Случайные события вынесены в js/random-events.js

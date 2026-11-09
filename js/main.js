@@ -2392,14 +2392,24 @@ if (tgBoot) {
     console.log('=== СТАРТ ИГРЫ ===');
     console.log('Локальный ник:', S.playerName);
     console.log('Локальная фаза:', S.stage);
-    if (typeof syncCloudOnStart === 'function') syncCloudOnStart();
+    if (typeof syncCloudOnStart === 'function') {
+      syncCloudOnStart().then(function (applied) { finishCloudStart(applied); })
+        .catch(function () { finishCloudStart(false); });
+    } else {
+      finishCloudStart(false);
+    }
   }, 500);
 } else {
   setTimeout(function() {
     console.log('=== СТАРТ ИГРЫ ===');
     console.log('Локальный ник:', S.playerName);
     console.log('Локальная фаза:', S.stage);
-    if (typeof syncCloudOnStart === 'function') syncCloudOnStart();
+    if (typeof syncCloudOnStart === 'function') {
+      syncCloudOnStart().then(function (applied) { finishCloudStart(applied); })
+        .catch(function () { finishCloudStart(false); });
+    } else {
+      finishCloudStart(false);
+    }
   }, 1000);
 }
 if (typeof acInit === 'function') acInit();
@@ -2410,7 +2420,13 @@ if (typeof initPrestige === 'function') initPrestige();
 if (typeof initEventLog === 'function') initEventLog();
 if (typeof checkDailyReset === 'function') checkDailyReset();
 if (typeof checkAchievements === 'function') checkAchievements();
+// ★ Сначала пробуем облако: если сервер применил сейв, офлайн уже посчитан
+// им по saved_at. Локальный расчёт — только fallback (облако недоступно или
+// пустое). Иначе второй девайс со старым lastTick присылал «Отсутствие: N ч»
+// и фейковые потери ещё до того, как облако перезапишет состояние.
+const deferLocalOffline = (typeof isCloudAvailable === 'function' && isCloudAvailable());
 let offline = null;
+if (deferLocalOffline) window.__deferOfflineNotify = true;
 if (typeof applyOfflineProgress === 'function') {
   // ★ Офлайн-расчёт не должен мешать запуску игры: любая ошибка — просто
   //   пропускаем досчёт, но цикл и UI всё равно стартуют.
@@ -2422,7 +2438,35 @@ if (typeof applyOfflineProgress === 'function') {
   }
 }
 if (offline) {
-  if (typeof showOfflineReport === 'function') showOfflineReport(offline);
+  if (deferLocalOffline) {
+    window.__deferredOfflineResult = offline;
+  } else if (typeof showOfflineReport === 'function') {
+    showOfflineReport(offline);
+  }
+}
+
+// ★ Вызывается, когда syncCloudOnStart() завершился. Если облачный сейв
+// применился — выбрасываем локальный отчёт (сервер уже всё посчитал) и
+// закрепляем серверное начисление ближайшим сейвом. Если нет — показываем
+// локальный отчёт и досылаем отложенное уведомление в Telegram.
+function finishCloudStart(applied) {
+  const cloudApplied = (window.__cloudSaveAppliedOnStart === true);
+  const hadDeferred = !!window.__deferredOfflineResult || window.__deferOfflineNotify === true;
+  window.__deferOfflineNotify = false;
+  if (cloudApplied) {
+    window.__deferredOfflineResult = null;
+    window.__deferredOfflineReport = null;
+    if (typeof autoSaveToCloud === 'function') {
+      setTimeout(function () { autoSaveToCloud(true); }, 1500);
+    }
+    return;
+  }
+  if (!hadDeferred) return;
+  if (window.__deferredOfflineResult && typeof showOfflineReport === 'function') {
+    showOfflineReport(window.__deferredOfflineResult);
+  }
+  window.__deferredOfflineResult = null;
+  if (typeof window.__flushDeferredOfflineNotify === 'function') window.__flushDeferredOfflineNotify();
 }
 
 // ═══════════════════════════════════════════════════════════════

@@ -11,21 +11,88 @@
 //   3. При старте, если на сервере есть сейв, он применяется всегда.
 // ═══════════════════════════════════════════════════════════════
 
-// Адрес сервера. По умолчанию — наш Cloudflare Worker-прокси:
-// он открывается там, где *.onrender.com заблокирован, и сам выставляет
-// CORS-заголовки (Render отдаёт их только доверенным origin).
+// Адреса сервера. ★ Это список, а не один адрес: у части игроков домен
+// *.workers.dev блокируется провайдером (Safari отвечает «Load failed»),
+// хотя GitHub Pages и Render открываются. Клиент пробует адреса по
+// очереди и запоминает рабочий.
 // ★ Можно перенастроить БЕЗ правки кода:
 //   localStorage.setItem('accretion_cloud_api', 'https://api.ваш-домен.ru')
 //   или window.__CLOUD_API__ = '...' перед загрузкой.
-const CLOUD_API = (function () {
+const CLOUD_API_CANDIDATES = (function () {
+  const list = [];
+  function add(url) {
+    const s = String(url || '').trim().replace(/\/+$/, '');
+    if (s && list.indexOf(s) === -1) list.push(s);
+  }
   try {
-    if (window.__CLOUD_API__) return String(window.__CLOUD_API__);
+    if (window.__CLOUD_API__) add(window.__CLOUD_API__);
     const saved = localStorage.getItem('accretion_cloud_api');
-    if (saved) return String(saved);
+    if (saved) add(saved);
+    const working = localStorage.getItem('accretion_cloud_api_ok');
+    if (working) add(working);
+    // ★ Можно задать дополнительные адреса без правки кода (порядок — приоритет).
+    if (Array.isArray(window.__CLOUD_API_CANDIDATES__)) {
+      for (let i = 0; i < window.__CLOUD_API_CANDIDATES__.length; i++) add(window.__CLOUD_API_CANDIDATES__[i]);
+    }
   } catch (e) { /* localStorage недоступен */ }
-  return 'https://accretion-api-proxy.buggipop.workers.dev';
+  add('https://accretion-api-proxy.buggipop.workers.dev');
+  add('https://accretion-game.onrender.com');
+  return list;
 })();
+
+let CLOUD_API = CLOUD_API_CANDIDATES[0];
+window.CLOUD_API = CLOUD_API;
 window.__cloudApiBase = CLOUD_API;
+
+function cloudRememberApi(url) {
+  if (!url || CLOUD_API_CANDIDATES.indexOf(url) === -1) return;
+  if (CLOUD_API === url) return;
+  CLOUD_API = url;
+  window.CLOUD_API = url;
+  window.__cloudApiBase = url;
+  try { localStorage.setItem('accretion_cloud_api_ok', url); } catch (e) { /* ignore */ }
+  try { console.log('[CloudSave] активный API:', url); } catch (e) { /* ignore */ }
+}
+
+const CLOUD_REQUEST_TIMEOUT_MS = 20000;
+
+// ★ Единая точка запросов к API: перебираем адреса, пока один не ответит.
+// Переключаемся только на сетевой ошибке/таймауте (status 0), а не на
+// HTTP-ошибке: 401/409/429 должен увидеть вызывающий код.
+async function cloudFetch(path, options) {
+  let lastErr = null;
+  for (let i = 0; i < CLOUD_API_CANDIDATES.length; i++) {
+    const base = CLOUD_API_CANDIDATES[i];
+    let timer = null;
+    try {
+      let opts = options || {};
+      if (!opts.signal && typeof AbortController === 'function') {
+        const ctrl = new AbortController();
+        opts = Object.assign({}, opts, { signal: ctrl.signal });
+        timer = setTimeout(function () { try { ctrl.abort(); } catch (e) { /* ignore */ } }, CLOUD_REQUEST_TIMEOUT_MS);
+      }
+      const res = await fetch(base + path, opts);
+      // 502/503/504 от прокси — это «до сервера не доехали». Пробуем следующий
+      // адрес; остальные HTTP-коды (401/409/429/500) отдаём вызывающему.
+      if ((res.status === 502 || res.status === 503 || res.status === 504) &&
+          i < CLOUD_API_CANDIDATES.length - 1) {
+        lastErr = new Error('HTTP ' + res.status + ' от ' + base);
+        try { console.warn('[CloudSave] ' + base + ' → HTTP ' + res.status + ', пробуем следующий адрес'); } catch (e2) { /* ignore */ }
+        continue;
+      }
+      cloudRememberApi(base);
+      return res;
+    } catch (e) {
+      lastErr = e;
+      try { console.warn('[CloudSave] ' + base + ' недоступен:', (e && e.message) || e); } catch (e2) { /* ignore */ }
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+  throw lastErr || new Error('network error');
+}
+window.cloudFetch = cloudFetch;
+
 try { console.log('[CloudSave] API base:', CLOUD_API); } catch (e) { /* ignore */ }
 
 // Автосинхронизация при старте и автосохранение в облако
@@ -189,7 +256,7 @@ function wipeLocalProgress() {
 
 async function ackAccountReset(initData) {
   try {
-    const res = await fetch(CLOUD_API + '/api/reset-ack', {
+    const res = await cloudFetch('/api/reset-ack', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData }),
@@ -380,7 +447,7 @@ function applyCloudSaveInternal(cloudData) {
 
 // ─── Сетевой слой ───────────────────────────────────────────────
 async function cloudApi(path, payload) {
-  const res = await fetch(CLOUD_API + path, {
+  const res = await cloudFetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -419,14 +486,18 @@ function canUseKeepalive(bodyBytes) {
 
 async function postCloudSave(body, keepalive) {
   const bytes = utf8ByteLength(body);
-  const url = CLOUD_API + '/api/save';
   function request(withKeepalive) {
-    return fetch(url, {
+    const opts = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: body,
       keepalive: !!withKeepalive,
-    });
+    };
+    // ★ keepalive — ровно один раз и только на активный адрес: если WebView
+    // отклонил слишком большое тело, повторять его на запасных адресах нет смысла.
+    // Повтор без keepalive уже пользуется failover-ом cloudFetch.
+    if (withKeepalive) return fetch(CLOUD_API + '/api/save', opts);
+    return cloudFetch('/api/save', opts);
   }
   try {
     const res = await request(keepalive);
@@ -654,6 +725,11 @@ function autoSaveToCloud(force, useKeepalive) {
         } else if (res.status === 0 || res.network === true) {
           // Сеть / отказ keepalive: прогресс остаётся локально, повторим.
           scheduleNetworkRetry();
+          // ★ Третий подряд сетевой сбой — игрок должен узнать, что прогресс
+          // пока не уходит в облако (иначе он молча играет «в офлайне»).
+          if (_cloudNetworkFailStreak === 3 && typeof toast === 'function') {
+            toast('☁️ Облако недоступно', 'Прогресс сохраняется только на этом устройстве. Проверьте сеть или VPN.');
+          }
         }
       }).catch(function() { /* сеть недоступна */ });
     }
@@ -747,6 +823,9 @@ function applyCloudSaveToRuntime(cloudData) {
 // Логика серверная и жёсткая: если в облаке есть сейв — применяем его всегда.
 async function syncCloudOnStart() {
   if (window.isResetting) return false;
+  // ★ Флаг для main.js: применили ли серверный сейв на старте. Если да —
+  // офлайн уже посчитан сервером, и локальный расчёт нужен только как fallback.
+  window.__cloudSaveAppliedOnStart = false;
 
   // Сброс прогресса: гасим возможное восстановление облака и убираем
   // временный флаг, иначе он навсегда заблокирует синхронизацию.
@@ -844,7 +923,7 @@ async function syncCloudOnStart() {
 
     console.log('[Sync] initData получен, длина:', initData.length);
     console.log('[Sync] Запрос облачного сейва...');
-    const res = await fetch(CLOUD_API + '/api/load', {
+    const res = await cloudFetch('/api/load', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData: initData }),
@@ -912,6 +991,10 @@ async function syncCloudOnStart() {
     // ★ ГЛАВНОЕ: всегда применяем облачный сейв, если он есть.
     // Мы доверяем серверу: если играли на телефоне и сохранились, сервер
     // обновил saved_at/version — ПК просто берёт этот сейв.
+    window.__cloudSaveAppliedOnStart = true;
+    // ★ Страховка: сохраняем прошлый локальный сейв перед заменой облачным.
+    // Если у игрока были дни игры без сети, прогресс можно вернуть из бэкапа.
+    backupLocalSave();
     localStorage.setItem(getSaveKey(), JSON.stringify(cloudData));
 
     if (typeof applyCloudSaveToRuntime === 'function') {
@@ -1095,7 +1178,7 @@ async function sendPushNotification(message, type) {
   if (typeof message !== 'string' || !message.trim()) return;
 
   try {
-    await fetch(CLOUD_API + '/api/notify', {
+    await cloudFetch('/api/notify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData, type: type || 'info', message: message })
@@ -1208,7 +1291,7 @@ async function pollCloudVersion() {
 
   _cloudPollBusy = true;
   try {
-    const res = await fetch(CLOUD_API + '/api/load', {
+    const res = await cloudFetch('/api/load', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData })

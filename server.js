@@ -176,6 +176,29 @@ async function redisSetIfVersion(key, newValue, expectedVersion) {
   }
 }
 
+// ─── Присутствие игрока ─────────────────────────────────────────
+// saved_at двигается только успешным сейвом. Игрок мог зайти на минуту,
+// не успеть сохраниться и выйти — а cron продолжал считать его отсутствующим
+// и присылал «Галактика под атакой» / отчёты о вторжениях. Поэтому каждый
+// /api/load и /api/save отмечает last_seen, а cron смотрит на него.
+const PRESENCE_TTL_SEC = 45 * 24 * 3600;
+
+async function touchPresence(userId) {
+  if (!userId) return;
+  try {
+    const key = `seen:${userId}`;
+    // Одна команда вместо SET+EXPIRE: /api/load опрашивается каждые ~30 с.
+    await redisCommand('SET', key, String(Date.now()), 'EX', PRESENCE_TTL_SEC);
+  } catch (e) {
+    console.warn('[presence] не удалось отметить заход:', e.message);
+  }
+}
+
+async function lastSeenAt(userId) {
+  if (!userId) return 0;
+  try { return Number(await redisGet(`seen:${userId}`)) || 0; } catch (e) { return 0; }
+}
+
 // ─── Push-уведомления в Telegram ────────────────────────────────
 // Подписка живёт в tg_chat:<userId> и хранит РОВНО userId: уведомления
 // уходят только в личный чат самого игрока. Пустое значение (или
@@ -455,9 +478,17 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
   } else if (origin) {
-    // Чужому сайту не отдаём заголовки — браузер не покажет ему ответ
-    console.warn(`[cors] чужой origin=${origin} path=${req.path}`);
-    if (req.method === 'OPTIONS') return res.sendStatus(403);
+    // ★ Публичный API должен отвечать любому origin: аутентификация идёт
+    // подписью initData, а не cookie. Иначе игроки, у которых прокси-домен
+    // заблокирован, не могут переключиться на Render напрямую (Load failed).
+    if (String(req.path || '').startsWith('/api/')) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+    } else {
+      // Админка и служебные страницы — прежняя строгая политика.
+      console.warn(`[cors] чужой origin=${origin} path=${req.path}`);
+      if (req.method === 'OPTIONS') return res.sendStatus(403);
+    }
   }
   // Запросы без Origin (нативные WebView Telegram) не блокируем
 
@@ -610,6 +641,11 @@ const LEADERBOARD_CACHE_MS = 60 * 1000;
 const LEADERBOARD_LIMIT = 50;
 
 app.get('/api/leaderboard', async (req, res) => {
+  // ★ Публичный рейтинг не должен зависеть от CORS-настроек Render:
+  // у части игроков прокси-домен недоступен, и клиент пробует Render напрямую.
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Vary', 'Accept-Encoding');
+  res.setHeader('Cache-Control', 'public, max-age=30');
   try {
     const nowMs = Date.now();
     if (_leaderboardCache.top.length && nowMs - _leaderboardCache.at < LEADERBOARD_CACHE_MS) {
@@ -657,6 +693,11 @@ app.get('/api/leaderboard', async (req, res) => {
     res.json({ ok: true, count: players.length, top });
   } catch (e) {
     console.error('[leaderboard]', e);
+    // Отдаём последний удачный снимок вместо ошибки: рейтинг не критичен,
+    // а игроки не должны видеть «Load failed» из-за одного сбоя Redis.
+    if (_leaderboardCache.top.length) {
+      return res.json({ ok: true, top: _leaderboardCache.top, cached: true, stale: true });
+    }
     res.status(500).json({ error: e.message });
   }
 });
@@ -666,6 +707,8 @@ app.post('/api/save', async (req, res) => {
     const { initData, saveData, baseVersion } = req.body || {};
     const user = validateInitData(initData);
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
+    // Игрок сейчас в игре — фиксируем присутствие даже если сейв придёт позже.
+    await touchPresence(user.id);
     // ★ Пока клиент не подтвердил сброс, сейв не принимаем — иначе старый
     // локальный прогресс вернёт удалённый аккаунт.
     if (await isResetPending(user.id)) {
@@ -887,6 +930,9 @@ app.post('/api/load', async (req, res) => {
     const { initData } = req.body || {};
     const user = validateInitData(initData);
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
+    // ★ Игрок открыл игру — фиксируем присутствие. Именно на last_seen,
+    // а не на saved_at, опирается cron офлайн-вторжений.
+    await touchPresence(user.id);
     // ★ Удалённый аккаунт: отдаём пустое облако с флагом reset. Клиент
     // сотрёт локальный прогресс, подтвердит сброс и начнёт заново.
     if (await isResetPending(user.id)) {
@@ -1960,7 +2006,13 @@ cron.schedule('*/10 * * * *', async () => {
       const psettings = data.settings;
       if (psettings && psettings.pushEnabled === false) continue;
 
-      const elapsedSec = Math.max(0, (now - Number(payload.saved_at)) / 1000);
+      // ★ «Отсутствие» = max(последний сейв, последний заход в игру).
+      // Игрок мог зайти на минуту, не успеть сохраниться и выйти — раньше
+      // из-за этого приходило «Вас не было N ч» и ложные отчёты о вторжениях.
+      const lastSeen = await lastSeenAt(userId);
+      if (lastSeen && now - lastSeen < 15 * 60 * 1000) continue; // сейчас онлайн
+      const lastActive = Math.max(Number(payload.saved_at) || 0, lastSeen);
+      const elapsedSec = Math.max(0, (now - lastActive) / 1000);
       if (elapsedSec < 2 * 3600) continue;
 
       const preview = gameCore.previewOfflineInvasions(data, Math.min(elapsedSec, 30 * 24 * 3600));

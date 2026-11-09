@@ -11,11 +11,16 @@ function getPremiumInitData() {
 }
 
 async function premiumApiPost(path, payload) {
-  const res = await fetch(API_BASE + path, {
+  const opts = {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  });
+  };
+  // ★ Тот же failover, что и у облачных сейвов: если *.workers.dev блокируется
+  // у игрока, покупка/клейм должны уйти на запасной адрес.
+  const res = (typeof window.cloudFetch === 'function')
+    ? await window.cloudFetch(path, opts)
+    : await fetch(API_BASE + path, opts);
   let data = null;
   try { data = await res.json(); } catch (e) { data = null; }
   if (!res.ok) {
