@@ -25,3 +25,8 @@ browser-screenshots/
 
 # Артефакт сломанного os.tmpdir() (не относится к игре)
 undefined/
+
+# Промежуточные файлы записи промо-GIF (tools/telegram-gif)
+.tg-gif-profile/
+.tg-gif-frames/
+tmp/

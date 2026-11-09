@@ -1153,22 +1153,225 @@ async function reportRewards() {
 window.reportRewards = reportRewards;
 window.resetRewardBaseline = resetRewardBaseline;
 
-// ─── Push-уведомления ───────────────────────────────────────────
-// ★ Пуш в Telegram нужен только когда игрок НЕ в игре:
-//   если вкладка/WebView активна — событие и так видно в интерфейсе.
-//   Считаем игрока онлайн, когда страница видима и игровой цикл жив.
-function isPlayerOnlineForPush() {
+// ═══════════════════════════════════════════════════════════════════
+//  ПРИСУТСТВИЕ: ОНЛАЙН / ОФЛАЙН
+//  Одна точка правды «игрок реально в игре?». Её используют пуши,
+//  индикатор в «Настройках» и любая другая логика.
+//
+//  Онлайн = страница видима И окно в фокусе И игрок действовал
+//  не дольше PRESENCE_CFG.idleOfflineMs (10 минут).
+//  Одного document.visibilityState мало: в Telegram Desktop мини-апп
+//  живёт отдельным окном, и когда игрок уходит в чат (или просто
+//  перекрывает игру другим окном), visibilityState остаётся 'visible',
+//  хотя игра уже не в фокусе — из-за этого вторжения начинались без
+//  единого TG-оповещения.
+// ═══════════════════════════════════════════════════════════════════
+const PRESENCE_CFG = {
+  idleOfflineMs: 10 * 60 * 1000,   // 10 минут без действий — офлайн
+  loopStaleMs: 2 * 60 * 1000,      // игровой цикл не тикает — вкладка заморожена
+  activityThrottleMs: 1000,        // метку активности обновляем не чаще раза в секунду
+  tickMs: 15 * 1000,               // как часто пересчитываем статус сами
+};
+
+const PRESENCE_REASON_LABELS = {
+  active: 'в игре',
+  hidden: 'окно скрыто',
+  blur: 'окно без фокуса',
+  idle: 'нет действий',
+  'loop-stale': 'игра на паузе',
+};
+
+const PRESENCE_STATE = {
+  lastActivityAt: Date.now(),
+  focused: true,
+  focusKnown: false,
+  online: true,
+  reason: 'active',
+  changedAt: Date.now(),
+  listeners: [],
+};
+
+function presenceMarkActivity() {
+  const now = Date.now();
+  if (now - PRESENCE_STATE.lastActivityAt < PRESENCE_CFG.activityThrottleMs) return;
+  PRESENCE_STATE.lastActivityAt = now;
+}
+
+function _presenceReadVisible() {
   try {
-    if (typeof document !== 'undefined' && document && document.visibilityState
-      && document.visibilityState !== 'visible') return false;
-  } catch (e) { /* ignore */ }
-  try {
-    if (typeof S !== 'undefined' && S && Number(S.lastTick) > 0
-      && Date.now() - Number(S.lastTick) > 2 * 60 * 1000) return false;
+    if (typeof document !== 'undefined' && document && document.visibilityState) {
+      return document.visibilityState === 'visible';
+    }
   } catch (e) { /* ignore */ }
   return true;
 }
+
+function _presenceWindowHasFocus() {
+  // Если браузер присылал focus/blur — верим им: это надёжнее hasFocus()
+  // в WebView, где фокус иногда «залипает».
+  if (PRESENCE_STATE.focusKnown) return PRESENCE_STATE.focused;
+  try {
+    if (typeof document !== 'undefined' && document && typeof document.hasFocus === 'function') {
+      return !!document.hasFocus();
+    }
+  } catch (e) { /* ignore */ }
+  return true;
+}
+
+function _presenceSnapshot(now, online, reason) {
+  return {
+    online: online,
+    status: online ? 'online' : 'offline',
+    reason: reason,
+    label: online ? 'Онлайн' : ('Офлайн · ' + (PRESENCE_REASON_LABELS[reason] || reason)),
+    lastActivityAt: PRESENCE_STATE.lastActivityAt,
+    idleMs: Math.max(0, now - PRESENCE_STATE.lastActivityAt),
+    changedAt: PRESENCE_STATE.changedAt,
+  };
+}
+
+function _presenceNotify(snapshot) {
+  const list = PRESENCE_STATE.listeners.slice();
+  for (let i = 0; i < list.length; i++) {
+    try { list[i](snapshot); } catch (e) { /* ignore */ }
+  }
+}
+
+// Пересчитывает статус и возвращает снимок.
+// now можно передать явно (тесты), по умолчанию — Date.now().
+function playerPresence(now) {
+  now = Number(now) || Date.now();
+
+  let reason = 'active';
+  if (!_presenceReadVisible()) reason = 'hidden';
+  else if (!_presenceWindowHasFocus()) reason = 'blur';
+  else if (now - PRESENCE_STATE.lastActivityAt >= PRESENCE_CFG.idleOfflineMs) reason = 'idle';
+  else if (typeof S !== 'undefined' && S && Number(S.lastTick) > 0
+    && now - Number(S.lastTick) > PRESENCE_CFG.loopStaleMs) reason = 'loop-stale';
+
+  const online = reason === 'active';
+  const changed = (online !== PRESENCE_STATE.online) || (reason !== PRESENCE_STATE.reason);
+  if (changed) {
+    PRESENCE_STATE.online = online;
+    PRESENCE_STATE.reason = reason;
+    PRESENCE_STATE.changedAt = now;
+  }
+
+  const snapshot = _presenceSnapshot(now, online, reason);
+  if (changed) _presenceNotify(snapshot);
+  return snapshot;
+}
+
+function onPresenceChange(fn) {
+  if (typeof fn !== 'function') return function () {};
+  PRESENCE_STATE.listeners.push(fn);
+  return function () {
+    const i = PRESENCE_STATE.listeners.indexOf(fn);
+    if (i !== -1) PRESENCE_STATE.listeners.splice(i, 1);
+  };
+}
+
+// ─── Отчёт о присутствии для админки ────────────────────────────
+// ★ Статус — внутренняя информация: в интерфейсе игры его нет,
+//   админка показывает его рядом с ником игрока.
+//   Шлём при смене статуса (сразу), «живой» пинг раз в минуту и
+//   при уходе со страницы (через смену видимости/фокуса).
+const PRESENCE_REPORT_MIN_MS = 60 * 1000;
+
+let _presenceReportAt = 0;
+let _presenceReported = null;
+
+async function reportPresence(force) {
+  const initData = getTgInitData();
+  if (!initData) return false; // Вне Telegram админке нечего показывать
+
+  const st = playerPresence();
+  const now = Date.now();
+  const changed = !_presenceReported ||
+    _presenceReported.status !== st.status ||
+    _presenceReported.reason !== st.reason;
+  if (!force && !changed && now - _presenceReportAt < PRESENCE_REPORT_MIN_MS) return false;
+
+  _presenceReportAt = now;
+  _presenceReported = { status: st.status, reason: st.reason };
+
+  try {
+    await cloudFetch('/api/presence', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        initData: initData,
+        status: st.status,
+        reason: st.reason,
+        idleSec: Math.round((Number(st.idleMs) || 0) / 1000),
+      }),
+      keepalive: true,
+    });
+    return true;
+  } catch (e) {
+    // Не дошло — повторим на следующем тике или смене статуса.
+    _presenceReported = null;
+    return false;
+  }
+}
+window.reportPresence = reportPresence;
+
+// Слушатели вешаем один раз при загрузке: активность — любые действия
+// игрока (мышь/тач/клавиатура/колесо), фокус — реальная видимость окна.
+(function installPresenceTracking() {
+  try {
+    if (typeof window !== 'undefined' && window && typeof window.addEventListener === 'function') {
+      const activityEvents = ['pointerdown', 'mousedown', 'touchstart', 'keydown', 'wheel', 'pointermove', 'mousemove'];
+      for (let i = 0; i < activityEvents.length; i++) {
+        window.addEventListener(activityEvents[i], presenceMarkActivity, { passive: true });
+      }
+      window.addEventListener('focus', function () {
+        PRESENCE_STATE.focused = true;
+        PRESENCE_STATE.focusKnown = true;
+        presenceMarkActivity();
+        playerPresence();
+      });
+      window.addEventListener('blur', function () {
+        PRESENCE_STATE.focused = false;
+        PRESENCE_STATE.focusKnown = true;
+        playerPresence();
+      });
+    }
+  } catch (e) { /* ignore */ }
+  try {
+    if (typeof document !== 'undefined' && document && typeof document.addEventListener === 'function') {
+      document.addEventListener('visibilitychange', function () { playerPresence(); });
+    }
+  } catch (e) { /* ignore */ }
+  try {
+    if (typeof setInterval === 'function') {
+      setInterval(function () { playerPresence(); reportPresence(false); }, PRESENCE_CFG.tickMs);
+    }
+  } catch (e) { /* ignore */ }
+})();
+
+// Совместимость с прежним API: пуш отправляется только когда игрок офлайн.
+function isPlayerOnlineForPush() {
+  return playerPresence().online;
+}
+
+window.playerPresence = playerPresence;
+window.onPresenceChange = onPresenceChange;
 window.isPlayerOnlineForPush = isPlayerOnlineForPush;
+window.PlayerPresence = {
+  status: function () { return playerPresence().status; },
+  isOnline: function () { return playerPresence().online; },
+  reason: function () { return playerPresence().reason; },
+  label: function () { return playerPresence().label; },
+  state: function () { return playerPresence(); },
+  onChange: onPresenceChange,
+  markActivity: presenceMarkActivity,
+  idleLimitMs: PRESENCE_CFG.idleOfflineMs,
+};
+window.__markPushActivity = presenceMarkActivity; // старое имя для тестов
+
+// Смена статуса — сразу сообщаем серверу, не ждём тика.
+onPresenceChange(function () { reportPresence(true); });
 
 async function sendPushNotification(message, type) {
   const initData = getTgInitData();

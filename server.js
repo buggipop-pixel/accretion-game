@@ -199,6 +199,39 @@ async function lastSeenAt(userId) {
   try { return Number(await redisGet(`seen:${userId}`)) || 0; } catch (e) { return 0; }
 }
 
+// ─── Статус присутствия (онлайн/офлайн) для админки ─────────────
+// ★ Это внутренняя информация: игрок её не видит, админка показывает
+//   статус рядом с ником. Клиент сам решает, когда он «в игре»
+//   (видимость + фокус + 10 минут бездействия — js/cloudsave.js)
+//   и присылает статус в /api/presence.
+//   Онлайн-метка живёт 5 минут (клиент пингует раз в минуту),
+//   офлайн-метка — сутки: админка видит последний известный статус.
+const PRESENCE_STATUS_ONLINE_TTL_SEC = 5 * 60;
+const PRESENCE_STATUS_OFFLINE_TTL_SEC = 24 * 3600;
+
+async function readUserPresence(userId) {
+  if (!userId) return null;
+  try {
+    const p = parseRedisJson(await redisGet(`presence:${userId}`));
+    return (p && typeof p === 'object') ? p : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Форма для админки: компактно и без клиентских полей.
+function toAdminPresence(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return { status: 'unknown', reason: 'no-data', idleSec: 0, at: 0 };
+  }
+  return {
+    status: raw.status === 'online' ? 'online' : 'offline',
+    reason: typeof raw.reason === 'string' ? raw.reason.slice(0, 32) : 'unknown',
+    idleSec: Math.max(0, Math.round(Number(raw.idleSec) || 0)),
+    at: Number(raw.at) || 0,
+  };
+}
+
 // ─── Push-уведомления в Telegram ────────────────────────────────
 // Подписка живёт в tg_chat:<userId> и хранит РОВНО userId: уведомления
 // уходят только в личный чат самого игрока. Пустое значение (или
@@ -1532,6 +1565,16 @@ app.get('/admin/api/players', adminGuard, async (req, res) => {
       if (raw == null) continue;
       players.push(toAdminPlayer(userId, parseRedisJson(raw)));
     }
+
+    // Статус присутствия — рядом с ником в админке.
+    // Пачками по 25: не устраиваем лавину из сотен запросов к Redis.
+    for (let i = 0; i < players.length; i += 25) {
+      const chunk = players.slice(i, i + 25);
+      await Promise.all(chunk.map(async (p) => {
+        p.presence = toAdminPresence(await readUserPresence(p.id));
+      }));
+    }
+
     players.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
 
     console.log(`[admin] отдаю игроков: ${players.length}`);
@@ -1673,7 +1716,9 @@ app.get('/admin/api/player/:id', adminGuard, async (req, res) => {
         !payload.data || typeof payload.data !== 'object') {
       return res.status(404).json({ error: 'У игрока нет облачного сейва' });
     }
-    res.json({ ok: true, id, savedAt: payload.saved_at || 0, data: payload.data });
+    // Присутствие — внутренняя информация, показываем рядом с ником.
+    const presence = toAdminPresence(await readUserPresence(id));
+    res.json({ ok: true, id, savedAt: payload.saved_at || 0, data: payload.data, presence });
   } catch (e) {
     console.error('[admin] /admin/api/player/:id', e);
     res.status(500).json({ error: e.message });
@@ -1892,6 +1937,43 @@ app.post('/admin/api/player/:id/invasion', adminGuard, async (req, res) => {
     res.json({ ok: true, id, tier: tierKey, invasion: inv });
   } catch (e) {
     console.error('[admin] /admin/api/player/invasion', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── Присутствие от клиента (для админки) ─────────────────────
+// POST /api/presence { initData, status, reason, idleSec }
+// Клиент шлёт при смене статуса, раз в минуту пока онлайн и при уходе.
+app.post('/api/presence', async (req, res) => {
+  try {
+    const { initData, status, reason, idleSec } = req.body || {};
+    const user = validateInitData(initData);
+    if (!user) return res.status(401).json({ error: 'Invalid initData' });
+
+    // Дешёвая защита от спама: не больше 30 отчётов в минуту на игрока.
+    const minuteKey = `presence_q:${user.id}:${Math.floor(Date.now() / 60000)}`;
+    if (await bumpCounter(minuteKey, 120) > 30) {
+      return res.json({ ok: true, throttled: true });
+    }
+
+    const online = status === 'online';
+    const payload = {
+      status: online ? 'online' : 'offline',
+      reason: typeof reason === 'string' && reason ? reason.slice(0, 32) : (online ? 'active' : 'unknown'),
+      idleSec: Math.max(0, Math.round(Number(idleSec) || 0)),
+      at: Date.now(),
+    };
+
+    const key = `presence:${user.id}`;
+    await redisSet(key, JSON.stringify(payload));
+    try {
+      await redisCommand('EXPIRE', key,
+        online ? PRESENCE_STATUS_ONLINE_TTL_SEC : PRESENCE_STATUS_OFFLINE_TTL_SEC);
+    } catch (e) { /* некритично */ }
+
+    res.json({ ok: true, status: payload.status });
+  } catch (e) {
+    console.error('[presence]', e.message);
     res.status(500).json({ error: e.message });
   }
 });
