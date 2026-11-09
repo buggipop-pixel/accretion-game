@@ -11,7 +11,14 @@ const MISS = {
 // ─── Генератор имён ─────────────────────────────────────────────
 // (Удалено дублирование, используем реализацию из config.js)
 
-// ─── Стоимости ──────────────────────────────────────────────────
+// ─── Ставка кометы: не больше 20 минут текущего дохода ──────────
+//   Раньше ставка была % от ВСЕГО банка, а награда не резалась капом —
+//   это разгоняло пыль быстрее любой экономики. 20 мин + кд 5 мин
+//   дают максимум ~+10% дохода при активной игре и ничего при простое.
+function cometStakeCap() {
+  return Math.max(500000, Math.floor(dustPerSec() * 20 * 60));
+}
+window.cometStakeCap = cometStakeCap;
 function cometCost() {
   let ice = 0;
   for (let i = 0; i < S.planets.length; i++) {
@@ -75,8 +82,9 @@ function canLaunchComet() {
   const cost = cometCost();
   if (S.dust < cost) return { ok: false, reason: 'Нужно ' + fmt(cost) };
   const now = Date.now();
-  if (now - MISS.lastCometAt < 30000) {
-    const left = Math.ceil((30000 - (now - MISS.lastCometAt)) / 1000);
+  const COMET_CD_MS = 5 * 60 * 1000;
+  if (now - MISS.lastCometAt < COMET_CD_MS) {
+    const left = Math.ceil((COMET_CD_MS - (now - MISS.lastCometAt)) / 1000);
     return { ok: false, reason: 'Кд ' + left + 'с' };
   }
   return { ok: true, cost: cost, ice: ice };
@@ -146,7 +154,7 @@ function openCometSizeDialog() {
   const choices = [];
   for (let i = 0; i < sizes.length; i++) {
     const s = sizes[i];
-    const cost = Math.floor(maxDust * s.pct);
+    const cost = Math.floor(Math.min(maxDust * s.pct, cometStakeCap()));
     const flightMult = cfg.cometFlightMinMult + (cfg.cometFlightMaxMult - cfg.cometFlightMinMult) * s.pct;
     const flightMs = cfg.cometFlightBase * flightMult;
     const flightMin = (flightMs / 60000).toFixed(1);
@@ -177,7 +185,7 @@ function launchComet(sizePct) {
   const check = canLaunchComet();
   if (!check.ok) { toast('Комета недоступна', check.reason); return false; }
   if (sizePct === undefined) sizePct = 0.4;
-  const cost = Math.floor(S.dust * sizePct);
+  const cost = Math.floor(Math.min(S.dust * sizePct, cometStakeCap()));
   if (cost < 100000 || cost > S.dust) { toast('Не хватает пыли'); return false; }
   S.dust -= cost;
   MISS.lastCometAt = Date.now();
@@ -187,8 +195,8 @@ function launchComet(sizePct) {
     (cfg.cometFlightMaxMult - cfg.cometFlightMinMult) * sizePct;
   const flightMs = Math.floor(cfg.cometFlightBase * flightMult * (0.9 + Math.random() * 0.2));
 
-  // ─── Награда: привязана к стоимости (EV +8% при fail 20%) ───
-  let reward = Math.floor(cost * (cfg.cometRewardMult || 1.35));
+  // ─── Награда: привязана к ставке (EV ≈ +2.4% при fail 20%) ───
+  let reward = Math.floor(cost * (cfg.cometRewardMult || 1.28));
   if (typeof eventMult === 'function') reward = Math.floor(reward * eventMult('comet'));
 
   // ─── Находим ледяной гигант для старта ───
@@ -285,7 +293,11 @@ function launchExpedition(distanceMultiplier) {
 
   // ─── Время полёта и награда зависят от дальности ───
   const flightMs = Math.floor(cfg.expeditionFlightMin * mult);
-  const reward = Math.floor(dustPerSec() * (cfg.expeditionRewardShare || 0.5) * (flightMs / 1000) * ((typeof eventMult === 'function') ? eventMult('expedition') : 1));
+  const expMult = (typeof eventMult === 'function') ? eventMult('expedition') : 1;
+  const share = cfg.expeditionRewardShare || 0.30;
+  const reward = Math.floor(dustPerSec() * share * (flightMs / 1000) * expMult);
+  // ★ Второй компонент награды — металл: экспедиция кормит флот.
+  const metalReward = Math.floor((typeof metalsPerSec === 'function' ? metalsPerSec() : 0) * share * (flightMs / 1000) * expMult);
   // ─── Находим планету с жизнью для старта ───
   let civPlanet = null;
   for (let i = 0; i < S.planets.length; i++) {
@@ -324,7 +336,7 @@ function launchExpedition(distanceMultiplier) {
   MISS.expeditions.push({
     id: Math.random().toString(36).slice(2),
     startAt: Date.now(), flightTime: flightMs,
-    reward: reward, fail: Math.random() < cfg.expeditionFailChance,
+    reward: reward, metals: metalReward, fail: Math.random() < cfg.expeditionFailChance,
     hasColony: Math.random() < cfg.colonyChance,
     systemIdx: S.activeSystemIdx,
   });
@@ -428,9 +440,11 @@ function updateMissions() {
         if (typeof addEvent === 'function') addEvent('comet_lost', 'Экспедиция потеряна', { meta: { systemIdx: (typeof e.systemIdx === 'number' ? e.systemIdx : S.activeSystemIdx), missionType: 'Экспедиция', flightTime: e.flightTime, source: 'arrival' } });
       } else {
         S.dust += e.reward; S.dustTotal += e.reward;
-        toast('🚀 Экспедиция вернулась', '+' + fmt(e.reward));
+        const mm = Math.floor(Number(e.metals) || 0);
+        if (mm > 0) S.metalAmount = (Number(S.metalAmount) || 0) + mm;
+        toast('🚀 Экспедиция вернулась', '+' + fmt(e.reward) + ' ✦' + (mm > 0 ? ' · +' + fmt(mm) + ' ⚙' : ''));
         if (typeof playSFX === 'function') playSFX('sfx_system_form');
-        if (typeof addEvent === 'function') addEvent('comet_arrive', 'Экспедиция вернулась · +' + fmt(e.reward) + ' ✦', { meta: { systemIdx: (typeof e.systemIdx === 'number' ? e.systemIdx : S.activeSystemIdx), missionType: 'Экспедиция', flightTime: e.flightTime, rewardAmount: e.reward, source: 'arrival' } });
+        if (typeof addEvent === 'function') addEvent('comet_arrive', 'Экспедиция вернулась · +' + fmt(e.reward) + ' ✦' + (mm > 0 ? ' · +' + fmt(mm) + ' ⚙' : ''), { meta: { systemIdx: (typeof e.systemIdx === 'number' ? e.systemIdx : S.activeSystemIdx), missionType: 'Экспедиция', flightTime: e.flightTime, rewardAmount: e.reward, rewardMetals: mm, source: 'arrival' } });
         if (e.hasColony) setTimeout(offerColony, 800);
       }
       // Ролл на трофейный контракт

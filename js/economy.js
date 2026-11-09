@@ -102,7 +102,12 @@ function primeBonusMult(kind) {
       : (sys.primeData || sys.primeSystem || null);
     if (pd) addBonus(pd.bonus);
   }
-  return 1 + Math.min(cap, raw * weight);
+  const mult = 1 + Math.min(cap, raw * weight);
+  // Дебаф Прайма после провала босса: бонус режется вдвое на 1 час.
+  if (S.primeDebuffUntil && Date.now() < S.primeDebuffUntil) {
+    return 1 + (mult - 1) * 0.5;
+  }
+  return mult;
 }
 window.primeBonusMult = primeBonusMult;
 
@@ -422,21 +427,21 @@ function civPerSec() {
 function energyPerSec() {
   const c = civPlanetCount();
 
-  if (S.civLevel < 4) {
-    // ★ Фоллбек: если цив < 4, но планеты есть, даем минимальный приток энергии
-    return c > 0 ? 0.1 * invasionDebuffMult() : 0;
-  }
   if (c === 0) return 0;
 
   const levels = S.storageLevels || { energy: 1 };
   // ★ Энергобонусы всех прайм-систем (с затуханием), а не только активной.
   const primeMultiplier = primeBonusMult('energy');
 
-  const base = Number(S.civLevel) || 0;
+  const base = Math.max(0, Number(S.civLevel) || 0);
   const techMult = Number(1 + (S.techLevels?.quantum || 0) * 0.20) || 1;
   const lvlMult = Math.pow(1.5, (Number(levels.energy) || 1) - 1);
 
-  let finalRate = (base - 3) * c * 0.5 * lvlMult * techMult * primeMultiplier;
+  // ★ Плавная кривая без обрыва на civ<4: base²/(base+3) —
+  //   при civ=4 даёт 2.29 (было 0.5), при civ=100 — 97 (как раньше 48.5×2),
+  //   при civ=0 — 0. Залив цивилизации в магазин больше не выключает энергию.
+  const civCurve = (base * base) / (base + 3);
+  let finalRate = civCurve * c * 0.5 * lvlMult * techMult * primeMultiplier;
   if (typeof eventMult === 'function') finalRate *= eventMult('energy');
   finalRate *= invasionDebuffMult();
   return (isFinite(finalRate) && !isNaN(finalRate)) ? Math.max(0, finalRate) : 0;
@@ -547,6 +552,14 @@ function getResourceCap(res) {
   if (res === 'metals') return metalsCap();
   return 1000;
 }
+
+// ★ Цена апгрейда хранилища — 4 часа текущего дохода в пыли.
+//   Раньше цена = flatCap(level) × share (до 9× текущего капа):
+//   на 6→7 это было ~540 часов добычи. Теперь ветка масштабируется.
+function storageUpgradeCost(res, level) {
+  return Math.max(100000, Math.floor(dustPerSec() * 3600 * 4));
+}
+window.storageUpgradeCost = storageUpgradeCost;
 
 function handleCanvasClick(x, y) {
   if (typeof playSFX === 'function') playSFX('ui_click');
@@ -901,6 +914,77 @@ function invasionShortNum(value) {
   return String(Math.floor(n));
 }
 
+// Название системы по индексу — для отчёта по каждой волне.
+function offlineSystemName(idx) {
+  const active = Number(S.activeSystemIdx) || 0;
+  if (idx === active) return S.systemName || 'Родная';
+  const list = Array.isArray(S.otherSystems) ? S.otherSystems : [];
+  const sys = list[idx];
+  return (sys && sys.name) || 'Колония';
+}
+
+function offlineWaveClock(ts) {
+  const d = new Date(ts);
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+// Компактные потери одной офлайн-волны: ресурсы и планеты в простое.
+function offlineWaveLossParts(w) {
+  const parts = [];
+  if ((Number(w.dust) || 0) > 0) parts.push('✦ ' + invasionShortNum(w.dust));
+  if ((Number(w.energy) || 0) > 0) parts.push('⚡ ' + invasionShortNum(w.energy));
+  if ((Number(w.civ) || 0) > 0) parts.push('🧬 ' + invasionShortNum(w.civ));
+  if ((Number(w.metals) || 0) > 0) parts.push('⚙ ' + invasionShortNum(w.metals));
+  if ((Number(w.disabled) || 0) > 0) parts.push('🪐 ' + Number(w.disabled));
+  if ((Number(w.fleetLost) || 0) > 0) parts.push('🚀 −' + Number(w.fleetLost));
+  return parts;
+}
+
+// Строка Telegram-отчёта по одной атаке.
+function offlineWaveReportLine(w) {
+  const when = offlineWaveClock(w.ts);
+  const tier = w.tierLabel ? ' (' + w.tierLabel + ')' : '';
+  if (w.outcome === 'repelled') return '• ' + when + ' · отбита до высадки' + tier + ' · потерь нет';
+  const parts = offlineWaveLossParts(w);
+  const name = offlineSystemName(w.systemIdx);
+  return '• ' + when + ' · «' + name + '» прорвалась' + tier +
+    (parts.length ? ': ' + parts.join(', ') : ' · потерь нет');
+}
+
+
+// ★ Офлайн-бой флота: каждая прорвавшаяся волна может уничтожить 1–2
+//   корабля (чаще — самые дешёвые). Раньше флот в офлайне вообще не терялся.
+function applyOfflineFleetLoss(tier) {
+  if (!S.fleet) return 0;
+  if (typeof fleetShipTotal === 'function' && fleetShipTotal() <= 0) return 0;
+  const diff = Math.max(1, Math.min(3, Number(tier && tier.difficulty) || 1));
+  let losses = 0;
+  if (Math.random() < 0.18 + 0.10 * diff) losses = 1;
+  if (diff >= 3 && Math.random() < 0.20) losses += 1;
+  const order = ['interceptor', 'cruiser', 'dreadnought'];
+  let destroyed = 0;
+  for (let l = 0; l < losses; l++) {
+    let key = null;
+    for (let i = 0; i < order.length; i++) {
+      if ((Number(S.fleet[order[i]]) || 0) > 0) { key = order[i]; break; }
+    }
+    if (!key) break;
+    S.fleet[key] = Math.max(0, (Number(S.fleet[key]) || 0) - 1);
+    destroyed++;
+  }
+  if (destroyed > 0) {
+    if (!S.stats) S.stats = {};
+    S.stats.fleetLost = (Number(S.stats.fleetLost) || 0) + destroyed;
+    if (typeof notifyFleetEvent === 'function') {
+      notifyFleetEvent('Флот нёс потери без вас', [
+        '💥 Уничтожено кораблей: ' + destroyed,
+        '⚔️ Волна: сложность ' + diff + '/3',
+      ], 'offline_fleet:' + Date.now());
+    }
+  }
+  return destroyed;
+}
+
 function simulateOfflineInvasions(elapsedSec, out) {
   const cfg = INVASION_CFG;
   const n = (cfg && cfg.neglect) || {};
@@ -945,19 +1029,34 @@ function simulateOfflineInvasions(elapsedSec, out) {
   //   если Автоборона истекла в середине ночи, ранние атаки она ещё отбивала.
   const attackWindowStart = startMs + Math.min(totalMs, protectedMs);
   const attackStepMs = unprotectedMs / attacks;
-  let defended = 0, executed = 0, lostDust = 0, lostE = 0, lostC = 0, lostM = 0, disabled = 0;
+  let defended = 0, executed = 0, lostDust = 0, lostE = 0, lostC = 0, lostM = 0, disabled = 0, lostFleet = 0;
+  // ★ Журнал по каждой волне: что за атака, куда, чем кончилась и сколько унесла.
+  const waves = [];
 
   for (let i = 0; i < attacks; i++) {
     const tierKey = rollInvasionTier();
+    const tier = cfg.tiers[tierKey] || cfg.tiers.raid || {};
     const attackTime = attackWindowStart + (i + 0.5) * attackStepMs;
     const repel = invasionRepelChance(attackTime);
-    if (Math.random() < repel) { defended++; executed++; continue; }
+    if (Math.random() < repel) {
+      defended++; executed++;
+      waves.push({ ts: attackTime, tierKey: tierKey, tierLabel: tier.label || tierKey, difficulty: Number(tier.difficulty) || 1, outcome: 'repelled', systemIdx: -1 });
+      continue;
+    }
     const targetIdx = pickOfflineInvasionTarget();
     if (targetIdx < 0) break; // одни Прайм-системы — бить некого
     executed++;
     const hit = applyInvasionHit(tierKey, caps, targetIdx, { neglectLevel: level });
     lostDust += hit.dust; lostE += hit.energy; lostC += hit.civ; lostM += hit.metals;
     disabled += hit.disabled;
+    const fleetLost = applyOfflineFleetLoss(tier);
+    lostFleet += fleetLost;
+    waves.push({
+      ts: attackTime, tierKey: tierKey, tierLabel: hit.tierLabel || tier.label || tierKey,
+      difficulty: hit.difficulty || Number(tier.difficulty) || 1, outcome: 'breached',
+      systemIdx: targetIdx, dust: hit.dust, energy: hit.energy, civ: hit.civ,
+      metals: hit.metals, disabled: hit.disabled, fleetLost: fleetLost,
+    });
     caps.dust = Math.max(0, caps.dust - hit.dust);
     caps.energy = Math.max(0, caps.energy - hit.energy);
     caps.civ = Math.max(0, caps.civ - hit.civ);
@@ -979,6 +1078,8 @@ function simulateOfflineInvasions(elapsedSec, out) {
   out.invasionDrainC = Math.floor(lostC);
   out.invasionLostDust = Math.floor(lostDust);
   out.invasionLostMetals = Math.floor(lostM);
+  out.invasionFleetLost = lostFleet;
+  out.invasionWaves = waves;
 
   // ★ Подробный отчёт в Telegram после возвращения в игру.
   if (executed > 0 && typeof notifyEvent === 'function') {
@@ -988,9 +1089,39 @@ function simulateOfflineInvasions(elapsedSec, out) {
       '💸 Потери: ✦ ' + invasionShortNum(lostDust) + ', ⚡ ' + invasionShortNum(lostE) + ', 🧬 ' + (lostC >= 1000 ? invasionShortNum(lostC) : (Math.round(lostC * 100) / 100)) + ', ⚙ ' + invasionShortNum(lostM),
       '🪐 Планет в простое: ' + disabled + (systemsDamaged > 0 ? ' · систем: ' + systemsDamaged : ''),
     ];
+    if (lostFleet > 0) lines.push('🚀 Потеряно кораблей флота: ' + lostFleet);
     if (level > 0) lines.push('☠️ Запустение: ур.' + level);
     if (out.shieldProtected) lines.push('🛡 Щит покрыл часть отсутствия.');
+    // ★ Разбивка по каждой атаке: система, итог и потери именно этой волны.
+    if (waves.length) {
+      lines.push('── по атакам ──');
+      for (let w = 0; w < waves.length; w++) lines.push(offlineWaveReportLine(waves[w]));
+    }
     notifyEvent('invasion_end', 'Отчёт о вторжениях за время отсутствия', lines, { key: 'offline_inv:' + Math.floor(Date.now() / 60000), immediate: true, ignoreCooldown: true });
+  }
+
+  // ★ Каждая офлайн-волна — отдельная запись в журнале с результатом и потерями.
+  if (waves.length && typeof addEvent === 'function') {
+    for (let w = 0; w < waves.length; w++) {
+      const wave = waves[w];
+      const meta = { source: 'offline', tierKey: wave.tierKey, difficulty: wave.difficulty || 1, outcome: wave.outcome };
+      if (wave.systemIdx >= 0) meta.systemIdx = wave.systemIdx;
+      if ((Number(wave.dust) || 0) > 0) meta.lostDust = Math.floor(wave.dust);
+      if ((Number(wave.energy) || 0) > 0) meta.lostEnergy = Math.floor(wave.energy);
+      if ((Number(wave.civ) || 0) > 0) meta.lostCiv = Math.floor(wave.civ * 100) / 100;
+      if ((Number(wave.metals) || 0) > 0) meta.lostMetals = Math.floor(wave.metals);
+      if ((Number(wave.disabled) || 0) > 0) meta.planetsDisabled = Number(wave.disabled);
+      if ((Number(wave.fleetLost) || 0) > 0) meta.fleetLost = Number(wave.fleetLost);
+      let text;
+      if (wave.outcome === 'repelled') {
+        text = 'вторжение «' + wave.tierLabel + '» отбито до высадки · потерь нет';
+      } else {
+        const parts = offlineWaveLossParts(wave);
+        text = 'вторжение «' + wave.tierLabel + '» прорвалось · ' +
+          (parts.length ? 'украдено: ' + parts.join(', ') : 'потерь ресурсов нет');
+      }
+      addEvent('invasion_end', text, { meta: meta });
+    }
   }
 
   if (disabled > 0 && typeof addEvent === 'function') {

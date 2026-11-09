@@ -51,8 +51,15 @@ if (!WEBHOOK_SECRET) {
 // ─── Товары ─────────────────────────────────────────────────────
 const PRODUCTS = {
   chest:  { label: 'Космический сундук', stars: 200 },
-  shield: { label: 'Премиум Щит (24ч)',  stars: 100 },
+  shield: { label: 'Премиум Щит (24ч)',  stars: 250 },
+  booster: { label: 'Бустер дохода (2ч ×2)', stars: 75 },
 };
+
+// Единый игровой день: 01:00 UTC = 04:00 МСК. Совпадает с клиентом (config.js).
+const GAME_DAY_EPOCH_SERVER = Date.UTC(2024, 0, 1) + 3600000;
+function serverDayIndex(ts) {
+  return Math.floor(((Number(ts) || Date.now()) - GAME_DAY_EPOCH_SERVER) / 86400000);
+}
 
 // ─── Игровые формулы (для серверного офлайн-дохода) ─────────────
 // Загружаем те же js/*.js в vm-контекст: сервер считает доход по
@@ -535,6 +542,14 @@ app.post('/api/claim', async (req, res) => {
       await redisSet(entKey, String(shieldUntil));
       entitlement = { shieldUntil };
     }
+    if (product === 'booster') {
+      const b = gameCore ? gameCore.boosterConfig() : { hours: 2 };
+      const entKey = `entitlement:booster:${user.id}`;
+      const prevUntil = Number(await redisGet(entKey)) || 0;
+      const boosterUntil = nextBoosterUntil(prevUntil, Date.now(), (Number(b.hours) || 2) * 3600 * 1000);
+      await redisSet(entKey, String(boosterUntil));
+      entitlement = { boosterUntil };
+    }
     // ★ Награду платного сундука выбирает СЕРВЕР, а не клиент.
     // Игрок оплатил Stars — сервер кидает лут и отдаёт ключ предмета.
     // Клиент только крутит рулетку до уже выбранного предмета.
@@ -610,12 +625,22 @@ app.get('/api/leaderboard', async (req, res) => {
       if (!payload || !payload.data || typeof payload.data !== 'object') continue;
       const data = payload.data;
       const rawName = (typeof data.playerName === 'string') ? data.playerName.trim() : '';
+      // ★ Прайм-системы не идут в зачёт лидерборда (ни системы, ни планеты).
+      const sysArr = Array.isArray(data.otherSystems) ? data.otherSystems : [];
+      let primeSystems = data.primeSystem ? 1 : 0;
+      for (const s of sysArr) {
+        if (s && (s.primeData || s.isPrime || s.primeSystem)) primeSystems++;
+      }
+      const totalSystems = Math.max(1, Math.floor(Number(data.systems) || 1));
+      const plainSystems = Math.max(1, totalSystems - primeSystems);
+      const activePlanets = Array.isArray(data.planets) ? data.planets.length : 0;
+      const plainPlanets = data.primeSystem ? 0 : activePlanets;
       players.push({
         id: key.slice('cloudsave:'.length),
         name: rawName ? rawName.slice(0, 32) : 'Пилот',
         dustTotal: Math.max(0, Number(data.dustTotal) || 0),
-        systems: Math.max(1, Math.floor(Number(data.systems) || 1)),
-        planets: Array.isArray(data.planets) ? data.planets.length : 0,
+        systems: plainSystems,
+        planets: plainPlanets,
         prestigeLevel: Math.max(0, Math.floor(Number(data.prestigeLevel) || 0)),
       });
     }
@@ -1128,7 +1153,7 @@ app.post('/api/reward', async (req, res) => {
 // Металлы списываются из серверного сейва, метку ставит сервер.
 app.post('/api/buy-booster', async (req, res) => {
   try {
-    const { initData } = req.body || {};
+    const { initData, cost } = req.body || {};
     const user = validateInitData(initData);
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
     if (await isResetPending(user.id)) return accountResetResponse(res);
@@ -1153,12 +1178,21 @@ app.post('/api/buy-booster', async (req, res) => {
       return res.status(503).json({ error: 'Booster is not configured' });
     }
 
+    // ★ Одна покупка за металл в игровой день (единый серверный день).
+    const dayKey = `booster_day:${user.id}:${serverDayIndex(now)}`;
+    if (await redisGet(dayKey)) {
+      return res.status(409).json({ error: 'Booster already bought today' });
+    }
+    // Цена = 2 часа добычи (клиент), но не меньше базовой и не больше ×20.
+    const requested = Math.max(0, Math.floor(Number(cost) || 0));
+    const pay = Math.min(cfg.costMetals * 20, Math.max(cfg.costMetals, requested));
+
     // ★ Металлы списываем из СЕРВЕРНОГО кошелька, а не из клиентского сейва —
     // иначе читер подделывает metalAmount и покупает бустеры бесконечно.
     const wallet = ensureWallet(await readWallet(user.id), payload.data, now);
     const metals = Number(wallet.metalAmount) || 0;
-    if (metals < cfg.costMetals) {
-      return res.status(400).json({ error: 'Not enough metals', required: cfg.costMetals, have: metals });
+    if (metals < pay) {
+      return res.status(400).json({ error: 'Not enough metals', required: pay, have: metals });
     }
 
     const entKey = `entitlement:booster:${user.id}`;
@@ -1166,7 +1200,7 @@ app.post('/api/buy-booster', async (req, res) => {
     const incomeUntil = nextBoosterUntil(prevUntil, now, cfg.hours * 3600 * 1000);
     await redisSet(entKey, String(incomeUntil));
 
-    wallet.metalAmount = metals - cfg.costMetals;
+    wallet.metalAmount = metals - pay;
     wallet.updatedAt = now;
     await writeWallet(user.id, wallet);
 
@@ -1178,10 +1212,11 @@ app.post('/api/buy-booster', async (req, res) => {
     payload.saved_at = now;
     payload.version = (Number(payload.version) || 0) + 1;
     await redisSet(`cloudsave:${user.id}`, JSON.stringify(payload));
+    await redisCommand('SET', dayKey, '1', 'EX', '172800');
 
     res.json({
       ok: true, authoritative: true,
-      incomeUntil, cost: cfg.costMetals, hours: cfg.hours,
+      incomeUntil, cost: pay, hours: cfg.hours,
       version: payload.version, data,
     });
   } catch (e) {

@@ -60,6 +60,20 @@ function updateNameplate() {
 let _tutorialKey = '';
 let _tutorialHideTimer = null;
 
+// Подсветка элемента, к которому ведёт текущий шаг онбординга.
+let _tutorialPulseEl = null;
+function _tutorialPulse(id) {
+  if (_tutorialPulseEl) {
+    _tutorialPulseEl.classList.remove('tutorial-pulse');
+    _tutorialPulseEl = null;
+  }
+  if (!id) return;
+  const target = document.getElementById(id);
+  if (!target) return;
+  target.classList.add('tutorial-pulse');
+  _tutorialPulseEl = target;
+}
+
 function renderTutorial() {
   const el = document.getElementById('tutorialOverlay');
   let hintText = '';
@@ -118,21 +132,46 @@ function renderTutorial() {
   // ─── Шаг 5: система — финальная подсказка ───
   } else if (S.tutorialStep === 5) {
     if (S.stage === 'system') {
-      hintText = '🌌 Добро пожаловать в систему!';
-      hintSub = 'Строй планеты, развивай доход';
-      // Через 5 секунд выключаем туториал
-      if (!window._tutorialEndTimer) {
-        window._tutorialEndTimer = setTimeout(function() {
-          window._tutorialEndTimer = null;
-          S.tutorialStep = 0;
-          S.tutorialDone = true;
-          if (typeof saveGame === 'function') saveGame();
-          updateTutorialUI(); // обновить, чтобы скрыть оверлей
-        }, 5000);
-      }
+      // Дальше — знакомство с механиками системы.
+      S.tutorialStep = 6;
     } else if (S.stage === 'cloud' || S.stage === 'condense' || S.stage === 'protostar') {
       // Игру перезапустили — начинаем обучение заново
       S.tutorialStep = 1;
+    }
+  // ─── Шаг 6: флот ───
+  } else if (S.tutorialStep === 6) {
+    hintText = '🚀 Купи первый корабль';
+    hintSub = 'Верфь → флот: корабли отбивают вторжения и несут потери';
+    _tutorialPulse('fleetChip');
+    if (typeof fleetShipTotal === 'function' && fleetShipTotal() > 0) S.tutorialStep = 7;
+
+  // ─── Шаг 7: оборона ───
+  } else if (S.tutorialStep === 7) {
+    hintText = '🛡 Построй оборону';
+    hintSub = 'Уровни обороны дают шанс отбить атаку до высадки';
+    _tutorialPulse('defenseChip');
+    if (Number(S.defenseLevel) >= 1) S.tutorialStep = 8;
+
+  // ─── Шаг 8: миссии ───
+  } else if (S.tutorialStep === 8) {
+    hintText = '☄️ Запусти миссию';
+    hintSub = 'Комета даёт пыль, экспедиция — металл и шанс колонии';
+    _tutorialPulse('missionButtons');
+    const doneMissions = ((S.stats && S.stats.comets) || 0) + ((S.stats && S.stats.expeditions) || 0);
+    if (doneMissions >= 1) S.tutorialStep = 9;
+
+  // ─── Шаг 9: журнал и финал ───
+  } else if (S.tutorialStep === 9) {
+    hintText = '📜 Журнал событий';
+    hintSub = 'Там итоги каждой атаки: что украдено, что уничтожено, сколько флота потеряно';
+    if (!window._tutorialEndTimer) {
+      window._tutorialEndTimer = setTimeout(function() {
+        window._tutorialEndTimer = null;
+        S.tutorialStep = 0;
+        S.tutorialDone = true;
+        if (typeof saveGame === 'function') saveGame();
+        updateTutorialUI();
+      }, 9000);
     }
   }
 
@@ -141,6 +180,7 @@ function renderTutorial() {
   // ★ Подсказка не висит постоянно: показываем только при смене шага/текста,
   // через ~7 секунд плавно скрываем. Повторно — только на новом шаге.
   if (!hintText) {
+    _tutorialPulse(null);
     _hideTutorialBubble();
     _tutorialKey = '';
     return;
@@ -462,7 +502,7 @@ function updateStorageUI() {
     const btn = cell.querySelector('.storage-upgrade-btn');
     if (btn) {
       const lvl = S.storageLevels[res] || 1;
-      const cost = STORAGE_CFG.getUpgradeCost(res, lvl);
+      const cost = storageUpgradeCost(res, lvl);
       if (lvl >= STORAGE_CFG.maxLevel) {
         btn.textContent = 'МАКС';
         btn.disabled = true;
@@ -481,7 +521,7 @@ function openStorageModal(res) {
   const names = { dust: 'Пыли', energy: 'Энергии', civ: 'Цивилизации' };
   const icons = { dust: '✦', energy: '⚡', civ: '🧬' };
   const lvl = S.storageLevels[res] || 1;
-  const cost = STORAGE_CFG.getUpgradeCost(res, lvl);
+  const cost = storageUpgradeCost(res, lvl);
   const card = document.getElementById('modalCard');
   if (!card) return;
 
@@ -546,7 +586,7 @@ function pourStorage(res, part) {
     return;
   }
 
-  const cost = STORAGE_CFG.getUpgradeCost(res, lvl);
+  const cost = storageUpgradeCost(res, lvl);
   const poured = S.storageProgress[res] || 0;
   const remaining = cost - poured;
 
@@ -803,15 +843,69 @@ function updateSystemSwitcher() {
     });
   }
 }
+// ★ Свои модалки вместо prompt/confirm: в Telegram Mini App нативные
+//   диалоги выглядят чужеродно и иногда блокируются WebView.
+function openPromptModal(title, initial, onOk) {
+  const modal = document.getElementById('modal');
+  const card = document.getElementById('modalCard');
+  if (!modal || !card) return;
+  const safe = String(initial == null ? '' : initial)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  card.innerHTML = '<div class="modal-title">' + title + '</div>' +
+    '<input id="promptInput" maxlength="16" value="' + safe + '" ' +
+    'style="width:100%;box-sizing:border-box;margin:12px 0;padding:12px 14px;border-radius:12px;border:1px solid rgba(160,120,255,.45);background:rgba(20,12,40,.9);color:#fff;font-size:16px;">' +
+    '<div class="pour-btn-group">' +
+    '<button class="pour-btn" id="promptCancel">Отмена</button>' +
+    '<button class="pour-btn" id="promptOk" style="font-weight:800;">Сохранить</button>' +
+    '</div>';
+  modal.classList.add('show');
+  const input = document.getElementById('promptInput');
+  const close = function() { modal.classList.remove('show'); };
+  const apply = function() {
+    const value = input ? input.value : '';
+    close();
+    if (value && value.trim()) onOk(value.trim());
+  };
+  const cancel = document.getElementById('promptCancel');
+  const ok = document.getElementById('promptOk');
+  if (cancel) cancel.addEventListener('click', close);
+  if (ok) ok.addEventListener('click', apply);
+  if (input) {
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); apply(); }
+    });
+    setTimeout(function() { try { input.focus(); input.select(); } catch (_) {} }, 50);
+  }
+}
+window.openPromptModal = openPromptModal;
+
+function openConfirmModal(title, text, onOk) {
+  const modal = document.getElementById('modal');
+  const card = document.getElementById('modalCard');
+  if (!modal || !card) return;
+  card.innerHTML = '<div class="modal-title">' + title + '</div>' +
+    '<div style="margin:12px 0 18px;color:#d9ccff;font-size:15px;line-height:1.5;">' + text + '</div>' +
+    '<div class="pour-btn-group">' +
+    '<button class="pour-btn" id="confirmCancel">Отмена</button>' +
+    '<button class="pour-btn" id="confirmOk" style="font-weight:800;">Подтвердить</button>' +
+    '</div>';
+  modal.classList.add('show');
+  const close = function() { modal.classList.remove('show'); };
+  const cancel = document.getElementById('confirmCancel');
+  const ok = document.getElementById('confirmOk');
+  if (cancel) cancel.addEventListener('click', close);
+  if (ok) ok.addEventListener('click', function() { close(); onOk(); });
+}
+window.openConfirmModal = openConfirmModal;
+
 function renameCurrentSystem() {
-  const newName = prompt('Новое имя системы:', S.systemName);
-  if (newName && newName.trim()) {
-    S.systemName = newName.trim().slice(0, 16);
+  openPromptModal('Новое имя системы', S.systemName || '', function(newName) {
+    S.systemName = newName.slice(0, 16);
     if (S.activeSystemIdx > 0 && S.otherSystems[S.activeSystemIdx]) {
       S.otherSystems[S.activeSystemIdx].name = S.systemName;
     }
     updateSystemSwitcher();
-  }
+  });
 }
 window.renameCurrentSystem = renameCurrentSystem;
 // ═══════════════════════════════════════════════════════════════
@@ -952,7 +1046,7 @@ function initUI() {
 
   if (settingsResetBtn) {
     settingsResetBtn.addEventListener('click', () => {
-      if (confirm('Вы уверены? Весь прогресс будет удален.')) resetGame();
+      openConfirmModal('Сброс прогресса', 'Весь прогресс будет удалён без возможности восстановления. Продолжить?', function() { resetGame(); });
     });
   }
 }

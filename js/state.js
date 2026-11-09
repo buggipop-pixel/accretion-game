@@ -29,6 +29,7 @@ const S = {
   storageLevels: { dust: 1, energy: 1, civ: 1 },
   storageProgress: { dust: 0, energy: 0, civ: 0 },
   boosters: { incomeUntil: 0 }, // Временный бустер x2
+  boosterDay: 0, // индекс дня последней покупки бустера за металл
   // ─── Ежедневные награды ───
   dailyReward: { day: 0, lastClaimed: 0 },
   firstNightShieldUsed: false,
@@ -58,6 +59,7 @@ const S = {
   // ─── Прайм-система ───
   primeSystem: null,
   primeLastHealedAt: 0,
+  primeDebuffUntil: 0,  // до этого времени доход Прайм-системы −50%
   primeCandidates: [],
 
   // ─── Ночной режим и защита ───
@@ -91,9 +93,12 @@ const S = {
 
   // ─── Достижения и Ежедневки ───
   unlockedAch: {},
+  primeParts: 0,   // куски Прайм-системы за достижения (5 = 1 система)
+  primeCrafts: 0,  // сколько Прайм-систем собрано за достижения (макс 2)
   stats: { comets: 0, expeditions: 0, invasionsDefeated: 0, clicks: 0, planets: 0, dailyClaims: 0 },
   dailyProgress: {},
   dailyClaimed: {},
+  dailyDayIndex: 0,
   lastDailyReset: 0,
 
   // ─── Вспомогательные таймеры ───
@@ -163,6 +168,7 @@ function resetStateValues() {
   
   S.primeSystem = null;
   S.primeLastHealedAt = 0;
+  S.primeDebuffUntil = 0;
   S.primeCandidates = [];
 
   S.nightConfig = { mode: 'balanced', defenseEnabled: true, cometHours: 0, expeditionPercent: 0 };
@@ -183,9 +189,12 @@ function resetStateValues() {
   S.galaxyZoomLevel = 4; S.galaxyFocus = null; S.galaxyManualLod = false; S.singularities = 0; S.cosmicTrail = null;
 
   S.unlockedAch = {};
+  S.primeParts = 0;
+  S.primeCrafts = 0;
   S.stats = { comets: 0, expeditions: 0, invasionsDefeated: 0, clicks: 0, planets: 0, dailyClaims: 0 };
   S.dailyProgress = {};
   S.dailyClaimed = {};
+  S.dailyDayIndex = 0;
   S.lastDailyReset = 0;
 
   S.seenLore = [];
@@ -372,7 +381,7 @@ function saveGame() {
       energy: S.energy, civLevel: S.civLevel, metalAmount: S.metalAmount,
       fleet: S.fleet, fleetActive: S.fleetActive,
       storageLevels: S.storageLevels, storageProgress: S.storageProgress,
-      boosters: S.boosters,
+      boosters: S.boosters, boosterDay: S.boosterDay,
       dailyReward: S.dailyReward,
       firstNightShieldUsed: S.firstNightShieldUsed,
       // Звезда и Системы
@@ -385,7 +394,8 @@ function saveGame() {
       systemShopCost: S.systemShopCost,
       systemCostFloor: S.systemCostFloor,
       primeSystem: S.primeSystem, primeCandidates: S.primeCandidates,
-      primeLastHealedAt: S.primeLastHealedAt,
+      primeLastHealedAt: S.primeLastHealedAt, primeDebuffUntil: S.primeDebuffUntil,
+      primeParts: S.primeParts, primeCrafts: S.primeCrafts,
 
       // Ночной режим и защита
       nightConfig: S.nightConfig, nightDefenseLevel: S.nightDefenseLevel,
@@ -418,6 +428,7 @@ function saveGame() {
       singularities: S.singularities,
       cosmicTrail: S.cosmicTrail,
       stats: S.stats, dailyProgress: S.dailyProgress, dailyClaimed: S.dailyClaimed, lastDailyReset: S.lastDailyReset,
+      dailyDayIndex: S.dailyDayIndex,
       
       // Лор и Журнал
       seenLore: S.seenLore, seenMinigame: S.seenMinigame,
@@ -550,6 +561,11 @@ function loadGame() {
     }
     // ─── 4. Достижения и Ежедневки ───
     if (!S.unlockedAch || typeof S.unlockedAch !== 'object' || Array.isArray(S.unlockedAch)) S.unlockedAch = {};
+    if (typeof S.primeParts !== 'number' || !isFinite(S.primeParts) || S.primeParts < 0) S.primeParts = 0;
+    S.primeParts = Math.floor(S.primeParts);
+    if (typeof S.primeDebuffUntil !== 'number' || !isFinite(S.primeDebuffUntil) || S.primeDebuffUntil < 0) S.primeDebuffUntil = 0;
+    if (typeof S.primeCrafts !== 'number' || !isFinite(S.primeCrafts) || S.primeCrafts < 0) S.primeCrafts = 0;
+    S.primeCrafts = Math.min(2, Math.floor(S.primeCrafts));
     if (!S.stats || typeof S.stats !== 'object' || Array.isArray(S.stats)) S.stats = {};
     if (typeof S.stats.comets !== 'number') S.stats.comets = 0;
     if (typeof S.stats.expeditions !== 'number') S.stats.expeditions = 0;
@@ -560,6 +576,8 @@ function loadGame() {
     if (!S.dailyProgress || typeof S.dailyProgress !== 'object') S.dailyProgress = {};
     if (!S.dailyClaimed || typeof S.dailyClaimed !== 'object') S.dailyClaimed = {};
     if (typeof S.lastDailyReset !== 'number') S.lastDailyReset = 0;
+    if (typeof S.dailyDayIndex !== 'number') S.dailyDayIndex = 0;
+    if (typeof S.boosterDay !== 'number') S.boosterDay = 0;
 
     // ─── 5. Лор, Журнал и Мини-игры ───
     if (!Array.isArray(S.seenLore)) S.seenLore = [];

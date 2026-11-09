@@ -21,6 +21,8 @@ const EVENT_ICONS = {
   invasion_destroy:   '💀',
   invasion_robbery:   '💰',
   galaxy_neglect:     '☠️',
+  invasion_end:       '🏁',
+  fleet_loss:         '🚀',
   // Космические события
   comet_spawn:        '☄️',
   comet_arrive:       '🌠',
@@ -62,6 +64,8 @@ const EVENT_COLORS = {
   invasion_destroy:  '#ff2a2a',
   invasion_robbery:  '#ff9944',
   galaxy_neglect:    '#ff2a2a',
+  invasion_end:      '#ff9944',
+  fleet_loss:        '#ff5e5e',
   comet_spawn:       '#7ec8e3',
   comet_arrive:      '#7ec8e3',
   comet_lost:        '#8b7fd4',
@@ -105,6 +109,7 @@ const EVENT_TYPE_LABELS = {
   invasion_deflect: 'Вторжение отбито', invasion_repelled: 'Вторжение отбито',
   invasion_destroy: 'Разрушение', invasion_robbery: 'Ограбление',
   galaxy_neglect: 'Запустение галактики',
+  invasion_end: 'Итог вторжения', fleet_loss: 'Потери флота',
   comet_spawn: 'Запуск миссии', comet_arrive: 'Миссия вернулась',
   comet_lost: 'Миссия потеряна', comet_destroy_planet: 'Комета уничтожила планету',
   planet_formed: 'Появилась планета', planet_collision: 'Столкновение',
@@ -122,6 +127,7 @@ const EVENT_TYPE_LABELS = {
 
 const META_LABELS = {
   tierKey: 'Тип атаки', tierLabel: 'Тип атаки', ships: 'Кораблей',
+  difficulty: 'Сложность', planetNames: 'Планеты',
   rewardAmount: 'Награда', count: 'Количество', hours: 'Длительность, ч',
   defenseLevel: 'Уровень Автобороны', repelPercent: 'Шанс отбития, %',
   defensePct: 'Бонус обороны, %', fleetPct: 'Бонус флота, %',
@@ -130,6 +136,7 @@ const META_LABELS = {
   lostDust: 'Украдено пыли', lostEnergy: 'Украдено энергии',
   lostCiv: 'Украдено цивилизации', lostMetals: 'Украдено металлов',
   systemsDamaged: 'Повреждено систем', planetsDisabled: 'Планет в простое',
+  fleetLost: 'Потеряно кораблей флота', outcome: 'Итог', shipsDestroyed: 'Сбито кораблей',
   shieldProtected: 'Щит', galaxy: 'Галактика', multiplier: 'Множитель',
   starType: 'Тип звезды', planetName: 'Планета', planetType: 'Тип планеты',
   reason: 'Причина', primeName: 'Прайм-объект', primeBonus: 'Бонус',
@@ -182,6 +189,12 @@ function _eventMetaValue(key, value) {
     if (t && t.label) return t.label;
   }
   if (key === 'difficulty') return String(value) + '/3';
+  if (key === 'outcome') {
+    if (value === 'defeated') return 'эскадра уничтожена';
+    if (value === 'repelled') return 'атака отбита';
+    if (value === 'breached') return 'вторжение прорвалось';
+    return String(value);
+  }
   if (key === 'source') {
     if (value === 'offline') return 'офлайн-вторжение';
     if (value === 'live') return 'живое вторжение';

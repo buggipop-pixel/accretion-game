@@ -11,14 +11,15 @@ const GAME_BUILD   = '2026-11-08';
 
 const CFG = {
   // ─── Общие настройки ───
-  offlineCapHours: 8,
-  offlineEfficiency: 0.6,
+  // ★ Офлайн больше не штрафует: отсутствие даёт тот же доход, что игра.
+  //   Длительность всё равно ограничена часами хранилища (STORAGE_CFG).
+  offlineEfficiency: 1.0,
   offlineAttackMinSec: 3600,  // Офлайн-вторжения срабатывают только если игрок отсутствовал > 1 часа
   eventInterval: 200,
   eventChance: 0.5,
   formationDuration: 120,     // Время формирования планеты после слияния (сек)
   civGrowthPerPlanet: 0.02,   // Скорость роста цивилизации с одной планеты
-  civClickBoost: 0.0,
+  // civClickBoost удалён: клики по пыли/цивилизации — механика фаз I–III.
 
   // ─── Экономика планет и систем ───
   planetBaseCost: 3530000, planetCostGrowth: 2.0, planetCostExp: 2.0,
@@ -108,9 +109,11 @@ const STAR_TYPES = {
 };
 
 const SYSTEM_TYPES = {
-  single:   { name: 'Одиночная', stars: 1, chance: 0.50, rateMult: 1.0, collisionRate: 0.08, civPassiveMult: 1.0, civClickMult: 1.0, icon: '⭐', color: '#6b4de6', eccentricity: 0.00, precession: 0.000002, orbitDriftRate: 0.0, chaosticPulse: 0.0 },
-  binary:   { name: 'Двойная', stars: 2, chance: 0.38, rateMult: 1.15, collisionRate: 0.20, civPassiveMult: 0.65, civClickMult: 3.0, icon: '✨', color: '#8b5cf6', eccentricity: 0.06, precession: 0.00002, orbitDriftRate: 0.3, chaosticPulse: 0.0003 },
-  trinary:  { name: 'Кратная', stars: 3, chance: 0.12, rateMult: 1.3, collisionRate: 0.35, civPassiveMult: 0.40, civClickMult: 6.0, icon: '💫', color: '#a855f7', eccentricity: 0.09, precession: 0.00004, orbitDriftRate: 0.5, chaosticPulse: 0.0008 },
+  single:   { name: 'Одиночная', stars: 1, chance: 0.50, rateMult: 1.0, collisionRate: 0.08, civPassiveMult: 1.0, icon: '⭐', color: '#6b4de6', eccentricity: 0.00, precession: 0.000002, orbitDriftRate: 0.0, chaosticPulse: 0.0 },
+  // ★ Мульти-звёзды торгуют частью пассивной цивилизации за +15/30% пыли.
+  //   Раньше у них был ещё civClickMult, но клики по цивилизации удалены.
+  binary:   { name: 'Двойная', stars: 2, chance: 0.38, rateMult: 1.15, collisionRate: 0.20, civPassiveMult: 0.80, icon: '✨', color: '#8b5cf6', eccentricity: 0.06, precession: 0.00002, orbitDriftRate: 0.3, chaosticPulse: 0.0003 },
+  trinary:  { name: 'Кратная', stars: 3, chance: 0.12, rateMult: 1.3, collisionRate: 0.35, civPassiveMult: 0.65, icon: '💫', color: '#a855f7', eccentricity: 0.09, precession: 0.00004, orbitDriftRate: 0.5, chaosticPulse: 0.0008 },
 };
 
 // ─── ПЛАНЕТЫ И ОРБИТЫ ───
@@ -230,7 +233,7 @@ const INVASION_CFG = {
   // ★ Вражеский огонь по флоту: пока эскадра жива, она повреждает корабли игрока.
   enemyFire: {
     perShipDamagePerSec: 0.9,
-    capDamagePerSec: 6,
+    capDamagePerSec: 12,
     notifyShipLoss: true,
   },
   // ★ Шанс отбить вторжение: уровни обороны + вклад флота, общий кап 80%.
@@ -299,7 +302,7 @@ const TROPHY_CFG = {
 
 // ─── ПРЕМИУМ (Металлы) ───
 const PREMIUM_CFG = {
-  shield: { hours: 8, costMetals: 600 },
+  // shield удалён: щит покупается за звёзды (CHEST_CFG.shieldStars), не за металл.
   booster: { hours: 2, costMetals: 600, incomeMult: 2.0 },
 };
 
@@ -307,14 +310,16 @@ const PREMIUM_CFG = {
 const MISSIONS_CFG = {
   cometFlightBase: 5 * 60 * 1000, cometFlightMinMult: 1.0, cometFlightMaxMult: 3.0,
   cometRewardBase: 1000000, cometRewardPerPlanet: 0.15, cometFailChance: 0.20,
-  cometRewardMult: 1.35,       // ★ награда = стоимость кометы * 1.35 (EV +8% при fail 20%)
+  // ★ Комета: ставка ограничена 2 часами дохода (см. cometStakeCap), а множитель
+  //   подобран так, чтобы EV был чуть выше 1 (≈+2.4%), а не +8%.
+  cometRewardMult: 1.28,
   cometDamageRange: 2.5, cometDamageChance: 0.35,
   expeditionCostBase: 3000, expeditionCostRatio: 1.5,
   expeditionFlightMin: 10 * 60 * 1000, expeditionFlightMax: 20 * 60 * 1000,
-  expeditionRewardBase: 2000000, expeditionRewardPerPlanet: 0.25, expeditionFailChance: 0.25,
-  expeditionRewardShare: 0.5,  // ★ награда = доход * 0.5 * время полёта (EV x1.375)
+  expeditionRewardBase: 2000000, expeditionRewardPerPlanet: 0.25, expeditionFailChance: 0.15,
+  expeditionRewardShare: 0.30,  // ★ награда: металл + пыль (два компонента), EV ~×1.18
   expeditionEnergySeconds: 300, // ★ цена = 5 минут дохода энергии
-  colonyChance: 0.03, colonyEnergyCost: 50000, colonyEnergyRatio: 2, colonyCivCost: 50, colonyCivRatio: 1.8,
+  colonyChance: 0.05, colonyEnergyCost: 50000, colonyEnergyRatio: 2, colonyCivCost: 50, colonyCivRatio: 1.8,
 };
 
 // ─── МАГАЗИН СИСТЕМ ───
@@ -329,15 +334,17 @@ const SYSTEM_SHOP_CFG = {
   batchMax: 50, // максимум систем за одну покупку (ползунок)
   primeChance: 0,
 };
-// ★ Множитель престижа: раньше ×2.0 за вспышку — на 12-й галактике
-//   получалось ×2048, и доход улетал в космос. Теперь шаг мягче (×1.3)
-//   плюс потолок: 12-я галактика ≈ ×23, 20-я ≈ ×190, 30-я ≈ ×2.6К.
+// ★ Кривая престижа: требования и множитель растут одним шагом 1.6.
+//   Раньше требования были [10,50,150,450,1350,4050] (×3), а множитель ×1.3 —
+//   каждый следующий забег становился в ~3 раза дольше. Теперь время
+//   до следующей вспышки примерно постоянно, а доход растёт.
+//   Потолок множителя оставлен, чтобы длинная игра не улетала в космос.
 const PRESTIGE_CFG = {
   firstRequirement: 10,
-  stepMultiplier: 1.4,
-  multiplierPerGalaxy: 1.3,
+  stepMultiplier: 1.6,
+  multiplierPerGalaxy: 1.6,
   multiplierCap: 1e6,
-  requirements: [10, 50, 150, 450, 1350, 4050]
+  requirements: []
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -543,7 +550,7 @@ const STAR_WEIGHTS = { M: 60, K: 15, G: 10, A: 10, B: 5 };
 // ─── СУНДУКИ ───
 const CHEST_CFG = {
   costStars: 200,
-  shieldStars: 100,
+  shieldStars: 250,
   lootTable: [
     { key: 'blackHole', weight: 20 }, { key: 'pulsar', weight: 20 }, { key: 'wormhole', weight: 20 },
     { key: 'quasar', weight: 10 }, { key: 'magnetar', weight: 10 }, { key: 'gravLens', weight: 10 },
@@ -815,6 +822,23 @@ window.PREMIUM_CFG = PREMIUM_CFG;
 window.MISSIONS_CFG = MISSIONS_CFG;
 window.SYSTEM_SHOP_CFG = SYSTEM_SHOP_CFG;
 window.PRESTIGE_CFG = PRESTIGE_CFG;
+
+// ─── Единый серверный день: 01:00 UTC = 04:00 МСК ──────────────
+// Один и тот же день для событий, ежедневок и лимитов бустера.
+const GAME_DAY_OFFSET_MS = 3600000;
+const GAME_DAY_EPOCH = Date.UTC(2024, 0, 1) + GAME_DAY_OFFSET_MS;
+function serverDayIndex(ts) {
+  const t = (ts === undefined) ? Date.now() : Number(ts);
+  return Math.floor((t - GAME_DAY_EPOCH) / 86400000);
+}
+function serverWeekIndex(ts) {
+  const t = (ts === undefined) ? Date.now() : Number(ts);
+  return Math.floor((t - GAME_DAY_EPOCH) / (7 * 86400000));
+}
+window.GAME_DAY_OFFSET_MS = GAME_DAY_OFFSET_MS;
+window.GAME_DAY_EPOCH = GAME_DAY_EPOCH;
+window.serverDayIndex = serverDayIndex;
+window.serverWeekIndex = serverWeekIndex;
 window.GALAXY_LOD_CFG = GALAXY_LOD_CFG;
 window.galaxyLodForTotal = galaxyLodForTotal;
 window.galaxyGroupSizeForLevel = galaxyGroupSizeForLevel;

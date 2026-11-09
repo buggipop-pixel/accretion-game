@@ -256,7 +256,7 @@ function createSystemFromShop() {
     if (typeof autoSaveToCloud === 'function') autoSaveToCloud(true);
     return true;
   } catch (e) {
-    alert('ОШИБКА ПРИ СОЗДАНИИ: ' + e.message);
+    if (typeof toast === 'function') toast('Ошибка при создании', String(e && e.message || e));
     console.error(e);
     return false;
   }

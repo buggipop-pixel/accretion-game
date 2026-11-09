@@ -266,6 +266,7 @@ function spawnInvasion() {
   const waveId = 'w' + now.toString(36) + Math.random().toString(36).slice(2, 6);
   const victimNames = [];
   const victimSeeds = [];
+  let firstWaveInv = null;
 
   for (let t = 0; t < wantTargets; t++) {
     const idx = Math.floor(Math.random() * active.length);
@@ -300,10 +301,14 @@ function spawnInvasion() {
       notified: true,
     };
     S.invasions.push(pinv);
-    // ★ Подробное уведомление по каждой атакованной планете.
-    if (typeof notifyInvasionStart === 'function') notifyInvasionStart(pinv);
+    if (!firstWaveInv) firstWaveInv = pinv;
   }
   if (wantTargets === 0) return;
+  // ★ Одно уведомление о старте на всю волну (раньше — по одному на планету).
+  if (firstWaveInv && typeof notifyInvasionStart === 'function') {
+    const extra = wantTargets > 1 ? ['🪐 Цели волны: ' + victimNames.join(', ')] : null;
+    notifyInvasionStart(firstWaveInv, extra);
+  }
 
   toast('⚔️ ' + tier.label + '!', wantTargets > 1 ? ('Атаковано планет: ' + wantTargets) : (victimNames[0] + ' атакована'));
   if (typeof playSFX === 'function') playSFX('invasion');
@@ -448,7 +453,16 @@ function applyEnemyFireToFleet(inv, dt) {
   if (lost > 0) {
     if (!S.stats) S.stats = {};
     S.stats.fleetLost = (Number(S.stats.fleetLost) || 0) + lost;
+    // ★ Сколько кораблей флота потеряно именно в этом бою — попадает
+    //   в итоговый отчёт о вторжении (журнал и Telegram).
+    inv.fleetLost = (Number(inv.fleetLost) || 0) + lost;
     if (typeof toast === 'function') toast('💥 Флот несёт потери', 'Уничтожено кораблей: ' + lost);
+    if (typeof addEvent === 'function') {
+      const fleetMeta = { fleetLost: lost, tierKey: inv.tierKey, difficulty: Number(inv.difficulty) || 1, source: 'live' };
+      if (typeof inv.systemIdx === 'number') fleetMeta.systemIdx = inv.systemIdx;
+      if (inv.planetName) fleetMeta.planetName = inv.planetName;
+      addEvent('fleet_loss', 'в бою уничтожено кораблей флота: ' + lost, { meta: fleetMeta });
+    }
     if (typeof notifyFleetEvent === 'function') {
       notifyFleetEvent('Флот несёт потери', [
         '💥 Уничтожено кораблей: ' + lost,
@@ -466,6 +480,33 @@ function applyEnemyFireToFleet(inv, dt) {
 window.applyEnemyFireToFleet = applyEnemyFireToFleet;
 
 // ─── Тик вторжений ──────────────────────────────────────────────
+// ★ Единая точка завершения вторжения: и Telegram-пуш, и запись в журнал.
+//   Раньше журнал получал только «атакована система» (invasion_spawn),
+//   а итог — отбито/прорвалось и потери — видел только Telegram.
+function reportInvasionEnd(inv, outcome) {
+  if (!inv) return;
+  if (typeof notifyInvasionEnd === 'function') notifyInvasionEnd(inv, outcome);
+  if (typeof addEvent !== 'function') return;
+  const short = (typeof invasionOutcomeShort === 'function')
+    ? invasionOutcomeShort(inv, outcome)
+    : (outcome === 'breached' ? 'вторжение прорвалось' : 'эскадра уничтожена');
+  const meta = {
+    source: 'live',
+    tierKey: inv.tierKey,
+    difficulty: Number(inv.difficulty) || 1,
+    outcome: outcome,
+  };
+  if (typeof inv.systemIdx === 'number') meta.systemIdx = inv.systemIdx;
+  if (inv.planetName) meta.planetName = inv.planetName;
+  if (Number(inv.fleetLost) > 0) meta.fleetLost = Number(inv.fleetLost);
+  if (Number(inv.stolen) > 0) meta.lostDust = Math.floor(inv.stolen);
+  if (Number(inv.drainedEnergy) > 0) meta.lostEnergy = Math.floor(inv.drainedEnergy);
+  if (Number(inv.drainedCiv) > 0) meta.lostCiv = Math.floor(inv.drainedCiv * 100) / 100;
+  if (Number(inv.stolenMetals) > 0) meta.lostMetals = Math.floor(inv.stolenMetals);
+  if (Number(inv.disabledPlanets) > 0) meta.planetsDisabled = Number(inv.disabledPlanets);
+  addEvent('invasion_end', short, { meta: meta });
+}
+
 function tickInvasions(dt) {
   if (!S.invasions) S.invasions = [];
   const now = Date.now();
@@ -496,7 +537,7 @@ function tickInvasions(dt) {
         const defLvl = (typeof activeDefenseLevel === 'function') ? activeDefenseLevel(now) : (S.nightDefenseLevel || 0);
         const defPct = Math.round(defLvl * (Number(INVASION_CFG.repelDefensePerLevel) || 0.10) * 100);
         const fleetPct = (typeof fleetRepelChance === 'function') ? Math.round(fleetRepelChance(now) * 100) : 0;
-        if (typeof addEvent === 'function') addEvent('invasion_repelled', 'Атака отбита: Автоборона ур.' + defLvl + ' (+' + defPct + '% к отбитию), итого ' + repelPct + '%', { meta: { systemIdx: S.activeSystemIdx, defenseLevel: defLvl, defensePct: defPct, fleetPct: fleetPct, repelPercent: repelPct, systemName: S.systemName || 'Родная' } });
+        if (typeof addEvent === 'function') addEvent('invasion_repelled', 'Атака отбита до высадки: Автоборона ур.' + defLvl + ' (+' + defPct + '%), флот (+' + fleetPct + '%), итого ' + repelPct + '% · потерь нет', { meta: { systemIdx: S.activeSystemIdx, defenseLevel: defLvl, defensePct: defPct, fleetPct: fleetPct, repelPercent: repelPct, systemName: S.systemName || 'Родная' } });
       } else if (Math.random() < INVASION_CFG.chance) {
         spawnInvasion();
       }
@@ -549,7 +590,7 @@ function tickInvasions(dt) {
         if (destroyedByFleet > 0 && inv.notified) toast('✓ Отбито', 'Флот уничтожил вражескую эскадру');
         if (!S.stats) S.stats = {};
         S.stats.invasionsDefeated = (S.stats.invasionsDefeated || 0) + 1;
-        if (typeof notifyInvasionEnd === 'function') notifyInvasionEnd(inv, 'defeated');
+        reportInvasionEnd(inv, 'defeated');
         S.invasions.splice(i, 1);
         continue;
       }
@@ -571,7 +612,7 @@ function tickInvasions(dt) {
         if (inv.notified) toast('✓ Вторжение отбито', 'Система спасена');
         if (!S.stats) S.stats = {};
         S.stats.invasionsDefeated = (S.stats.invasionsDefeated || 0) + 1;
-        if (typeof notifyInvasionEnd === 'function') notifyInvasionEnd(inv, 'defeated');
+        reportInvasionEnd(inv, 'defeated');
         S.invasions.splice(i, 1);
         continue;
       }
@@ -590,7 +631,7 @@ function tickInvasions(dt) {
           applyInvasionAftermath(inv);
           inv.systemsDamaged = Math.max(1, Number(inv.systemsDamaged) || 0);
           if (inv.notified) toast('⚠️ Система повреждена', 'Доход снижен, часть планет простаивает');
-          if (typeof notifyInvasionEnd === 'function') notifyInvasionEnd(inv, 'breached');
+          reportInvasionEnd(inv, 'breached');
           S.invasions.splice(i, 1);
           continue;
         }
@@ -615,7 +656,7 @@ function tickInvasions(dt) {
       toast('✓ Вторжение отбито', PLANET_TYPES[victim.type].name + ' свободна');
       if (!S.stats) S.stats = {};
       S.stats.invasionsDefeated = (S.stats.invasionsDefeated || 0) + 1;
-      if (typeof notifyInvasionEnd === 'function') notifyInvasionEnd(inv, 'defeated');
+      reportInvasionEnd(inv, 'defeated');
       S.invasions.splice(i, 1);
       continue;
     }
@@ -628,7 +669,7 @@ function tickInvasions(dt) {
     if (robbingDone && aliveShips > 0) {
       if (inv.hp <= 0 || now >= inv.destructionEndsAt) {
         applyInvasionAftermath(inv, victim);
-        if (typeof notifyInvasionEnd === 'function') notifyInvasionEnd(inv, 'breached');
+        reportInvasionEnd(inv, 'breached');
         S.invasions.splice(i, 1);
         continue;
       }

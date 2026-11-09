@@ -78,7 +78,8 @@ const R = context.RandomEvents;
 const CFG = context.EVENTS_CFG;
 const DAY = 24 * 3600 * 1000;
 const WEEK = 7 * DAY;
-const EPOCH = Date.UTC(2024, 0, 1);
+// Единый серверный день сдвинут на 01:00 UTC (04:00 МСК).
+const EPOCH = Date.UTC(2024, 0, 1, 1);
 
 const logEvents = [];
 context.addEvent = (type, text) => { logEvents.push({ type, text }); };
@@ -225,13 +226,15 @@ S.planets = [S.planets[0]];
 S.energy = 1000;
 R.applyPenalty({ destroyPlanets: 1 });
 assert('Штраф: последнюю планету нельзя уничтожить', S.planets.length === 1);
-assert('Штраф: вместо потери планеты −50% энергии', S.energy === 500, String(S.energy));
+assert('Штраф: последнюю планету не уничтожаем и не штрафуем энергией', S.energy === 1000, String(S.energy));
 
 resetPlayer();
 S.primeSystem = { bonus: {} };
 S.planets = [S.planets[0], S.planets[1]];
 R.applyPenalty({ destroyPlanets: 1 });
 assert('Штраф: Прайм-система защищена', S.planets.length === 2);
+// ★ Щит теперь блокирует событие с шансом 50%: для теста фиксируем удачный ролл.
+vm.runInContext('globalThis.__origRandom = Math.random; Math.random = function() { return 0; };', context);
 // ─── 7b. Щит: альтернатива обороне и защита от негативных событий ─
 resetPlayer();
 assert('Щит: без щита isShieldActive=false', context.isShieldActive() === false);
@@ -314,6 +317,15 @@ const bossBefore = S.energy;
 context.resolveRandomEvent(false);
 assert('Щит: провал босса не отнимает ресурсы', S.energy === bossBefore, bossBefore + ' → ' + S.energy);
 assert('Щит: провал босса записан как поглощённый', logEvents.some(e => e.type === 'random_event_shield'));
+// Щит — 50%: при неудачном ролле штраф применяется вдвое слабее.
+vm.runInContext('Math.random = function() { return 0.9; };', context);
+resetPlayer();
+S.shieldUntil = Date.now() + 3600 * 1000;
+S.energy = 1000;
+const halfParts = R.applyPenalty({ energyPct: 0.5 });
+assert('Щит 50%: штраф энергии уменьшен вдвое', S.energy === 750, '1000 → ' + S.energy);
+assert('Щит 50%: в тексте есть штраф', halfParts.join(' ').indexOf('−') !== -1, halfParts.join(' '));
+vm.runInContext('Math.random = globalThis.__origRandom;', context);
 
 // ─── 8. Ежедневный спавн: один раз в день ──────────────────────
 resetPlayer();

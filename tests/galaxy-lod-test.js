@@ -81,14 +81,13 @@ assert('LOD: 1000 систем на ур.3 = 100 макро-объектов', c
 
 // ─── Престиж ───
 const req = context.prestigeRequirements();
-assert('Престиж: требования [10,50,150,450,1350,4050]',
-  JSON.stringify(req.slice(0, 6)) === JSON.stringify([10, 50, 150, 450, 1350, 4050]));
+assert('Престиж: ступени 10, 16, 26… (шаг 1.6)',
+  req[0] === 10 && req[1] === 16 && req[2] === 26);
 assert('Престиж: 1-я вспышка с 10 систем', context.prestigeRequirementFor(0) === 10);
-assert('Престиж: 2-я вспышка с 50 систем', context.prestigeRequirementFor(1) === 50);
-assert('Престиж: 3-я вспышка с 150 систем', context.prestigeRequirementFor(2) === 150);
-assert('Престиж: 4-я вспышка с 450 систем', context.prestigeRequirementFor(3) === 450);
-assert('Престиж: 5-я вспышка с 1350 систем', context.prestigeRequirementFor(4) === 1350);
-assert('Престиж: 6-я вспышка с 4050 систем', context.prestigeRequirementFor(5) === 4050);
+assert('Престиж: 2-я вспышка с 16 систем', context.prestigeRequirementFor(1) === 16);
+assert('Престиж: 3-я вспышка с 26 систем', context.prestigeRequirementFor(2) === 26);
+assert('Престиж: лестница растёт дальше', req[5] > req[4] && req[6] > req[5]);
+assert('Престиж: 6-я вспышка по ступени', context.prestigeRequirementFor(5) === req[5]);
 
 // ─── Редкость Прайма ───
 assert('Прайм: primeBH > superBH', context.primeObjectRank('primeBH') > context.primeObjectRank('superBH'));

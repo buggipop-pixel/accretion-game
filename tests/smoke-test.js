@@ -344,16 +344,17 @@ try {
   const S = context.S;
   const reqs = context.prestigeRequirements();
   assert(
-    'Престиж: лестница продолжается после 5-й вспышки',
-    reqs.length > 5 && reqs[5] === 4050 && reqs[6] > reqs[5]
+    'Престиж: лестница продолжается и растёт шагом 1.6',
+    reqs.length > 5 && reqs[0] === 10 && reqs[1] === 16 &&
+    reqs[5] > reqs[4] && reqs[6] > reqs[5]
   );
   S.prestigeLevel = 5;
-  S.systems = 8;
+  S.systems = reqs[5] - 1;
   assert('Престиж: 6-я вспышка требует больше систем', context.checkPrestigeAvailability() === 0);
-  S.systems = 4050;
-  assert('Престиж: 6-я вспышка доступна при 4050 системах', context.checkPrestigeAvailability() === 6);
+  S.systems = reqs[5];
+  assert('Престиж: 6-я вспышка доступна на пороге', context.checkPrestigeAvailability() === 6);
   S.prestigeLevel = 6;
-  S.systems = 5000;
+  S.systems = reqs[6] - 1;
   assert(
     'Престиж: 7-я вспышка требует больше, чем 6-я',
     context.checkPrestigeAvailability() === 0 && context.prestigeRequirementFor(6) === reqs[6]
@@ -362,14 +363,13 @@ try {
   console.error('   prestige ladder: ' + e.message);
   assert('Престиж: лестница продолжается после 5-й вспышки', false);
 }
-// Тест 10: мягкая кривая множителя престижа (было ×2 за вспышку → ×2048)
-// Новый шаг ×1.3: на 12-й галактике ≈ ×23 вместо ×2048.
+// Тест 10: кривая множителя престижа шагом ×1.6.
 try {
   const fn = context.prestigeMultiplierFor;
   assert('Престиж: множитель начинается с ×1', Math.abs(fn(0) - 1) < 1e-9);
   assert(
-    'Престиж: на 12-й галактике множитель мягкий (< ×100)',
-    fn(11) > 10 && fn(11) < 100 && fn(11) < 2048 / 20
+    'Престиж: на 12-й галактике множитель ×100–×400',
+    fn(11) > 100 && fn(11) < 400
   );
   assert(
     'Престиж: множитель растёт и упирается в потолок',

@@ -227,6 +227,41 @@ function notifyInvasionStart(inv, extraLines) {
   return notifyEvent('invasion', 'Вторжение! Сложность ' + diff + '/3', lines, { key: 'inv_start:' + inv.id, immediate: true, ignoreCooldown: true });
 }
 
+// Потери вторжения в компактном виде: ресурсы / планеты / системы / флот.
+function invasionLossParts(inv) {
+  const parts = [];
+  if (!inv) return parts;
+  const stolenDust = Number(inv.stolen) || 0;
+  const stolenEnergy = Number(inv.drainedEnergy) || 0;
+  const stolenCiv = Number(inv.drainedCiv) || 0;
+  const stolenMetals = Number(inv.stolenMetals) || 0;
+  if (stolenDust > 0) parts.push('✦ ' + _notifyFmt(stolenDust));
+  if (stolenEnergy > 0) parts.push('⚡ ' + _notifyFmt(stolenEnergy));
+  if (stolenCiv > 0) parts.push('🧬 ' + (Math.round(stolenCiv * 100) / 100));
+  if (stolenMetals > 0) parts.push('⚙ ' + _notifyFmt(stolenMetals));
+  return parts;
+}
+
+// Короткая строка исхода боя — для журнала событий (Журнал → карточка).
+function invasionOutcomeShort(inv, outcome) {
+  const parts = [];
+  if (outcome === 'defeated') parts.push('эскадра уничтожена');
+  else if (outcome === 'repelled') parts.push('атака отбита');
+  else parts.push('вторжение прорвалось');
+  const total = (inv && Array.isArray(inv.ships)) ? inv.ships.length : 0;
+  let destroyed = 0;
+  for (let i = 0; i < total; i++) if (inv.ships[i] && inv.ships[i].destroyed) destroyed++;
+  if (total > 0) parts.push('сбито ' + destroyed + ' из ' + total);
+  const losses = invasionLossParts(inv);
+  if (losses.length) parts.push('украдено: ' + losses.join(', '));
+  else parts.push('потерь ресурсов нет');
+  if (Number(inv.disabledPlanets) > 0) parts.push('планет в простое: ' + Number(inv.disabledPlanets));
+  if (Number(inv.systemsDamaged) > 0) parts.push('повреждено систем: ' + Number(inv.systemsDamaged));
+  if (Number(inv.fleetLost) > 0) parts.push('потеряно кораблей флота: ' + Number(inv.fleetLost));
+  if (Number(inv.debuffPct) > 0) parts.push('доход −' + Math.round(Number(inv.debuffPct) * 100) + '% на ' + (Math.round((Number(inv.debuffHours) || 0) * 10) / 10) + ' ч');
+  return parts.join(' · ');
+}
+
 function notifyInvasionEnd(inv, outcome, extraLines) {
   if (!inv) return false;
   const diff = invasionDifficulty(inv);
@@ -241,20 +276,15 @@ function notifyInvasionEnd(inv, outcome, extraLines) {
   } else {
     lines.push('⚠️ Итог: вторжение прорвалось');
   }
-  const stolenDust = Number(inv.stolen) || 0;
-  const stolenEnergy = Number(inv.drainedEnergy) || 0;
-  const stolenCiv = Number(inv.drainedCiv) || 0;
-  const stolenMetals = Number(inv.stolenMetals) || 0;
-  if (stolenDust + stolenEnergy + stolenCiv + stolenMetals > 0) {
-    const parts = [];
-    if (stolenDust > 0) parts.push('✦ ' + _notifyFmt(stolenDust));
-    if (stolenEnergy > 0) parts.push('⚡ ' + _notifyFmt(stolenEnergy));
-    if (stolenCiv > 0) parts.push('🧬 ' + (Math.round(stolenCiv * 100) / 100));
-    if (stolenMetals > 0) parts.push('⚙ ' + _notifyFmt(stolenMetals));
-    lines.push('💸 Потеряно ресурсов: ' + parts.join(', '));
-  }
+  const total = Array.isArray(inv.ships) ? inv.ships.length : 0;
+  let destroyed = 0;
+  for (let i = 0; i < total; i++) if (inv.ships[i] && inv.ships[i].destroyed) destroyed++;
+  if (total > 0) lines.push('🛸 Сбито кораблей: ' + destroyed + ' из ' + total);
+  const lossParts = invasionLossParts(inv);
+  if (lossParts.length) lines.push('💸 Потеряно ресурсов: ' + lossParts.join(', '));
   if (Number(inv.disabledPlanets) > 0) lines.push('🪐 Планет в простое: ' + Number(inv.disabledPlanets));
   if (Number(inv.systemsDamaged) > 0) lines.push('🌐 Повреждено систем: ' + Number(inv.systemsDamaged));
+  if (Number(inv.fleetLost) > 0) lines.push('🚀 Потеряно кораблей флота: ' + Number(inv.fleetLost));
   if (Number(inv.debuffPct) > 0) {
     lines.push('📉 Штраф к доходу: −' + Math.round(Number(inv.debuffPct) * 100) + '% на ' + (Math.round((Number(inv.debuffHours) || 0) * 10) / 10) + ' ч');
   }
@@ -292,5 +322,7 @@ window.notifyInvasionEnd = notifyInvasionEnd;
 window.notifyFleetEvent = notifyFleetEvent;
 window.notifyStorageFull = notifyStorageFull;
 window.invasionDifficulty = invasionDifficulty;
+window.invasionLossParts = invasionLossParts;
+window.invasionOutcomeShort = invasionOutcomeShort;
 window.invasionShipSummary = invasionShipSummary;
 window.notifyFlush = notifyFlush;

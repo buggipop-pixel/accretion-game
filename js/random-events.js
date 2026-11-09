@@ -17,7 +17,8 @@
 const RE_DAY_MS = 24 * 60 * 60 * 1000;
 const RE_WEEK_MS = 7 * RE_DAY_MS;
 // Понедельник, 1 января 2024, UTC — начало отсчёта игровых дней/недель.
-const RE_EPOCH = Date.UTC(2024, 0, 1);
+// Единый серверный день: 01:00 UTC = 04:00 МСК (см. GAME_DAY_EPOCH).
+const RE_EPOCH = (typeof GAME_DAY_EPOCH === 'number') ? GAME_DAY_EPOCH : Date.UTC(2024, 0, 1, 1);
 const RE_MAX_WORLD_EVENTS = 5;
 
 const RE_STAGE_RANK = { cloud: 0, condense: 1, protostar: 2, firstPlanet: 3, system: 4, galaxy: 5 };
@@ -305,57 +306,179 @@ function reAddWorldEvent(cfg, durationMs, tier) {
   return state;
 }
 
+// ★ Разрушение по масштабу империи. Гибнет объект, адекватный размеру
+//   государства: планета → система → созвездие → туманность → скопление.
+//   Прайм-системы неприкосновенны, активная система не удаляется.
+function reDestroyByScale(intensity, shieldMult) {
+  const res = { parts: [], systemsLost: 0, planetsLost: 0, label: '', resourcesPct: 0, primeDebuffed: false };
+  function primeDebuff() {
+    res.primeDebuffed = true;
+    S.primeDebuffUntil = Math.max(Number(S.primeDebuffUntil) || 0, Date.now() + 3600 * 1000);
+    res.parts.push('📉 Прайм: −50% дохода на 1ч');
+  }
+  const systems = Math.max(1, Number(S.systems) || 1);
+  let small = 0, big = 0, label = 'планета';
+  if (systems >= 450)      { small = 150; big = 450; label = 'скопление'; }
+  else if (systems >= 150) { small = 50;  big = 150; label = 'туманность'; }
+  else if (systems >= 50)  { small = 10;  big = 50;  label = 'созвездие'; }
+  else if (systems >= 10)  { small = 1;   big = 10;  label = 'система'; }
+  res.label = label;
+
+  // 30% — редкий крупный объект, 70% — обычный.
+  const bigRoll = big > small && Math.random() < 0.30;
+  let want = bigRoll ? big : small;
+  // Потолок — не более 34% империи за одно событие, но не меньше 1.
+  const cap = Math.max(1, Math.floor(systems * 0.34));
+  if (want > 0) want = Math.min(want, cap);
+  if (shieldMult < 1 && want > 0) want = Math.max(1, Math.ceil(want / 2));
+
+  if (want <= 1 && systems < 10) {
+    const list = Array.isArray(S.planets) ? S.planets : [];
+    if (!S.primeSystem && list.length > 1) {
+      const victim = list.splice(Math.floor(Math.random() * list.length), 1)[0];
+      res.planetsLost = 1;
+      const nm = (typeof PLANET_TYPES !== 'undefined' && PLANET_TYPES[victim.type]) ? PLANET_TYPES[victim.type].name : 'планета';
+      res.parts.push('💀 ' + nm);
+    } else if (S.primeSystem) {
+      primeDebuff();
+    } else {
+      res.parts.push('🛡 последняя планета не тронута');
+    }
+  } else {
+    const list = Array.isArray(S.otherSystems) ? S.otherSystems : [];
+    const active = Number(S.activeSystemIdx) || 0;
+    const cand = [];
+    for (let i = 1; i < list.length; i++) {
+      if (i === active) continue;
+      const sys = list[i];
+      if (!sys || !Array.isArray(sys.planets) || !sys.planets.length) continue;
+      if (typeof isPrimeSystemData === 'function' && isPrimeSystemData(sys)) continue;
+      cand.push(i);
+    }
+    // Перемешиваем, чтобы гибли случайные системы, а не последние.
+    for (let i = cand.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = cand[i]; cand[i] = cand[j]; cand[j] = t;
+    }
+    const take = Math.min(want, cand.length);
+    const remove = {};
+    const names = [];
+    for (let k = 0; k < take; k++) {
+      remove[cand[k]] = true;
+      const sys = list[cand[k]];
+      names.push(sys && sys.name ? sys.name : 'колония');
+    }
+    let removed = 0;
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (!remove[i]) continue;
+      list.splice(i, 1);
+      removed++;
+    }
+    S.otherSystems = list;
+    if (removed > 0) {
+      S.systems = Math.max(1, (Number(S.systems) || 1) - removed);
+      if (active > 0) {
+        let shift = 0;
+        for (const key in remove) if (Number(key) < active) shift++;
+        S.activeSystemIdx = Math.max(1, active - shift);
+      }
+      res.systemsLost = removed;
+      res.parts.push('💀 ' + removed + ' сист. (' + names.slice(0, 3).join(', ') + (names.length > 3 ? '…' : '') + ')');
+    } else {
+      const plist = Array.isArray(S.planets) ? S.planets : [];
+      if (!S.primeSystem && plist.length > 1) {
+        plist.splice(Math.floor(Math.random() * plist.length), 1);
+        res.planetsLost = 1;
+        res.parts.push('💀 планета');
+      } else if (S.primeSystem) {
+        primeDebuff();
+      } else {
+        res.parts.push('🛡 последняя планета не тронута');
+      }
+    }
+  }
+
+  // Разрушение всегда сопровождается потерей 15% каждой валюты.
+  if (res.systemsLost > 0 || res.planetsLost > 0) {
+    res.resourcesPct = 0.15;
+    const fields = [['dust', '✦'], ['energy', '⚡'], ['civLevel', '🧬'], ['metalAmount', '⚙']];
+    for (let i = 0; i < fields.length; i++) {
+      const key = fields[i][0];
+      const cur = Number(S[key]) || 0;
+      const lost = Math.floor(cur * res.resourcesPct);
+      if (lost > 0) S[key] = cur - lost;
+    }
+    res.parts.push('−15% ресурсов');
+
+  }
+  const happened = !!(res.systemsLost || res.planetsLost || res.primeDebuffed);
+  if (happened && typeof notifyEvent === 'function') {
+    const lines = [];
+    if (res.systemsLost) lines.push('💀 Уничтожено систем: ' + res.systemsLost);
+    else if (res.planetsLost) lines.push('💀 Уничтожена планета');
+    if (res.primeDebuffed) lines.push('📉 Прайм: −50% дохода на 1 час');
+    lines.push('🌌 Объект: ' + res.label);
+    if (res.resourcesPct) lines.push('💸 Потеряно 15% каждой валюты');
+    notifyEvent('event', '☠️ Босс атаковал империю', lines, {
+      key: 'destroy:' + Date.now(), immediate: true, ignoreCooldown: true,
+    });
+  }
+  if (happened && typeof addEvent === 'function') {
+    addEvent('random_event_fail', 'Атака босса: ' + res.parts.join(' · '), { meta: { source: 'boss' } });
+  }
+
+  return res;
+}
+
+
 function reApplyPenalty(penalty, sourceTitle) {
   const parts = [];
   if (!penalty) return parts;
   const title = sourceTitle || 'событие';
 
-  // ★ Щит — альтернатива обороне: любые штрафы случайных событий
-  //   (плохая ежедневка, провал босса/тапов/выбора, негативное world-событие)
-  //   при активном щите не применяются.
-  if (reShieldActive()) {
-    return ['🛡 щит поглотил последствия'];
+  // ★ Щит: 50% — полностью гасит событие, иначе штрафы вдвое слабее.
+  const shielded = reShieldActive();
+  let shieldMult = 1;
+  if (shielded && !penalty.destroyPlanets) {
+    if (Math.random() < 0.5) return ['🛡 щит поглотил последствия']; 
+    shieldMult = 0.5;
   }
 
   if (penalty.energyPct) {
-    const lost = Math.floor((S.energy || 0) * Number(penalty.energyPct));
+    const lost = Math.floor((S.energy || 0) * Number(penalty.energyPct) * shieldMult);
     if (lost > 0) { S.energy = Math.max(0, (S.energy || 0) - lost); parts.push('−' + reFmt(lost) + ' ⚡'); }
   }
   if (penalty.metalsPct) {
-    const lost = Math.floor((S.metalAmount || 0) * Number(penalty.metalsPct));
+    const lost = Math.floor((S.metalAmount || 0) * Number(penalty.metalsPct) * shieldMult);
     if (lost > 0) { S.metalAmount = Math.max(0, (S.metalAmount || 0) - lost); parts.push('−' + reFmt(lost) + ' ⚙'); }
   }
   if (penalty.dustPct) {
-    const lost = Math.floor((S.dust || 0) * Number(penalty.dustPct));
+    const lost = Math.floor((S.dust || 0) * Number(penalty.dustPct) * shieldMult);
     if (lost > 0) { S.dust = Math.max(0, (S.dust || 0) - lost); parts.push('−' + reFmt(lost) + ' ✦'); }
   }
   if (penalty.disablePlanetHours) {
     const pl = rePickPlanet();
     if (pl) {
-      pl.disabledUntil = Date.now() + Number(penalty.disablePlanetHours) * 3600 * 1000;
+      const hours = Math.max(0.5, Number(penalty.disablePlanetHours) * shieldMult);
+      pl.disabledUntil = Date.now() + hours * 3600 * 1000;
       const name = (typeof PLANET_TYPES !== 'undefined' && PLANET_TYPES[pl.type]) ? PLANET_TYPES[pl.type].name : 'планета';
-      parts.push('🔒 ' + name + ' на ' + penalty.disablePlanetHours + 'ч');
+      parts.push('🔒 ' + name + ' на ' + hours + 'ч');
     }
   }
   if (penalty.destroyPlanets) {
-    const planets = Array.isArray(S.planets) ? S.planets : [];
-    let left = Math.max(1, Number(penalty.destroyPlanets) || 1);
-    while (left > 0 && planets.length > 1 && !S.primeSystem) {
-      const lost = planets.pop();
-      const name = (typeof PLANET_TYPES !== 'undefined' && PLANET_TYPES[lost.type]) ? PLANET_TYPES[lost.type].name : 'неизвестная';
-      parts.push('💀 ' + name);
-      left--;
+    let destroyMult = 1;
+    if (shielded) {
+      if (Math.random() < 0.5) return ['🛡 щит поглотил разрушение'];
+      destroyMult = 0.5;
     }
-    if (left > 0 && !S.primeSystem) {
-      // Прайм и последнюю планету не уничтожаем — штрафуем энергией.
-      S.energy = Math.floor((S.energy || 0) * 0.5);
-      parts.push('−50% ⚡');
-    }
+    const dmg = reDestroyByScale(penalty.destroyPlanets, destroyMult);
+    for (let i = 0; i < dmg.parts.length; i++) parts.push(dmg.parts[i]);
+    if (shielded) return parts;
   }
   if (penalty.worldEvent && typeof EVENTS_CFG !== 'undefined') {
     const target = reEventById(penalty.worldEvent);
     if (target && target.mods) {
-      const hours = Number(penalty.durationHours) || 3;
+      const hours = (Number(penalty.durationHours) || 3) * shieldMult;
       reAddWorldEvent(target, hours * 3600 * 1000, 'daily');
       parts.push(target.icon + ' ' + target.title);
     }
@@ -938,6 +1061,7 @@ window.RandomEvents = {
   startInteractive: reStartInteractive,
   addWorldEvent: reAddWorldEvent,
   applyPenalty: reApplyPenalty,
+  destroyByScale: reDestroyByScale,
   applyReward: reApplyReward,
   check: reCheckRandomEvents,
   checkDaily: reCheckDaily,

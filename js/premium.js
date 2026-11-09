@@ -85,6 +85,9 @@ function openPremiumShop() {
   
   const boostActive = S.boosters && S.boosters.incomeUntil > Date.now();
   const boostLeft = boostActive ? Math.ceil((S.boosters.incomeUntil - Date.now()) / 3600000) : 0;
+  const boosterCost = (typeof boosterPriceMetals === 'function') ? boosterPriceMetals() : PREMIUM_CFG.booster.costMetals;
+  const todayIdx = (typeof serverDayIndex === 'function') ? serverDayIndex() : Math.floor(Date.now() / 86400000);
+  const boughtBoosterToday = Number(S.boosterDay) === todayIdx;
 
   card.innerHTML = `
     <div class="modal-title">⚙ Магазин</div>
@@ -106,9 +109,13 @@ function openPremiumShop() {
         <span>🚀 Бустер Дохода (×${PREMIUM_CFG.booster.incomeMult})</span>
         <span>${boostActive ? 'Активен ' + boostLeft + 'ч' : PREMIUM_CFG.booster.hours + ' часа'}</span>
       </div>
+      <div class="modal-sub" style="margin-top:4px;color:#8b7fd4;">1 покупка в день за металл · цена = 2 часа добычи</div>
       <button class="pour-btn" style="width:100%;margin-top:8px;"
-        onclick="buyIncomeBooster()" ${(S.metalAmount || 0) >= PREMIUM_CFG.booster.costMetals ? '' : 'disabled'}>
-        ${(S.metalAmount || 0) >= PREMIUM_CFG.booster.costMetals ? 'Купить за ' + PREMIUM_CFG.booster.costMetals + ' ⚙' : 'Нужно ' + PREMIUM_CFG.booster.costMetals + ' ⚙'}
+        onclick="buyIncomeBooster()" ${boughtBoosterToday ? 'disabled' : ((S.metalAmount || 0) >= boosterCost ? '' : 'disabled')}>
+        ${boughtBoosterToday ? 'Куплено сегодня' : ((S.metalAmount || 0) >= boosterCost ? 'Купить за ' + fmt(boosterCost) + ' ⚙' : 'Нужно ' + fmt(boosterCost) + ' ⚙')}
+      </button>
+      <button class="stars-btn" style="margin-top:8px; background:linear-gradient(135deg,#ffcc00,#ff9900); color:#000;" onclick="buyBoosterWithStars()">
+        ⭐ Ещё один за 75 Stars
       </button>
     </div>
 
@@ -379,7 +386,8 @@ function startChestRoulette(forcedKey) {
   }, 4200);
 }
 
-function showChestResult(prime) {
+function showChestResult(prime, opts) {
+  const free = !!(opts && opts.free);
   let isUpgrade = false;
   let upgradeText = '';
   let oldPrimeKey = prime.objectKey;
@@ -434,7 +442,7 @@ function showChestResult(prime) {
     // пылью. Сервер субсидирует вторую половину (chestCapabilityValue).
     const sysCost = (typeof systemCost === 'function') ? systemCost(S.systems || 1) : 0;
     const pay = Math.floor(sysCost * 0.5);
-    if (pay > 0) S.dust = Math.max(0, (S.dust || 0) - pay);
+    if (pay > 0 && !free) S.dust = Math.max(0, (S.dust || 0) - pay);
     const newSys = generatePerfectPrimeSystem(prime);
     if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) S.otherSystems[0] = null;
     S.otherSystems.push(newSys);
@@ -515,8 +523,21 @@ function showChestResult(prime) {
   if (typeof playSFX === 'function') playSFX('ui_levelup');
 }
 
+// ★ Цена бустера — 2 часа текущей металлодобычи (не константа).
+function boosterPriceMetals() {
+  const base = Number(PREMIUM_CFG.booster.costMetals) || 600;
+  const dynamic = Math.floor((typeof metalsPerSec === 'function' ? metalsPerSec() : 0) * 7200);
+  return Math.max(base, dynamic);
+}
+window.boosterPriceMetals = boosterPriceMetals;
+
 async function buyIncomeBooster() {
-  const cost = PREMIUM_CFG.booster.costMetals;
+  const cost = boosterPriceMetals();
+  const todayIdx = (typeof serverDayIndex === 'function') ? serverDayIndex() : Math.floor(Date.now() / 86400000);
+  if (Number(S.boosterDay) === todayIdx) {
+    if (typeof toast === 'function') toast('Бустер уже куплен сегодня', 'Завтра будет доступен снова или купите за Stars');
+    return;
+  }
   if ((S.metalAmount || 0) < cost) return;
 
   // ★ В режиме серверного кошелька покупку оформляет сервер:
@@ -529,11 +550,12 @@ async function buyIncomeBooster() {
     }
     try {
       if (typeof cloudSaveGame === 'function') await cloudSaveGame();
-      const r = await premiumApiPost('/api/buy-booster', { initData: initData });
+      const r = await premiumApiPost('/api/buy-booster', { initData: initData, cost: cost });
 
       if (r && r.authoritative && r.data) {
         S.metalAmount = Number(r.data.metalAmount) || 0;
         S.boosters = Object.assign({}, S.boosters || {}, { incomeUntil: Number(r.incomeUntil) || 0 });
+        S.boosterDay = todayIdx;
         if (typeof saveGame === 'function') saveGame();
         if (typeof updateUI === 'function') updateUI();
         if (typeof toast === 'function') {
@@ -563,6 +585,7 @@ async function buyIncomeBooster() {
   S.metalAmount -= cost;
   if (!S.boosters) S.boosters = {};
   S.boosters.incomeUntil = Math.max(S.boosters.incomeUntil || 0, Date.now()) + PREMIUM_CFG.booster.hours * 3600 * 1000;
+  S.boosterDay = todayIdx;
   toast('🚀 Бустер активирован', 'Доход ×' + PREMIUM_CFG.booster.incomeMult + ' на ' + PREMIUM_CFG.booster.hours + ' ч');
   saveGame(); updateUI(); openPremiumShop();
 }
@@ -570,6 +593,42 @@ window.openPremiumShop = openPremiumShop;
 window.buyPrimeChest = buyPrimeChest;
 window.buyPremiumShield = buyPremiumShield;
 window.buyIncomeBooster = buyIncomeBooster;
+
+// ★ Дополнительный бустер за Stars (сверх дневного лимита).
+async function buyBoosterWithStars() {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (!tg || typeof tg.openInvoice !== 'function') {
+    if (typeof toast === 'function') toast('Покупки только в Telegram', 'Открой игру через Telegram');
+    return;
+  }
+  const invoiceLink = await getInvoiceLink('booster');
+  if (!invoiceLink) {
+    if (typeof toast === 'function') toast('Ошибка оплаты', 'Не удалось создать счёт. Попробуйте позже');
+    return;
+  }
+  tg.openInvoice(invoiceLink, function(status) {
+    if (status !== 'paid') {
+      if (status === 'cancelled' && typeof toast === 'function') toast('Оплата отменена', '');
+      return;
+    }
+    claimPurchase('booster').then(function(r) {
+      const until = r && r.entitlement && Number(r.entitlement.boosterUntil);
+      if (!until) {
+        if (typeof toast === 'function') toast('Награда не подтверждена', 'Напиши в поддержку — покупка не потеряется.');
+        return;
+      }
+      if (!S.boosters) S.boosters = {};
+      S.boosters.incomeUntil = Math.max(Number(S.boosters.incomeUntil) || 0, until);
+      if (typeof saveGame === 'function') saveGame();
+      if (typeof updateUI === 'function') updateUI();
+      if (typeof toast === 'function') toast('🚀 Бустер активирован', 'Оплачено Stars');
+      openPremiumShop();
+    }).catch(function() {
+      if (typeof toast === 'function') toast('Оплата не подтверждена', 'Нет связи с сервером. Попробуй позже.');
+    });
+  });
+}
+window.buyBoosterWithStars = buyBoosterWithStars;
 
 // ═══════════════════════════════════════════════════════════════
 //  ВЕРФЬ (ФЛОТ)

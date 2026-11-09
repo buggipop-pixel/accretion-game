@@ -113,23 +113,23 @@ window.rollStarForPrestige = rollStarForPrestige;
 
 // ─── Сколько ОБЫЧНЫХ систем сохранится после престижа ───────────
 // Прайм-системы сюда не входят, они сохраняются 100% всегда.
+// ★ ДЕТЕРМИНИРОВАННО: раньше количество кидалось случайно между
+//   ~1.5·√N и N, а окно показывало одно число, performSupernova — другое.
+//   Теперь формула фиксирована: ~2·√N обычных систем (норы повышают).
 function calculateKeepCount(regularCount) {
   if (regularCount <= 0) return 0;
 
-  // Минимум сохраняем корень из количества обычных систем * 1.5
-  let minTotal = Math.max(1, Math.floor(Math.sqrt(regularCount) * 1.5));
-  let maxTotal = regularCount;
+  let keep = Math.max(1, Math.floor(Math.sqrt(regularCount) * 2));
 
-  // Кротовые норы увеличивают минимум: 20% / 30% / 50% обычных систем.
+  // Кротовые норы увеличивают долю: 20% / 30% / 50% обычных систем.
   // ★ Учитываем лучшую нору среди ВСЕХ прайм-систем, а не только активной.
   const wormPct = (typeof bestPrimeWormholePct === 'function') ? bestPrimeWormholePct() : 0;
   if (wormPct > 0) {
     const wormMin = Math.ceil(regularCount * wormPct);
-    if (wormMin > minTotal) minTotal = wormMin;
+    if (wormMin > keep) keep = wormMin;
   }
 
-  minTotal = Math.min(minTotal, maxTotal);
-  return minTotal + Math.floor(Math.random() * (maxTotal - minTotal + 1));
+  return Math.min(keep, regularCount);
 }
 window.calculateKeepCount = calculateKeepCount;
 
