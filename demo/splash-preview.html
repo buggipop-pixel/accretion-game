@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Splash icon preview</title>
+<style>
+  html, body { margin: 0; }
+  body {
+    background: #0b0618;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #cfc2ff;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    padding: 24px;
+    box-sizing: border-box;
+    min-height: 100vh;
+  }
+  .cell { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border-radius: 16px; padding: 18px; }
+  .dark { background: #0b0618; }
+  .dark img { filter: invert(1) drop-shadow(0 0 24px rgba(124,92,255,.45)); }
+  .light { background: #ffffff; color: #6b4de6; }
+  .big { width: 320px; height: 320px; }
+  .row { display: flex; align-items: center; gap: 22px; }
+  .s96 { width: 96px; height: 96px; }
+  .s64 { width: 64px; height: 64px; }
+  .s32 { width: 32px; height: 32px; }
+  .cap { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; opacity: .7; }
+  svg { display: block; }
+</style>
+</head>
+<body>
+  <div class="cell dark">
+    <div class="cap">на тёмном</div>
+    <img class="big" src="../assets/splash-icon.svg" alt="">
+    <div class="row">
+      <img class="s96" src="../assets/splash-icon.svg" alt="">
+      <img class="s64" src="../assets/splash-icon.svg" alt="">
+      <img class="s32" src="../assets/splash-icon.svg" alt="">
+    </div>
+  </div>
+  <div class="cell light">
+    <div class="cap">на светлом</div>
+    <img class="big" src="../assets/splash-icon.svg" alt="">
+    <div class="row">
+      <img class="s96" src="../assets/splash-icon.svg" alt="">
+      <img class="s64" src="../assets/splash-icon.svg" alt="">
+      <img class="s32" src="../assets/splash-icon.svg" alt="">
+    </div>
+  </div>
+</body>
+</html>
