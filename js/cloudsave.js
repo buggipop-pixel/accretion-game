@@ -1171,6 +1171,10 @@ const PRESENCE_CFG = {
   loopStaleMs: 2 * 60 * 1000,      // игровой цикл не тикает — вкладка заморожена
   activityThrottleMs: 1000,        // метку активности обновляем не чаще раза в секунду
   tickMs: 15 * 1000,               // как часто пересчитываем статус сами
+  // ★ Пуш глушим только если игрок реально здесь: онлайн И действие
+  //   не позже этого окна. Одного фокуса мало — окно может быть
+  //   в фокусе, а игрок уже отошёл.
+  pushQuietMs: 2 * 60 * 1000,
 };
 
 const PRESENCE_REASON_LABELS = {
@@ -1216,6 +1220,26 @@ function _presenceWindowHasFocus() {
     }
   } catch (e) { /* ignore */ }
   return true;
+}
+
+// ★ В WebView события focus/blur иногда теряются: игрок вернулся — focus
+//   не пришёл, или ушёл в чат — blur не пришёл. Раз в тик сверяемся с
+//   реальными visibilityState/hasFocus() и починяем залипший статус.
+function _presenceReconcileFocus() {
+  try {
+    if (typeof document === 'undefined' || !document) return;
+    if (!_presenceReadVisible()) {
+      PRESENCE_STATE.focused = false;
+      PRESENCE_STATE.focusKnown = true;
+      return;
+    }
+    if (typeof document.hasFocus !== 'function') return;
+    const real = !!document.hasFocus();
+    if (real !== PRESENCE_STATE.focused) {
+      PRESENCE_STATE.focused = real;
+      PRESENCE_STATE.focusKnown = true;
+    }
+  } catch (e) { /* ignore */ }
 }
 
 function _presenceSnapshot(now, online, reason) {
@@ -1340,19 +1364,41 @@ window.reportPresence = reportPresence;
   } catch (e) { /* ignore */ }
   try {
     if (typeof document !== 'undefined' && document && typeof document.addEventListener === 'function') {
-      document.addEventListener('visibilitychange', function () { playerPresence(); });
+      document.addEventListener('visibilitychange', function () {
+        _presenceReconcileFocus();
+        playerPresence();
+      });
+    }
+  } catch (e) { /* ignore */ }
+  // ★ Страница закрывается/уходит в bfcache: сразу сообщаем «офлайн»,
+  //   иначе админка видит «онлайн» ещё несколько минут (или «нет данных»).
+  try {
+    if (typeof window !== 'undefined' && window && typeof window.addEventListener === 'function') {
+      window.addEventListener('pagehide', function () {
+        PRESENCE_STATE.focused = false;
+        PRESENCE_STATE.focusKnown = true;
+        playerPresence();
+        reportPresence(true);
+      });
     }
   } catch (e) { /* ignore */ }
   try {
     if (typeof setInterval === 'function') {
-      setInterval(function () { playerPresence(); reportPresence(false); }, PRESENCE_CFG.tickMs);
+      setInterval(function () {
+        _presenceReconcileFocus();
+        playerPresence();
+        reportPresence(false);
+      }, PRESENCE_CFG.tickMs);
     }
   } catch (e) { /* ignore */ }
 })();
-
-// Совместимость с прежним API: пуш отправляется только когда игрок офлайн.
+// ★ Пуш не отправляем только когда игрок «здесь и сейчас»: статус online
+//   И последнее действие не позже pushQuietMs. Раньше хватало одного
+//   фокуса — окно в фокусе, игрок отошёл на 3 минуты, пуш терялся.
 function isPlayerOnlineForPush() {
-  return playerPresence().online;
+  const st = playerPresence();
+  if (!st.online) return false;
+  return (Number(st.idleMs) || 0) < PRESENCE_CFG.pushQuietMs;
 }
 
 window.playerPresence = playerPresence;

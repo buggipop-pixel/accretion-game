@@ -1706,6 +1706,9 @@ function showNeglectReport(res) {
 window.showNeglectReport = showNeglectReport;
 
 // Короткий статус для HUD: штраф к доходу + число выведенных из строя систем.
+// ★ Это НЕ «запустение» (>72 ч отсутствия, считается только при возврате),
+//   а последствия обычных вторжений. Раньше подпись «Запустение» путала
+//   игроков: рост штрафа от волн выглядел как «новый уровень запустения».
 function galaxyNeglectChipText() {
   const now = Date.now();
   const pct = (S.invasionDebuff && S.invasionDebuff.until > now)
@@ -1717,7 +1720,7 @@ function galaxyNeglectChipText() {
     if (list[i] && list[i].damagedUntil > now) damaged++;
   }
   if (!pct && !damaged) return '';
-  let text = '☠️ Запустение';
+  let text = '⚔️ Оккупация';
   if (pct > 0) text += ' · доход −' + pct + '%';
   if (damaged > 0) text += ' · систем ' + damaged;
   return text;

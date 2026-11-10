@@ -9,6 +9,7 @@ import {
   detectSaveAnomalies,
 } from './lib/save-validation.js';
 import { createGameCore } from './lib/game-core.js';
+import { waveSchedule, buildWaveNotice } from './lib/attack-notices.js';
 import {
   nextShieldEntitlement, overlayShieldEntitlement, isShieldSuspicious,
   clampShield,
@@ -204,10 +205,14 @@ async function lastSeenAt(userId) {
 //   статус рядом с ником. Клиент сам решает, когда он «в игре»
 //   (видимость + фокус + 10 минут бездействия — js/cloudsave.js)
 //   и присылает статус в /api/presence.
-//   Онлайн-метка живёт 5 минут (клиент пингует раз в минуту),
-//   офлайн-метка — сутки: админка видит последний известный статус.
-const PRESENCE_STATUS_ONLINE_TTL_SEC = 5 * 60;
-const PRESENCE_STATUS_OFFLINE_TTL_SEC = 24 * 3600;
+//   ★ Храним последний отчёт СУТКИ для любого статуса, а «онлайн» считаем
+//   только пока отчёт свежий. Иначе у спящего вкладка/WebView игра «зависает»:
+//   новый отчёт не приходит, ключ с TTL 5 мин истекает — и админка показывала
+//   «нет данных» вместо честного «офлайн».
+const PRESENCE_STATUS_TTL_SEC = 24 * 3600;
+// Отчёт «online» старше этого возраста считаем устаревшим.
+// Клиент пингует раз в минуту, так что 2.5 минуты — два пропущенных пинга.
+const PRESENCE_ONLINE_STALE_SEC = 150;
 
 async function readUserPresence(userId) {
   if (!userId) return null;
@@ -224,11 +229,14 @@ function toAdminPresence(raw) {
   if (!raw || typeof raw !== 'object') {
     return { status: 'unknown', reason: 'no-data', idleSec: 0, at: 0 };
   }
+  const at = Number(raw.at) || 0;
+  const reportedOnline = raw.status === 'online';
+  const stale = reportedOnline && (!at || Date.now() - at > PRESENCE_ONLINE_STALE_SEC * 1000);
   return {
-    status: raw.status === 'online' ? 'online' : 'offline',
-    reason: typeof raw.reason === 'string' ? raw.reason.slice(0, 32) : 'unknown',
+    status: (reportedOnline && !stale) ? 'online' : 'offline',
+    reason: stale ? 'no-report' : (typeof raw.reason === 'string' ? raw.reason.slice(0, 32) : 'unknown'),
     idleSec: Math.max(0, Math.round(Number(raw.idleSec) || 0)),
-    at: Number(raw.at) || 0,
+    at: at,
   };
 }
 
@@ -1967,9 +1975,14 @@ app.post('/api/presence', async (req, res) => {
     const key = `presence:${user.id}`;
     await redisSet(key, JSON.stringify(payload));
     try {
-      await redisCommand('EXPIRE', key,
-        online ? PRESENCE_STATUS_ONLINE_TTL_SEC : PRESENCE_STATUS_OFFLINE_TTL_SEC);
+      // ★ Держим последний отчёт сутки для любого статуса: «онлайн» отсекается
+      //   по возрасту в toAdminPresence(), а не по TTL ключа.
+      await redisCommand('EXPIRE', key, PRESENCE_STATUS_TTL_SEC);
     } catch (e) { /* некритично */ }
+
+    // ★ Присутствие — тоже «жизнь игрока»: иначе cron видит только /api/load
+    //   и /api/save и может считать активного игрока отсутствующим.
+    await touchPresence(user.id);
 
     res.json({ ok: true, status: payload.status });
   } catch (e) {
@@ -2102,19 +2115,26 @@ cron.schedule('*/10 * * * *', async () => {
 
       // Предупреждение за пару часов до запустения галактики.
       await warnNeglectSoon(userId, payload, preview);
-      const lockKey = `tg_attack_notice:${userId}`;
-      const last = await redisGet(lockKey);
-      if (last && now - Number(last) < 3 * 3600 * 1000) continue;
-      await redisSet(lockKey, String(now));
-      try { await redisCommand('EXPIRE', lockKey, 3 * 3600); } catch (e) { /* некритично */ }
 
-      const lines = [
-        '⏳ Вас не было ' + (Math.round(Number(preview.awayHours || 0) * 10) / 10) + ' ч — зафиксировано ~' + preview.attacks + ' волн вторжений.',
-        '💀 Максимальная сложность: ' + preview.maxDifficulty + '/3.',
-      ];
-      if (preview.shieldProtected) lines.push('🛡 Щит покрыл часть отсутствия.');
-      lines.push('Зайдите в игру, чтобы увидеть точные потери и отбить атаку.');
-      await sendNotification(userId, '⚠️ <b>Галактика под атакой!</b>\n' + lines.join('\n'));
+      // ★ Пуш о СТАРТЕ каждой офлайн-волны. Раньше был один агрегат
+      //   «Галактика под атакой» не чаще раза в 3 часа — игрок узнавал
+      //   об атаке только из итогового отчёта при возвращении.
+      const schedule = waveSchedule(preview);
+      if (!schedule) continue;
+      const waveKey = `tg_wave:${userId}`;
+      // Одна и та же отлучка = один и тот же lastActive (якорь).
+      const anchor = String(lastActive);
+      const waveState = parseRedisJson(await redisGet(waveKey));
+      const notified = (waveState && waveState.anchor === anchor)
+        ? Math.max(0, Number(waveState.notified) || 0)
+        : 0;
+      if (schedule.attacks <= notified) continue;
+
+      // Если за один тик набежало несколько волн — пишем о самой свежей:
+      // лучше одно актуальное сообщение, чем пачка опоздавших.
+      await redisSet(waveKey, JSON.stringify({ anchor: anchor, notified: schedule.attacks }));
+      try { await redisCommand('EXPIRE', waveKey, 3 * 24 * 3600); } catch (e) { /* некритично */ }
+      await sendNotification(userId, buildWaveNotice(preview, schedule.attacks - 1));
     }
   } catch (e) {
     console.error('[cron] офлайн-вторжения:', e.message);

@@ -597,7 +597,9 @@ function applyOfflineProgress(fromTick) {
   // ★ fromTick позволяет зафиксировать время отсутствия ДО ежедневного сброса
   //   и проверки достижений: они могут вызвать saveGame(), но lastTick уже снят.
   const baseTick = (typeof fromTick === 'number' && isFinite(fromTick)) ? fromTick : S.lastTick;
-  const elapsedSec = Math.max(0, (now - baseTick) / 1000);
+  // ★ Не больше 30 суток: зеркально cap на сервере (previewOfflineInvasions).
+  //   Битый/очень старый lastTick не должен считаться «вечным отсутствием».
+  const elapsedSec = Math.max(0, Math.min(30 * 24 * 3600, (now - baseTick) / 1000));
   if (elapsedSec < 30) {
     // ★ Даже короткий пропуск «съедаем»: иначе loop будет пытаться
     //   досчитать его каждый кадр и начислять доход задним числом.
@@ -1046,7 +1048,10 @@ function simulateOfflineInvasions(elapsedSec, out) {
     const targetIdx = pickOfflineInvasionTarget();
     if (targetIdx < 0) break; // одни Прайм-системы — бить некого
     executed++;
-    const hit = applyInvasionHit(tierKey, caps, targetIdx, { neglectLevel: level });
+    // ★ Штраф и простой считаем от ВРЕМЕНИ АТАКИ, а не от возвращения в игру:
+    //   иначе все волны за ночь «срабатывали» в момент входа и штраф к доходу
+    //   висел ещё N часов уже во время активной игры.
+    const hit = applyInvasionHit(tierKey, caps, targetIdx, { neglectLevel: level, at: attackTime });
     lostDust += hit.dust; lostE += hit.energy; lostC += hit.civ; lostM += hit.metals;
     disabled += hit.disabled;
     const fleetLost = applyOfflineFleetLoss(tier);
@@ -1067,7 +1072,9 @@ function simulateOfflineInvasions(elapsedSec, out) {
   let systemsDamaged = 0;
   if (level >= (Number(n.systemDamageFromLevel) || 2)) {
     const count = Math.min(6, Math.max(1, Math.ceil(level * (Number(n.systemsDamagedPerLevel) || 1))));
-    systemsDamaged = applySystemLosses(count, { neglectLevel: level });
+    // ★ Системы тоже выводим из строя от времени последней волны, а не от входа.
+    const lastWaveAt = attackWindowStart + (attacks - 0.5) * attackStepMs;
+    systemsDamaged = applySystemLosses(count, { neglectLevel: level, at: lastWaveAt });
   }
 
   out.invasionAttacks = executed;
@@ -1170,7 +1177,9 @@ function applyInvasionHit(tierKey, caps, targetIdx, opts) {
   //   систему: иначе Прайм на экране защищал вообще все колонии игрока.
   if (isPrimeTargetIdx(target)) return out;
 
-  const now = Date.now();
+  // ★ opts.at — момент самой атаки (для офлайн-волн). По умолчанию сейчас:
+  //   штраф и простой не должны начинаться с момента возвращения в игру.
+  const now = Number(opts.at) || Date.now();
   let minutes = Math.max(0, Number(tier.theftMin) || 0);
   if (level > 0) {
     minutes = Math.min(
@@ -1252,7 +1261,8 @@ function applySystemLosses(count, opts) {
     Number(n.systemDamageHoursMax) || 24,
     (Number(n.systemDamageHoursBase) || 2) + level * (Number(n.systemDamageHoursPerLevel) || 0)
   );
-  const now = Date.now();
+  // ★ opts.at — время атаки; при отсутствии аргумента — текущий момент.
+  const now = Number(opts.at) || Date.now();
   const until = now + hours * 3600 * 1000;
   const active = Number(S.activeSystemIdx) || 0;
   const list = Array.isArray(S.otherSystems) ? S.otherSystems : [];

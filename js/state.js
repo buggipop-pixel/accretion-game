@@ -462,6 +462,17 @@ function loadGame() {
     const data = JSON.parse(raw);
     Object.assign(S, data);
 
+    // ★ Санити lastTick: битые часы / старый сейв / восстановление бэкапа
+    //   не должны давать «отсутствие» на дни вперёд. Кривые значения — к now,
+    //   а любые старше 30 суток считаем как 30 суток (сервер делает так же).
+    {
+      const nowTs = Date.now();
+      const rawTick = Number(S.lastTick);
+      const maxAwayMs = 30 * 24 * 3600 * 1000;
+      if (!isFinite(rawTick) || rawTick <= 0 || rawTick > nowTs) S.lastTick = nowTs;
+      else if (nowTs - rawTick > maxAwayMs) S.lastTick = nowTs - maxAwayMs;
+    }
+
     // ─── 1. Восстановление базовых полей и защита от undefined ───
     if (!S.phaseProgress) S.phaseProgress = { cloud: 0, condense: 0, protostar: 0 };
     if (typeof S.tutorialStep !== 'number' || !isFinite(S.tutorialStep) || S.tutorialStep < 0 || S.tutorialStep > 5) S.tutorialStep = 0;
