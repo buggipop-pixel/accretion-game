@@ -104,22 +104,30 @@ function presence(g) {
   return g.context.PlayerPresence || g.context.window.PlayerPresence;
 }
 
-async function push(g, text) {
+async function push(g, text, type) {
   const before = g.requests.length;
   g.context.S.lastTick = g.clock.now;
-  await g.context.sendPushNotification(text || '⚔️ <b>Вторжение!</b>', 'invasion');
+  await g.context.sendPushNotification(text || '⚔️ <b>Вторжение!</b>', type || 'invasion');
   return g.requests.length > before;
 }
 (async () => {
-  // 1. Игра в фокусе, игрок только что действовал → пуш не нужен.
+  // 1. Игра в фокусе, игрок только что действовал → обычный пуш не нужен.
   {
     const g = makeDevice({ visibilityState: 'visible' });
     g.fire('focus');
     g.clock.now += 5000;
     g.fire('pointermove');
-    const sent = await push(g);
-    assert('1. Фокус + свежая активность: пуш не отправляется', sent === false);
+    const sent = await push(g, '🚀 Флот завершил действие', 'fleet');
+    assert('1. Фокус + свежая активность: обычный пуш не отправляется', sent === false);
     assert('1. Игрок считается онлайн', g.context.isPlayerOnlineForPush() === true);
+    // ★ Атака — исключение: о вторжении пушим даже активному игроку.
+    const inv1 = await push(g, '⚔️ Вторжение!');
+    assert('1a. Вторжение при активной игре: пуш отправлен', inv1 === true);
+    const inv2 = await push(g, '⚔️ Вторжение! (2)');
+    assert('1b. Второй пуш о вторжении сразу — не чаще раза в 10 мин', inv2 === false);
+    g.clock.now += 11 * 60 * 1000;
+    const inv3 = await push(g, '⚔️ Вторжение! (3)');
+    assert('1c. Через 11 минут пуш о вторжении снова отправляется', inv3 === true);
   }
 
   // 2. Игра видима, но окно потеряло фокус (игрок ушёл в чат Telegram) → пуш!
@@ -153,8 +161,8 @@ async function push(g, text) {
     g.clock.now += 11 * 60 * 1000;
     g.fire('pointerdown');
     g.clock.now += 5 * 1000;
-    const sent = await push(g);
-    assert('4. Активность после простоя: пуш не отправляется', sent === false);
+    const sent = await push(g, '🚀 Флот завершил действие', 'fleet');
+    assert('4. Активность после простоя: обычный пуш не отправляется', sent === false);
   }
 
   // 5. Вкладка скрыта — пуш всегда (поведение не изменилось).
@@ -182,8 +190,8 @@ async function push(g, text) {
     g.clock.now += 5000;
     g.context.window.__markPushActivity();
     g.clock.now += 1000;
-    const sent = await push(g);
-    assert('7. Нет hasFocus(): активный игрок онлайн, пуша нет', sent === false);
+    const sent = await push(g, '🚀 Флот завершил действие', 'fleet');
+    assert('7. Нет hasFocus(): активный игрок онлайн, обычного пуша нет', sent === false);
   }
 
   // 8. Пуш всё ещё уважает выключенные уведомления в настройках.

@@ -88,27 +88,33 @@ function notifyBuildMessage(category, title, lines) {
 }
 
 // Проверка «не спамим»: одинаковый ключ не чаще dedupeMs, категория — свой кулдаун.
+// ★ Сначала ПРОВЕРЯЕМ, потом штампуем: иначе отклонённое событие
+//   «сжигало» ключ и следующий такой же блокировался на 15 с.
 function _notifyAllowed(category, key, opts) {
   opts = opts || {};
   if (opts.force) return true;
   const now = Date.now();
+  const cd = NOTIFY_CFG.categoryCooldownMs[category] || 0;
+  if (!opts.ignoreCooldown && cd > 0) {
+    const lastCat = NOTIFY_STATE.lastCategoryAt[category] || 0;
+    if (now - lastCat < cd) return false;
+  }
   if (key) {
     const last = NOTIFY_STATE.lastKeyAt[key] || 0;
     if (now - last < NOTIFY_CFG.dedupeMs) return false;
-    NOTIFY_STATE.lastKeyAt[key] = now;
   }
-  if (opts.ignoreCooldown) return true;
-  const cd = NOTIFY_CFG.categoryCooldownMs[category] || 0;
-  if (cd > 0) {
-    const last = NOTIFY_STATE.lastCategoryAt[category] || 0;
-    if (now - last < cd) return false;
-    NOTIFY_STATE.lastCategoryAt[category] = now;
-  }
+  // Событие принято — только теперь штампуем.
+  if (key) NOTIFY_STATE.lastKeyAt[key] = now;
+  if (!opts.ignoreCooldown && cd > 0) NOTIFY_STATE.lastCategoryAt[category] = now;
+  // Заодно чистим старые ключи (долгая сессия иначе копит их бесконечно).
+  if (Object.keys(NOTIFY_STATE.lastKeyAt).length > 500) NOTIFY_STATE.lastKeyAt = Object.create(null);
   return true;
 }
 
 // Ставит сообщение в очередь. Всплеск событий склеивается в один flush.
 function notifyEnqueue(category, message) {
+  // ★ Потолок очереди: если отправка долго недоступна, не копим сотни строк.
+  if (NOTIFY_STATE.queue.length >= 30) NOTIFY_STATE.queue.shift();
   NOTIFY_STATE.queue.push({ category: category || 'info', message: message });
   if (NOTIFY_STATE.timer) return;
   const type = (typeof setTimeout === 'function') ? setTimeout : null;
@@ -120,10 +126,17 @@ function notifyEnqueue(category, message) {
 }
 
 function notifyFlush() {
+  // ★ Проверки — ДО очистки очереди: если sendPushNotification ещё не
+  //   загружен (или облако инициализируется), сообщения не теряются,
+  //   а уходят следующим flush-ом. Раньше очередь очищалась впустую.
+  if (!NOTIFY_STATE.queue.length) return;
+  if (!_notifyEnabled()) { NOTIFY_STATE.queue = []; return; }
+  if (!_notifyCanSend()) {
+    _notifyScheduleFlush();
+    return;
+  }
   const queue = NOTIFY_STATE.queue;
   NOTIFY_STATE.queue = [];
-  if (!queue.length) return;
-  if (!_notifyEnabled() || !_notifyCanSend()) return;
 
   // Группируем по категории: несколько событий одной категории — одним сообщением.
   const groups = Object.create(null);
@@ -148,6 +161,42 @@ function notifyFlush() {
     if (type) NOTIFY_STATE.timer = type(function () { NOTIFY_STATE.timer = null; notifyFlush(); }, NOTIFY_CFG.flushMs);
   }
 }
+
+// Планирует отложенный flush (без дублей таймеров).
+function _notifyScheduleFlush() {
+  const type = (typeof setTimeout === 'function') ? setTimeout : null;
+  if (!type || NOTIFY_STATE.timer) return;
+  NOTIFY_STATE.timer = type(function () {
+    NOTIFY_STATE.timer = null;
+    notifyFlush();
+  }, NOTIFY_CFG.flushMs);
+}
+
+// ★ Немедленный сброс очереди при уходе со страницы: события за последние
+//   900 мс (вторжение, бой флота) иначе пропадали при закрытии мини-аппа
+//   или переключении в чат Telegram.
+function notifyFlushNow() {
+  if (NOTIFY_STATE.timer) {
+    try { clearTimeout(NOTIFY_STATE.timer); } catch (e) { /* ignore */ }
+    NOTIFY_STATE.timer = null;
+  }
+  notifyFlush();
+}
+window.notifyFlushNow = notifyFlushNow;
+
+(function installNotifyLifecycle() {
+  try {
+    if (typeof window !== 'undefined' && window && typeof window.addEventListener === 'function') {
+      window.addEventListener('pagehide', notifyFlushNow);
+      window.addEventListener('beforeunload', notifyFlushNow);
+    }
+    if (typeof document !== 'undefined' && document && typeof document.addEventListener === 'function') {
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') notifyFlushNow();
+      });
+    }
+  } catch (e) { /* ignore */ }
+})();
 
 // Публичный вход: событие → rich-сообщение → очередь.
 function notifyEvent(category, title, lines, opts) {
@@ -302,7 +351,9 @@ function notifyInvasionEnd(inv, outcome, extraLines) {
 
 // ─── Флот ───────────────────────────────────────────────────────
 function notifyFleetEvent(title, lines, key) {
-  return notifyEvent('fleet', title, lines, { key: key });
+  // ★ Кулдаун категории не должен съедать бой: «вступил в бой» и через 10 с
+  //   «флот уничтожен» — оба важны. Дедуп по ключу остаётся.
+  return notifyEvent('fleet', title, lines, { key: key, ignoreCooldown: true });
 }
 
 function notifyStorageFull(name, value, cap, text) {
@@ -311,7 +362,7 @@ function notifyStorageFull(name, value, cap, text) {
     '⏸ ' + _notifyEsc(text || 'Производство остановлено.'),
     '💡 Потратьте ресурсы, чтобы добыча продолжилась.',
   ];
-  return notifyEvent('storage', 'Хранилище заполнено: ' + _notifyEsc(name), lines, { key: 'storage:' + name, immediate: true });
+  return notifyEvent('storage', 'Хранилище заполнено: ' + _notifyEsc(name), lines, { key: 'storage:' + name, immediate: true, ignoreCooldown: true });
 }
 
 window.notifyFmt = _notifyFmt;

@@ -57,19 +57,31 @@ export default {
 
     const init = { method: request.method, headers, redirect: 'manual' };
     if (request.method !== 'GET' && request.method !== 'HEAD') {
-      init.body = request.body;
+      // ★ Буферим тело: поток request.body одноразовый, без буфера ретрай невозможен.
+      init.body = await request.arrayBuffer();
     }
 
-    let upstream;
-    try {
-      upstream = await fetch(UPSTREAM + url.pathname + url.search, init);
-    } catch (e) {
-      return new Response(JSON.stringify({ error: 'proxy_upstream_failed', detail: String(e) }), {
+    // ★ Таймаут и один ретрай: холодный старт Render (free tier) не должен
+    //   держать пуш/сейв до клиентского 20-секундного аборта.
+    let upstream = null;
+    let lastError = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        upstream = await fetch(UPSTREAM + url.pathname + url.search, Object.assign({}, init, {
+          signal: AbortSignal.timeout(12000),
+        }));
+        break;
+      } catch (e) {
+        lastError = e;
+        if (attempt === 1) break;
+      }
+    }
+    if (!upstream) {
+      return new Response(JSON.stringify({ error: 'proxy_upstream_failed', detail: String(lastError) }), {
         status: 502,
         headers: outboundHeaders({ 'Content-Type': 'application/json' })
       });
     }
-
     return new Response(upstream.body, {
       status: upstream.status,
       headers: outboundHeaders(upstream.headers)

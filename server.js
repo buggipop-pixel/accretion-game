@@ -244,24 +244,43 @@ function toAdminPresence(raw) {
 // Подписка живёт в tg_chat:<userId> и хранит РОВНО userId: уведомления
 // уходят только в личный чат самого игрока. Пустое значение (или
 // отсутствие ключа) — игрок отписался /stop либо заблокировал бота.
+// ★ Возвращает true только если Telegram реально принял сообщение.
+//   На 429 — один повтор с retry_after; на 403 — снимаем подписку.
 async function sendNotification(userId, text) {
+  let chatId;
   try {
-    const chatId = await redisGet(`tg_chat:${userId}`);
-    if (!chatId || chatId === 'null') return;
-    // ★ Страховка от «чужих» уведомлений: старый групповой chat_id или
-    //   любое значение, не равное userId, не шлём — подписку сбрасываем.
-    if (String(chatId) !== String(userId)) {
-      console.warn(`[notify] ${userId}: сохранён чужой chatId ${chatId} — подписка сброшена`);
-      await redisSet(`tg_chat:${userId}`, '');
-      return;
-    }
-    await bot.sendMessage(String(userId), text, { parse_mode: 'HTML' });
-  } catch (e) {
-    console.warn(`[notify] Не удалось отправить ${userId}:`, e.message);
-    if (e.response && e.response.statusCode === 403) {
-      await redisSet(`tg_chat:${userId}`, ''); // Игрок заблокировал бота
+    chatId = await redisGet(`tg_chat:${userId}`);
+  } catch (e) { return false; }
+  if (!chatId || chatId === 'null') return false; // нет подписки
+  // ★ Страховка от «чужих» уведомлений: старый групповой chat_id или
+  //   любое значение, не равное userId, не шлём — подписку сбрасываем.
+  if (String(chatId) !== String(userId)) {
+    console.warn(`[notify] ${userId}: сохранён чужой chatId ${chatId} — подписка сброшена`);
+    try { await redisSet(`tg_chat:${userId}`, ''); } catch (e) { /* ignore */ }
+    return false;
+  }
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await bot.sendMessage(String(userId), text, { parse_mode: 'HTML' });
+      return true;
+    } catch (e) {
+      const status = e && e.response && e.response.statusCode;
+      console.warn(`[notify] Не удалось отправить ${userId}:`, e.message);
+      if (status === 403) {
+        try { await redisSet(`tg_chat:${userId}`, ''); } catch (e2) { /* ignore */ }
+        return false; // игрок заблокировал бота — повторять бессмысленно
+      }
+      if (status === 429 && attempt === 0) {
+        // Telegram: parameters.retry_after в секундах.
+        const retry = Number(e.response.body && e.response.body.parameters && e.response.body.parameters.retry_after) || 2;
+        await new Promise((r) => setTimeout(r, Math.min(10, Math.max(1, retry)) * 1000));
+        continue;
+      }
+      return false;
     }
   }
+  return false;
 }
 
 // Upstash REST отдаёт result как строку, но если значение записали
@@ -276,6 +295,29 @@ function parseRedisJson(raw) {
   } catch {
     return raw;
   }
+}
+
+// ★ Обрезка текста без разрыва HTML: Telegram отвергает ВСЁ сообщение,
+//   если разрезать тег или сущность (&lt;). Режем по границе строки
+//   и закрываем оставшиеся теги.
+function trimNotifyText(raw, maxLen) {
+  let text = String(raw == null ? '' : raw);
+  const limit = Math.max(32, Number(maxLen) || 1000);
+  if (text.length <= limit) return text;
+
+  let cut = text.slice(0, limit - 1);
+  const nl = cut.lastIndexOf('\n');
+  if (nl > limit * 0.5) cut = cut.slice(0, nl);
+  // Не обрываем сущность и незакрытый тег.
+  cut = cut.replace(/&[a-zA-Z#0-9]*$/, '').replace(/<[^>]*$/, '');
+
+  const tags = ['b', 'strong', 'i', 'em', 'u', 's', 'code', 'pre'];
+  for (const tag of tags) {
+    const open = (cut.match(new RegExp('<' + tag + '>', 'gi')) || []).length;
+    const close = (cut.match(new RegExp('</' + tag + '>', 'gi')) || []).length;
+    for (let k = close; k < open; k++) cut += '</' + tag + '>';
+  }
+  return cut + '…';
 }
 
 async function redisGet(key) {
@@ -374,7 +416,14 @@ async function redisScanAll(match, maxKeys = 500) {
 // ─── Валидация initData ─────────────────────────────────────────
 // Реализация — lib/save-validation.js: HMAC-подпись, сравнение постоянным
 // временем (=== утекает по таймингам), проверка свежести auth_date и user.id.
+// ★ Мини-апп может быть открыт сутками: для игры принимаем initData до 7 суток,
+//   иначе после 24 ч молча отваливаются сейвы, присутствие и пуши (401).
+//   Для платежей остаётся строгий 24-часовой режим.
+const INIT_DATA_MAX_AGE_SEC = 7 * 24 * 3600;
 function validateInitData(initData) {
+  return validateInitDataCore(initData, BOT_TOKEN, { maxAgeSec: INIT_DATA_MAX_AGE_SEC });
+}
+function validateInitDataStrict(initData) {
   return validateInitDataCore(initData, BOT_TOKEN);
 }
 
@@ -535,6 +584,9 @@ app.use((req, res, next) => {
 
   res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Admin-Token');
+  // ★ Кэшируем preflight: иначе keepalive-запрос при pagehide может
+  //   не успеть пройти холодный OPTIONS и «офлайн» не доедет.
+  res.setHeader('Access-Control-Max-Age', '7200');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
@@ -543,7 +595,7 @@ app.use((req, res, next) => {
 app.post('/api/create-invoice', async (req, res) => {
   try {
     const { initData, product } = req.body || {};
-    const user = validateInitData(initData);
+    const user = validateInitDataStrict(initData); // плятежи — строго 24 ч
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
     if (await isResetPending(user.id)) return accountResetResponse(res);
 
@@ -571,7 +623,7 @@ app.post('/api/create-invoice', async (req, res) => {
 app.post('/api/claim', async (req, res) => {
   try {
     const { initData, product } = req.body || {};
-    const user = validateInitData(initData);
+    const user = validateInitDataStrict(initData); // плятежи — строго 24 ч
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
     if (await isResetPending(user.id)) {
       console.warn(`[claim] отказ: для user=${user.id} нужен сброс аккаунта`);
@@ -1969,6 +2021,8 @@ app.post('/api/presence', async (req, res) => {
       status: online ? 'online' : 'offline',
       reason: typeof reason === 'string' && reason ? reason.slice(0, 32) : (online ? 'active' : 'unknown'),
       idleSec: Math.max(0, Math.round(Number(idleSec) || 0)),
+      // ★ Момент смены статуса: с него считаем реальное отсутствие.
+      changedAt: Math.max(0, Number(req.body && req.body.changedAt) || 0),
       at: Date.now(),
     };
 
@@ -1980,9 +2034,10 @@ app.post('/api/presence', async (req, res) => {
       await redisCommand('EXPIRE', key, PRESENCE_STATUS_TTL_SEC);
     } catch (e) { /* некритично */ }
 
-    // ★ Присутствие — тоже «жизнь игрока»: иначе cron видит только /api/load
-    //   и /api/save и может считать активного игрока отсутствующим.
-    await touchPresence(user.id);
+    // ★ seen:* двигаем только онлайн-отчётом. Иначе свёрнутый мини-апп
+    //   автосейвом/офлайн-пингом держал seen свежим, и cron считал
+    //   отсутствующего игрока активным (волны не пушились).
+    if (online) await touchPresence(user.id);
 
     res.json({ ok: true, status: payload.status });
   } catch (e) {
@@ -2013,32 +2068,44 @@ app.post('/api/notify', async (req, res) => {
     }
     if (!batch.length) return res.status(400).json({ error: 'Empty message' });
 
-    // Защита от спама через API: не более 40 пушей в час на игрока.
+    // ★ Без подписки (/start у бота) пуши уйти не могут — пусть клиент
+    //   узнает и покажет подсказку, а не будет их терять молча.
+    const chatId = await redisGet(`tg_chat:${user.id}`);
+    if (!chatId || chatId === 'null' || String(chatId) !== String(user.id)) {
+      return res.json({ ok: true, sent: 0, subscribed: false });
+    }
+
+    // Защита от спама через API: не более 60 пушей в час на игрока.
     const hourKey = `notify_hour:${user.id}:${Math.floor(Date.now() / 3600000)}`;
-    if (await bumpCounter(hourKey, 3700) > 40) {
-      return res.json({ ok: true, throttled: true });
+    if (await bumpCounter(hourKey, 3700) > 60) {
+      console.warn(`[notify] ${user.id}: превышен часовой лимит, сообщение не отправлено`);
+      return res.json({ ok: true, throttled: true, subscribed: true });
     }
 
     let sent = 0;
-    for (const item of batch) {
+    for (let i = 0; i < batch.length; i++) {
+      const item = batch[i];
       const rawType = (typeof item.type === 'string') ? item.type : 'info';
       const notifyType = /^[a-z0-9_]{1,32}$/.test(rawType) ? rawType : 'info';
-      const text = String(item.message).slice(0, 1000);
+      const text = trimNotifyText(item.message, 1000);
 
-      // Дедупликация одинаковых сообщений в течение 5 минут
-      // (одно и то же событие не должно приходить дважды).
+      // Дедупликация одинаковых сообщений (одно и то же событие не дважды).
+      // ★ Штампуем ключ ТОЛЬКО после успешной отправки.
       let hash = 5381;
-      for (let i = 0; i < text.length; i++) hash = ((hash * 33) ^ text.charCodeAt(i)) >>> 0;
+      for (let c = 0; c < text.length; c++) hash = ((hash * 33) ^ text.charCodeAt(c)) >>> 0;
       const seenKey = `notify_seen:${user.id}:${notifyType}:${hash.toString(36)}`;
-      const seen = await redisGet(seenKey);
-      if (seen) continue;
-      await redisSet(seenKey, String(Date.now()));
-      try { await redisCommand('EXPIRE', seenKey, 300); } catch (e) { /* некритично */ }
+      if (await redisGet(seenKey)) continue;
 
-      await sendNotification(user.id, text);
+      const delivered = await sendNotification(user.id, text);
+      if (!delivered) continue; // не дошло — не считаем отправленным
       sent++;
+      await redisSet(seenKey, String(Date.now()));
+      try { await redisCommand('EXPIRE', seenKey, 90); } catch (e) { /* некритично */ }
+
+      // Telegram держит ~1 сообщение/сек в чат — не разгоняемся в пачке.
+      if (i < batch.length - 1) await new Promise((r) => setTimeout(r, 350));
     }
-    res.json({ ok: true, sent: sent });
+    res.json({ ok: true, sent: sent, subscribed: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -2052,7 +2119,7 @@ app.post('/api/notify', async (req, res) => {
 // сменился, следующая отлучка снова получит предупреждение.
 const NEGLECT_WARN_AHEAD_HOURS = 2;
 
-async function warnNeglectSoon(userId, payload, preview) {
+async function warnNeglectSoon(userId, payload, preview, lastActive) {
   try {
     if (!gameCore || typeof gameCore.neglectStatus !== 'function') return;
     const status = gameCore.neglectStatus(preview.awayHours);
@@ -2061,22 +2128,25 @@ async function warnNeglectSoon(userId, payload, preview) {
     if (!(status.hoursToNeglect > 0)) return;
     if (status.hoursToNeglect > NEGLECT_WARN_AHEAD_HOURS) return; // ещё рано
 
-    // Одно предупреждение на одну отлучку.
+    // Одно предупреждение на одну отлучку. Якорь — lastActive (как у tg_wave),
+    // а не saved_at: вход без сейва не должен «съедать» следующее отсутствие.
+    const anchor = String(Math.max(Number(lastActive) || 0, Number(payload.saved_at) || 0));
     const key = `neglect_warn:${userId}`;
     const warnedFor = await redisGet(key);
-    if (warnedFor === String(payload.saved_at)) return;
-    await redisSet(key, String(payload.saved_at));
-    try { await redisCommand('EXPIRE', key, 45 * 24 * 3600); } catch (e) { /* некритично */ }
+    if (warnedFor === anchor) return;
 
     const awayLabel = Math.round((Number(preview.awayHours) || 0) * 10) / 10;
     const leftLabel = Math.max(0.1, Math.round(status.hoursToNeglect * 10) / 10);
-    await sendNotification(userId,
+    const delivered = await sendNotification(userId,
       '⏳ <b>Галактика скоро начнёт приходить в запустение</b>\n' +
       'Вы отсутствуете ~' + awayLabel + ' ч. Примерно через ' + leftLabel + ' ч закончится льготный период: ' +
       'атаки станут жёстче, а планеты начнут уходить в простой.\n' +
       (preview.shieldProtected ? '🛡 Щит уже покрыл часть отсутствия — это учтено в расчёте.\n' : '') +
       'Зайдите в игру, чтобы обнулить таймер заброшенности.'
     );
+    if (!delivered) return; // не дошло — повторим в следующий проход
+    await redisSet(key, anchor);
+    try { await redisCommand('EXPIRE', key, 45 * 24 * 3600); } catch (e) { /* некритично */ }
   } catch (e) {
     console.error('[cron] предупреждение о запустении:', e.message);
   }
@@ -2086,10 +2156,14 @@ async function warnNeglectSoon(userId, payload, preview) {
 // Игрок закрыл игру — клиент не может оповестить. Раз в 10 минут
 // смотрим сейвы: кто отсутствует > 2 ч и по кому набегают волны
 // вторжений, шлём одно предупреждение (не чаще раза в 3 часа).
+// ★ Не допускаем наложение проходов (долгий проход или второй инстанс):
+//   иначе возможны дубли пушев.
+let _waveCronBusy = false;
 cron.schedule('*/10 * * * *', async () => {
-  if (!gameCore) return;
+  if (!gameCore || _waveCronBusy) return;
+  _waveCronBusy = true;
   try {
-    const keys = await redisScanAll('cloudsave:*', 500);
+    const keys = await redisScanAll('cloudsave:*', 5000);
     const now = Date.now();
     for (const key of keys) {
       const userId = key.split(':')[1];
@@ -2101,12 +2175,23 @@ cron.schedule('*/10 * * * *', async () => {
       const psettings = data.settings;
       if (psettings && psettings.pushEnabled === false) continue;
 
-      // ★ «Отсутствие» = max(последний сейв, последний заход в игру).
-      // Игрок мог зайти на минуту, не успеть сохраниться и выйти — раньше
-      // из-за этого приходило «Вас не было N ч» и ложные отчёты о вторжениях.
-      const lastSeen = await lastSeenAt(userId);
-      if (lastSeen && now - lastSeen < 15 * 60 * 1000) continue; // сейчас онлайн
-      const lastActive = Math.max(Number(payload.saved_at) || 0, lastSeen);
+      // ★ Главный источник «когда игрок реально ушёл» — presence, а НЕ lastSeen.
+      //   Открытая в фоне вкладка продолжает автосейв и /api/load каждые 30 с,
+      //   поэтому lastSeen всегда свежий — и волны не пушились вообще.
+      const presence = await readUserPresence(userId);
+      const presAt = presence ? Number(presence.at) || 0 : 0;
+      const presChanged = presence ? Number(presence.changedAt) || presAt : 0;
+      const presFresh = presAt > 0 && now - presAt < 5 * 60 * 1000;
+      let lastActive;
+      if (presence && presAt > 0) {
+        if (presence.status === 'online' && presFresh) continue; // точно в игре
+        // Офлайн — с момента смены статуса; «онлайн, но молчит» — с последнего отчёта.
+        lastActive = presence.status === 'offline' ? (presChanged || presAt) : presAt;
+      } else {
+        const lastSeen = await lastSeenAt(userId);
+        if (lastSeen && now - lastSeen < 15 * 60 * 1000) continue; // старый клиент
+        lastActive = Math.max(Number(payload.saved_at) || 0, lastSeen);
+      }
       const elapsedSec = Math.max(0, (now - lastActive) / 1000);
       if (elapsedSec < 2 * 3600) continue;
 
@@ -2114,7 +2199,7 @@ cron.schedule('*/10 * * * *', async () => {
       if (!preview || preview.skipped) continue;
 
       // Предупреждение за пару часов до запустения галактики.
-      await warnNeglectSoon(userId, payload, preview);
+      await warnNeglectSoon(userId, payload, preview, lastActive);
 
       // ★ Пуш о СТАРТЕ каждой офлайн-волны. Раньше был один агрегат
       //   «Галактика под атакой» не чаще раза в 3 часа — игрок узнавал
@@ -2132,12 +2217,16 @@ cron.schedule('*/10 * * * *', async () => {
 
       // Если за один тик набежало несколько волн — пишем о самой свежей:
       // лучше одно актуальное сообщение, чем пачка опоздавших.
+      // ★ Сначала доставка, потом отметка: сбой сети/Telegram не теряет волну.
+      const waveDelivered = await sendNotification(userId, buildWaveNotice(preview, schedule.attacks - 1));
+      if (!waveDelivered) continue;
       await redisSet(waveKey, JSON.stringify({ anchor: anchor, notified: schedule.attacks }));
       try { await redisCommand('EXPIRE', waveKey, 3 * 24 * 3600); } catch (e) { /* некритично */ }
-      await sendNotification(userId, buildWaveNotice(preview, schedule.attacks - 1));
     }
   } catch (e) {
     console.error('[cron] офлайн-вторжения:', e.message);
+  } finally {
+    _waveCronBusy = false;
   }
 });
 
@@ -2145,7 +2234,7 @@ cron.schedule('*/10 * * * *', async () => {
 cron.schedule('0 12 * * *', async () => {
   console.log('[cron] Проверка спящих игроков...');
   try {
-    const keys = await redisScanAll('cloudsave:*', 500);
+    const keys = await redisScanAll('cloudsave:*', 5000);
     for (const key of keys) {
       const userId = key.split(':')[1];
       const raw = await redisGet(key);
@@ -2156,14 +2245,27 @@ cron.schedule('0 12 * * *', async () => {
       const psettings = payload.data.settings;
       if (psettings && psettings.pushEnabled === false) continue;
 
-      const lastTick = payload.data.lastTick || 0;
-      // Если игрок не заходил больше 24 часов
-      if (Date.now() - lastTick > 24 * 3600 * 1000) {
-        await sendNotification(userId, '💤 Давно не виделись! Ваша галактика ждет вас. Заберите ежедневную награду и проверьте хранилища.');
-      }
+      // ★ Считаем по СЕРВЕРНОМУ времени: клиентские часы могут врать на сутки
+      //   и вызывать ложный «давно не виделись» у активного игрока.
+      const lastSeen = await lastSeenAt(userId);
+      const lastActive = Math.max(
+        Number(payload.saved_at) || 0,
+        Number(payload.data.lastTick) || 0,
+        lastSeen
+      );
+      if (lastActive > 0 && Date.now() - lastActive <= 24 * 3600 * 1000) continue;
+
+      // ★ Один раз за отлучку (а не ежедневно).
+      const sleepKey = `sleep_notice:${userId}`;
+      const anchor = String(lastActive);
+      if (await redisGet(sleepKey) === anchor) continue;
+      const delivered = await sendNotification(userId, '💤 Давно не виделись! Ваша галактика ждет вас. Заберите ежедневную награду и проверьте хранилища.');
+      if (!delivered) continue;
+      await redisSet(sleepKey, anchor);
+      try { await redisCommand('EXPIRE', sleepKey, 45 * 24 * 3600); } catch (e) { /* некритично */ }
     }
   } catch (e) { console.error('[cron] Ошибка:', e.message); }
-});
+}, { timezone: 'Europe/Moscow' });
 
 const server = app.listen(PORT, () => {
   console.log(`[OK] Сервер успешно запущен на порту ${PORT}`);

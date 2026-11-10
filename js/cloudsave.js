@@ -1314,13 +1314,16 @@ async function reportPresence(force) {
   const changed = !_presenceReported ||
     _presenceReported.status !== st.status ||
     _presenceReported.reason !== st.reason;
+  // ★ «Офлайн» повторяем только при смене статуса: частые офлайн-пинги
+  //   обновляли at и сервер считал, что игрок только что ушёл (а он ушёл 3 ч назад).
+  if (!force && !changed && st.status === 'offline') return false;
   if (!force && !changed && now - _presenceReportAt < PRESENCE_REPORT_MIN_MS) return false;
 
   _presenceReportAt = now;
   _presenceReported = { status: st.status, reason: st.reason };
 
   try {
-    await cloudFetch('/api/presence', {
+    const res = await cloudFetch('/api/presence', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1328,9 +1331,18 @@ async function reportPresence(force) {
         status: st.status,
         reason: st.reason,
         idleSec: Math.round((Number(st.idleMs) || 0) / 1000),
+        // ★ Когда статус изменился в последний раз: по нему сервер понимает,
+        //   с какого момента игрок реально отсутствует.
+        changedAt: Number(st.changedAt) || 0,
       }),
       keepalive: true,
     });
+    // ★ cloudFetch НЕ бросает на 401/429/500 — проверяем сами, иначе
+    //   «не дошло» считалось успехом и статус замирал.
+    if (!res || !res.ok) {
+      _presenceReported = null;
+      return false;
+    }
     return true;
   } catch (e) {
     // Не дошло — повторим на следующем тике или смене статуса.
@@ -1375,8 +1387,21 @@ window.reportPresence = reportPresence;
   try {
     if (typeof window !== 'undefined' && window && typeof window.addEventListener === 'function') {
       window.addEventListener('pagehide', function () {
+        // ★ Без явного reportPresence: смена статуса сама разошлёт отчёт
+        //   через onPresenceChange (иначе два POST подряд).
         PRESENCE_STATE.focused = false;
         PRESENCE_STATE.focusKnown = true;
+        playerPresence();
+      });
+    }
+  } catch (e) { /* ignore */ }
+  // ★ Возврат из bfcache (pageshow) или вкладка снова видима: WebView мог
+  //   не прислать focus — сверяемся с реальностью и сразу отчитываемся.
+  try {
+    if (typeof window !== 'undefined' && window && typeof window.addEventListener === 'function') {
+      window.addEventListener('pageshow', function () {
+        _presenceReconcileFocus();
+        presenceMarkActivity(); // вернулся — считаем активным, а не «idle»
         playerPresence();
         reportPresence(true);
       });
@@ -1419,20 +1444,68 @@ window.__markPushActivity = presenceMarkActivity; // старое имя для 
 // Смена статуса — сразу сообщаем серверу, не ждём тика.
 onPresenceChange(function () { reportPresence(true); });
 
+// Не чаще одного пуша о вторжении, пока игрок в игре.
+const ONLINE_INVASION_PUSH_MIN_MS = 10 * 60 * 1000;
+let _lastOnlineInvasionPushAt = 0;
+let _noSubscriptionWarned = false;
+
+// Один раз за сессию: без /start у бота пуши уйти не могут.
+function _notifyWarnNoSubscription() {
+  if (_noSubscriptionWarned) return;
+  _noSubscriptionWarned = true;
+  try {
+    if (typeof toast === 'function') {
+      toast('🔔 Оповещения не подключены', 'Откройте чат с ботом Accretion и отправьте /start — иначе уведомления не приходят.');
+    }
+  } catch (e) { /* ignore */ }
+}
 async function sendPushNotification(message, type) {
   const initData = getTgInitData();
   if (!initData) return; // Вне Telegram пуши недоступны
   if (typeof S !== 'undefined' && S && S.settings && S.settings.pushEnabled === false) return;
-  if (isPlayerOnlineForPush()) return; // Игрок в игре — TG-пуш не нужен
+  // ★ Атака — критичное событие: её пушим даже в активной игре, но не чаще
+  //   раза в 10 минут. Иначе игрок, увлечённый кликами, не узнаёт о вторжении,
+  //   которое случилось в другой системе (жалоба «о нападении не приходит»).
+  if (isPlayerOnlineForPush()) {
+    if (type !== 'invasion') return;
+    const now = Date.now();
+    if (now - _lastOnlineInvasionPushAt < ONLINE_INVASION_PUSH_MIN_MS) return;
+    _lastOnlineInvasionPushAt = now;
+  }
   if (typeof message !== 'string' || !message.trim()) return;
 
+  // ★ Тело пуша маленькое — шлём с keepalive: запрос доживёт, даже если
+  //   игрок закрывает мини-апп или уходит в чат сразу после события.
+  const body = JSON.stringify({ initData, type: type || 'info', message: message });
+  const opts = {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: body,
+    keepalive: true,
+  };
+  let res = null;
   try {
-    await cloudFetch('/api/notify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData, type: type || 'info', message: message })
-    });
-  } catch (e) { /* silent */ }
+    res = await cloudFetch('/api/notify', opts);
+  } catch (e) {
+    // keepalive могли отклонить WebView/лимит — один повтор обычным fetch.
+    try {
+      res = await cloudFetch('/api/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: body,
+      });
+    } catch (e2) { /* silent */ }
+  }
+
+  // ★ Сервер сказал, что подписки бота нет — предупредим игрока один раз.
+  try {
+    if (res && res.ok) {
+      const data = (typeof res.clone === 'function')
+        ? await res.clone().json()
+        : await res.json();
+      if (data && data.subscribed === false) _notifyWarnNoSubscription();
+    }
+  } catch (e) { /* не JSON — ignore */ }
 }
 window.sendPushNotification = sendPushNotification;
 
