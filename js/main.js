@@ -2450,7 +2450,12 @@ if (offline) {
 // закрепляем серверное начисление ближайшим сейвом. Если нет — показываем
 // локальный отчёт и досылаем отложенное уведомление в Telegram.
 function finishCloudStart(applied) {
-  const cloudApplied = (window.__cloudSaveAppliedOnStart === true);
+  // ★ applied === true значит, что синхронизация прошла: либо облако применено,
+  //   либо локальный сейв принят сервером. В обоих случаях офлайн уже посчитан
+  //   серверным временем, и локальный отчёт (по локальному lastTick) показывать
+  //   нельзя: замороженный WebView оставлял lastTick на дни назад, и игра писала
+  //   «Галактика в запустении» после часового отсутствия.
+  const cloudApplied = (window.__cloudSaveAppliedOnStart === true) || applied === true;
   const hadDeferred = !!window.__deferredOfflineResult || window.__deferOfflineNotify === true;
   window.__deferOfflineNotify = false;
   if (cloudApplied) {

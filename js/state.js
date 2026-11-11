@@ -31,7 +31,11 @@ const S = {
   boosters: { incomeUntil: 0 }, // Временный бустер x2
   boosterDay: 0, // индекс дня последней покупки бустера за металл
   // ─── Ежедневные награды ───
-  dailyReward: { day: 0, lastClaimed: 0 },
+  // ★ lastClaimedDay — номер ЕДИНОГО игрового дня (serverDayIndex), в который
+  //   забрали награду. Именно он решает «можно ли забрать»: rolling 24 часа
+  //   от локального Date.now() рассинхронизировал устройства и позволял
+  //   забирать несколько дней подряд. lastClaimed оставлен для совместимости.
+  dailyReward: { day: 0, lastClaimed: 0, lastClaimedDay: 0 },
   firstNightShieldUsed: false,
   // ─── Звезда и Системы ───
   starType: null, 
@@ -129,7 +133,7 @@ let isResetting = false;
 //  СБРОС ЗНАЧЕНИЙ (используется при престиже и перезапуске)
 // ═══════════════════════════════════════════════════════════════
 function resetStateValues() {
-  S.dailyReward = { day: 0, lastClaimed: 0 };
+  S.dailyReward = { day: 0, lastClaimed: 0, lastClaimedDay: 0 };
   S.firstNightShieldUsed = false;
   S.stage = 'cloud';
   S.activeEvent = null;
@@ -497,9 +501,18 @@ function loadGame() {
       S.fleet[shipKey] = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
     }
     if (typeof S.fleetActive !== 'boolean') S.fleetActive = false;
-    if (!S.dailyReward || typeof S.dailyReward !== 'object') S.dailyReward = { day: 0, lastClaimed: 0 };
+    if (!S.dailyReward || typeof S.dailyReward !== 'object') S.dailyReward = { day: 0, lastClaimed: 0, lastClaimedDay: 0 };
     if (typeof S.dailyReward.day !== 'number') S.dailyReward.day = 0;
+    S.dailyReward.day = Math.max(0, Math.min(6, Math.floor(S.dailyReward.day) || 0));
     if (typeof S.dailyReward.lastClaimed !== 'number') S.dailyReward.lastClaimed = 0;
+    // ★ Старые сейвы не знают lastClaimedDay — выводим его из timestamp,
+    //   чтобы после обновления не выдать награду повторно.
+    if (typeof S.dailyReward.lastClaimedDay !== 'number') {
+      const lastTs = Number(S.dailyReward.lastClaimed) || 0;
+      S.dailyReward.lastClaimedDay = (lastTs > 0 && typeof serverDayIndex === 'function')
+        ? serverDayIndex(lastTs)
+        : 0;
+    }
     if (typeof S.firstNightShieldUsed !== 'boolean') S.firstNightShieldUsed = false;
     if (!S.otherSystems) S.otherSystems = [];
     if (typeof S.activeSystemIdx !== 'number') S.activeSystemIdx = 0;

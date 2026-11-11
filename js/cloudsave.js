@@ -432,6 +432,39 @@ function applyCloudSaveAuthoritative(cloudData) {
   return applyCloudSaveToRuntime(safe || cloudData);
 }
 
+// ★ Ежедневка не должна откатываться облаком назад.
+// Симптом: на телефоне забрали «день 3», через пару минут ПК со старым сейвом
+// показал «день 2» и разрешил забрать его снова. Держим более поздний
+// lastClaimedDay, при равенстве — более длинную серию.
+function mergeDailyRewardMonotonic(cloudData) {
+  try {
+    if (!cloudData || typeof cloudData !== 'object') return cloudData;
+    const local = (typeof S !== 'undefined' && S) ? S.dailyReward : null;
+    if (!local || typeof local !== 'object') return cloudData;
+    const dayIdx = (ts) => (typeof serverDayIndex === 'function')
+      ? serverDayIndex(ts)
+      : Math.floor((Number(ts) || 0) / 86400000);
+    const localDay = Number(local.lastClaimedDay) || (Number(local.lastClaimed) > 0 ? dayIdx(local.lastClaimed) : 0);
+    const cloudRw = (cloudData.dailyReward && typeof cloudData.dailyReward === 'object') ? cloudData.dailyReward : {};
+    const cloudDay = Number(cloudRw.lastClaimedDay) || (Number(cloudRw.lastClaimed) > 0 ? dayIdx(cloudRw.lastClaimed) : 0);
+    const localStreak = Math.max(0, Math.min(6, Number(local.day) || 0));
+    const cloudStreak = Math.max(0, Math.min(6, Number(cloudRw.day) || 0));
+    const keepLocal = localDay > cloudDay || (localDay === cloudDay && localStreak > cloudStreak);
+    if (keepLocal) {
+      cloudData.dailyReward = {
+        day: localStreak,
+        lastClaimed: Math.max(Number(local.lastClaimed) || 0, Number(cloudRw.lastClaimed) || 0),
+        lastClaimedDay: localDay || cloudDay || 0,
+      };
+    } else if (cloudRw.lastClaimedDay === undefined && cloudDay > 0) {
+      // Старый сейв без lastClaimedDay — фиксируем день, чтобы после загрузки не выдать повторно.
+      cloudData.dailyReward = Object.assign({}, cloudRw, { lastClaimedDay: cloudDay });
+    }
+  } catch (e) { /* синхронизацию не ломаем */ }
+  return cloudData;
+}
+
+
 // ★ Применение серверного сейва ВНУТРИ cloudSaveGame(). loadGame() может
 // вызвать checkAchievements() → saveGame(), и без этого флага мы бы
 // запланировали ещё один save из самого процесса save.
@@ -788,6 +821,8 @@ async function cloudSync() {
 function applyCloudSaveToRuntime(cloudData) {
   if (!cloudData || typeof cloudData !== 'object') return false;
 
+  // ★ Облако со старого устройства не должно откатывать уже забранную сегодня награду.
+  cloudData = mergeDailyRewardMonotonic(cloudData);
   // 1. Фиксируем сейв локально, чтобы loadGame() прочитал именно его
   writeLocalSave(cloudData);
 

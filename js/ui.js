@@ -1519,42 +1519,66 @@ function selectDefenseLevel(lvl) {
 //  ЕЖЕДНЕВНЫЕ НАГРАДЫ
 // ═══════════════════════════════════════════════════════════════
 
-function getDailyRewardData(day) {
-  // Динамический подсчет наград
-  const dustReward = Math.floor(Math.max(50000, dustPerSec() * 3600 * 4)); // 4 часа дохода
-  const energyReward = Math.floor(Math.max(1000, energyPerSec() * 3600 * 4));
-  const civReward = Math.floor(Math.max(10, civPerSec() * 3600 * 8));
-  const metalReward = Math.floor(1000 * Math.max(1, S.systems)); // Масштабируется от систем
+// ★ ЕДИНЫЙ ИГРОВОЙ ДЕНЬ ДЛЯ ЕЖЕДНЕВКИ.
+// Раньше кулдаун считался как «24 часа от последнего Date.now()» на каждом
+// устройстве отдельно. Из-за этого телефон и ПК жили в разных днях: игрок
+// забирал «день 3», а через минуту с другого устройства — «день 2».
+// Теперь день — это serverDayIndex() (граница 01:00 UTC / 04:00 МСК), тот же,
+// что у событий, ежедневных заданий и лимитов бустера.
+function dailyTodayIndex(now) {
+  const ts = Number(now) || Date.now();
+  return (typeof serverDayIndex === 'function') ? serverDayIndex(ts) : Math.floor(ts / 86400000);
+}
 
-  const rewards = [
-    { icon: '✦', name: 'Пыль', amount: dustReward, type: 'dust' },
-    { icon: '⚡', name: 'Энергия', amount: energyReward, type: 'energy' },
-    { icon: '🧬', name: 'Цивилизация', amount: civReward, type: 'civ' },
-    { icon: '⚙', name: 'Металлы', amount: metalReward, type: 'metal' },
-    { icon: '🛡', name: 'Оборона', amount: 'Ур.3', type: 'defense' },
-    { icon: '🌐', name: 'Щит', amount: '8ч', type: 'shield' },
-    { icon: '🎫', name: 'Трофей', amount: 'Случайный', type: 'trophy' }
-  ];
-  
-  return rewards[day];
+// День, в который награда уже была забрана. Для старых сейвов считаем из ts.
+function dailyClaimedDay() {
+  const rw = (S && S.dailyReward) || {};
+  const day = Number(rw.lastClaimedDay) || 0;
+  if (day > 0) return day;
+  const last = Number(rw.lastClaimed) || 0;
+  return last > 0 ? dailyTodayIndex(last) : 0;
+}
+
+// { canClaim, day, today, claimedDay, streakBroken }
+// canClaim — только один раз за игровой день; переход через день сбрасывает серию.
+function dailyRewardStatus(now) {
+  const today = dailyTodayIndex(now);
+  const claimedDay = dailyClaimedDay();
+  const storedDay = Number(S && S.dailyReward && S.dailyReward.day);
+  let day = isFinite(storedDay) ? storedDay : 0;
+  day = Math.max(0, Math.min(6, Math.floor(day)));
+  if (!claimedDay) return { canClaim: true, day: day, today: today, claimedDay: 0, streakBroken: false };
+  const diff = today - claimedDay;
+  // Часы откатили назад: считаем, что сегодня уже забрали, — иначе фарм дня.
+  if (diff <= 0) return { canClaim: false, day: day, today: today, claimedDay: claimedDay, streakBroken: false };
+  if (diff === 1) return { canClaim: true, day: day, today: today, claimedDay: claimedDay, streakBroken: false };
+  return { canClaim: true, day: 0, today: today, claimedDay: claimedDay, streakBroken: true };
+}
+window.dailyRewardStatus = dailyRewardStatus;
+
+function getDailyRewardData(day) {
+  // ★ Номинал награды — в config.js (dailyRewardFor): одну и ту же формулу
+  //   использует сервер, поэтому телефон и ПК не расходятся в числах.
+  if (typeof window.dailyRewardFor === 'function') {
+    return window.dailyRewardFor(day, {
+      dust: (typeof dustPerSec === 'function') ? dustPerSec() : 0,
+      energy: (typeof energyPerSec === 'function') ? energyPerSec() : 0,
+      civ: (typeof civPerSec === 'function') ? civPerSec() : 0,
+    }, S.systems);
+  }
+  return { icon: '✦', name: 'Пыль', amount: 50000, type: 'dust' };
 }
 
 function checkDailyRewards() {
-  const now = Date.now();
-  const last = S.dailyReward.lastClaimed || 0;
-  const day = S.dailyReward.day || 0;
-
-  // Если прошло больше 48 часов (пропустил день) — сбрасываем на 1-й день
-  if (last > 0 && (now - last) > 48 * 3600 * 1000) {
+  const st = dailyRewardStatus();
+  // Пропущен целый день — серия начинается заново с первого дня.
+  if (st.streakBroken && S.dailyReward.day !== 0) {
     S.dailyReward.day = 0;
+    if (typeof saveGame === 'function') saveGame();
   }
-  
-  // Если прошло больше 24 часов с последнего получения — можно забрать
-  if (last === 0 || (now - last) >= 24 * 3600 * 1000) {
-    setTimeout(() => { openDailyRewards(); }, 1500);
-    return true;
-  }
-  return false;
+  if (!st.canClaim) return false;
+  setTimeout(() => { openDailyRewards(); }, 1500);
+  return true;
 }
 
 function openDailyRewards() {
@@ -1563,11 +1587,10 @@ function openDailyRewards() {
   if (!modal || !grid) return;
 
   let html = '';
-  const currentDay = S.dailyReward.day || 0;
-  const now = Date.now();
-  const last = S.dailyReward.lastClaimed || 0;
-  const canClaim = (last === 0 || (now - last) >= 24 * 3600 * 1000);
-
+  // ★ Кулдаун — по единому игровому дню, а не по локальным 24 часам.
+  const st = dailyRewardStatus();
+  const currentDay = st.day;
+  const canClaim = st.canClaim;
   for (let i = 0; i < 7; i++) {
     const rw = getDailyRewardData(i);
     let stateClass = '';
@@ -1597,9 +1620,16 @@ function openDailyRewards() {
 }
 
 function claimDailyReward() {
-  const day = S.dailyReward.day || 0;
-  if (day >= 7) return;
-
+  // ★ Жёсткая проверка: награда не чаще одного раза за игровой день.
+  //   Раньше проверка жила только в вёрстке модалки, поэтому повторный
+  //   вызов (старая модалка, второй таб, консоль) забирал следующий день.
+  const st = dailyRewardStatus();
+  if (!st.canClaim) {
+    if (typeof toast === 'function') toast('⏳ Уже получено', 'Следующая награда — в новый игровой день');
+    return false;
+  }
+  if (st.streakBroken) S.dailyReward.day = 0;
+  const day = Math.max(0, Math.min(6, Number(S.dailyReward.day) || 0));
   const rw = getDailyRewardData(day);
 
   if (rw.type === 'dust') { S.dust += rw.amount; S.dustTotal += rw.amount; toast('Награда!', '+' + fmt(rw.amount) + ' ✦'); }
@@ -1622,11 +1652,8 @@ function claimDailyReward() {
   }
 
   S.dailyReward.lastClaimed = Date.now();
-  S.dailyReward.day = day + 1;
-  
-  if (S.dailyReward.day >= 7) {
-    S.dailyReward.day = 0; // Цикл завершен, начинаем заново
-  }
+  S.dailyReward.lastClaimedDay = st.today;
+  S.dailyReward.day = (day + 1) >= 7 ? 0 : (day + 1);
 
   saveGame();
   updateUI();
@@ -1638,6 +1665,7 @@ function claimDailyReward() {
   
   // Если забрали всё, закрываем через секунду
   setTimeout(() => { closeDailyAndWait(); }, 1500);
+  return true;
 }
 
 // ★ Закрытие ежедневной награды с паузой перед сборкой планеты

@@ -839,6 +839,36 @@ window.GAME_DAY_OFFSET_MS = GAME_DAY_OFFSET_MS;
 window.GAME_DAY_EPOCH = GAME_DAY_EPOCH;
 window.serverDayIndex = serverDayIndex;
 window.serverWeekIndex = serverWeekIndex;
+
+// ─── ЕЖЕДНЕВНЫЕ НАГРАДЫ ────────────────────────────────────────
+// ★ Один источник правды для клиента и сервера (game-core грузит config.js).
+//   Награда не должна считаться двумя разными формулами: иначе ежедневка
+//   на телефоне и на ПК отличается, а сервер не может проверить номинал.
+//   day: 0..6 (7-й день забирает трофей). rates — {
+//   dust,energy,civ,metals } в секунду; systems — число систем игрока.
+function dailyRewardFor(day, rates, systems) {
+  const d = Math.max(0, Math.min(6, Math.floor(Number(day) || 0)));
+  const r = (rates && typeof rates === 'object') ? rates : {};
+  const dustPerSec = Number(r.dust);
+  const energyPerSec = Number(r.energy);
+  const civPerSec = Number(r.civ);
+  const sys = Math.max(1, Math.floor(Number(systems) || 1));
+  const dustRate = isFinite(dustPerSec) ? dustPerSec : 0;
+  const energyRate = isFinite(energyPerSec) ? energyPerSec : 0;
+  const civRate = isFinite(civPerSec) ? civPerSec : 0;
+  const rewards = [
+    { icon: '✦', name: 'Пыль', amount: Math.floor(Math.max(50000, dustRate * 3600 * 4)), type: 'dust' },
+    { icon: '⚡', name: 'Энергия', amount: Math.floor(Math.max(1000, energyRate * 3600 * 4)), type: 'energy' },
+    { icon: '🧬', name: 'Цивилизация', amount: Math.floor(Math.max(10, civRate * 3600 * 8)), type: 'civ' },
+    { icon: '⚙', name: 'Металлы', amount: Math.floor(1000 * sys), type: 'metal' },
+    { icon: '🛡', name: 'Оборона', amount: 'Ур.3', type: 'defense' },
+    { icon: '🌐', name: 'Щит', amount: '8ч', type: 'shield' },
+    { icon: '🎫', name: 'Трофей', amount: 'Случайный', type: 'trophy' },
+  ];
+  return rewards[d];
+}
+window.dailyRewardFor = dailyRewardFor;
+
 window.GALAXY_LOD_CFG = GALAXY_LOD_CFG;
 window.galaxyLodForTotal = galaxyLodForTotal;
 window.galaxyGroupSizeForLevel = galaxyGroupSizeForLevel;
