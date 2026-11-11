@@ -27,6 +27,7 @@ import { rollChestReward } from './lib/chest.js';
 import { clampReward, hasReward, maxExtraReward } from './lib/reward.js';
 import { capabilityAudit, remainingCapabilityBudget, chestCapabilityValue } from './lib/capability.js';
 import { applyAdminWallet, adminCapabilityBonus, adminEntitlementPlan } from './lib/admin-trust.js';
+import { summarizeSave } from './lib/admin-summary.js';
 import fs from 'node:fs';
 import TelegramBot from 'node-telegram-bot-api';
 import cron from 'node-cron';
@@ -1480,6 +1481,29 @@ function adminGuard(req, res, next) {
   next();
 }
 
+// ★ Мягкое чтение для админских карточек: сбой Redis не должен
+// ронять весь ответ — показываем то, что успели прочитать.
+async function adminSafeRead(label, fn, fallback) {
+  try {
+    return await fn();
+  } catch (e) {
+    console.warn(`[admin] ${label}:`, e.message);
+    return fallback;
+  }
+}
+
+// Права на щит/бустер: читаем тоже мягко — админка важнее сбоя Redis.
+async function readAdminEntitlements(userId) {
+  const [shieldRaw, boosterRaw] = await Promise.all([
+    adminSafeRead('право щита', () => redisGet(`entitlement:shield:${userId}`), null),
+    adminSafeRead('право бустера', () => redisGet(`entitlement:booster:${userId}`), null),
+  ]);
+  return {
+    shieldUntil: Math.max(0, Number(shieldRaw) || 0),
+    boosterUntil: Math.max(0, Number(boosterRaw) || 0),
+  };
+}
+
 app.get('/admin', (req, res) => {
   console.log(`[admin] GET /admin — ip=${req.ip} ua="${req.get('user-agent') || ''}"`);
   const file = process.cwd() + '/admin.html';
@@ -1778,7 +1802,57 @@ app.get('/admin/api/player/:id', adminGuard, async (req, res) => {
     }
     // Присутствие — внутренняя информация, показываем рядом с ником.
     const presence = toAdminPresence(await readUserPresence(id));
-    res.json({ ok: true, id, savedAt: payload.saved_at || 0, data: payload.data, presence });
+
+    // ★ Всё «мягкое» читаем параллельно и с защитой: сбой Redis
+    // (кошелёк, права, покупки) не должен ломать редактор сейва.
+    const [wallet, shieldRaw, boosterRaw, chestRaw, shieldPurchaseRaw, boosterPurchaseRaw] = await Promise.all([
+      adminSafeRead('кошелёк', () => readWallet(id), null),
+      adminSafeRead('право щита', () => redisGet(`entitlement:shield:${id}`), null),
+      adminSafeRead('право бустера', () => redisGet(`entitlement:booster:${id}`), null),
+      adminSafeRead('покупка сундука', () => redisGet(`purchase:${id}:chest`), null),
+      adminSafeRead('покупка щита', () => redisGet(`purchase:${id}:shield`), null),
+      adminSafeRead('покупка бустера', () => redisGet(`purchase:${id}:booster`), null),
+    ]);
+
+    const entitlements = {
+      shieldUntil: Math.max(0, Number(shieldRaw) || 0),
+      boosterUntil: Math.max(0, Number(boosterRaw) || 0),
+    };
+
+    // Покупки: сырой ключ purchase:<id>:<product>, подпись — из PRODUCTS.
+    const purchases = [];
+    const purchaseDefs = [
+      { product: 'chest', raw: chestRaw },
+      { product: 'shield', raw: shieldPurchaseRaw },
+      { product: 'booster', raw: boosterPurchaseRaw },
+    ];
+    for (const def of purchaseDefs) {
+      const p = parseRedisJson(def.raw);
+      if (!p || typeof p !== 'object') continue;
+      purchases.push({
+        product: def.product,
+        label: (PRODUCTS[def.product] && PRODUCTS[def.product].label) || def.product,
+        stars: Math.max(0, Number(p.stars) || 0),
+        paid_at: Math.max(0, Number(p.paid_at) || 0),
+        granted: !!p.granted,
+        reward: p.reward || null,
+      });
+    }
+
+    const now = Date.now();
+    res.json({
+      ok: true,
+      id,
+      version: Number(payload.version) || 0,
+      savedAt: payload.saved_at || 0,
+      data: payload.data,
+      presence,
+      wallet,
+      entitlements,
+      purchases,
+      summary: summarizeSave(payload.data, { now }),
+      now,
+    });
   } catch (e) {
     console.error('[admin] /admin/api/player/:id', e);
     res.status(500).json({ error: e.message });
@@ -1836,6 +1910,125 @@ app.post('/admin/api/player/:id/set', adminGuard, async (req, res) => {
     res.json({ ok: true, field, value: payload.data[field] });
   } catch (e) {
     console.error('[admin] /admin/api/player/set', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /admin/api/player/:id/patch  { fields: { ... } }
+// Атомарная правка сразу нескольких полей: одна проверка, одна запись
+// кошелька/прав и один bump версии — вместо серии запросов /set.
+app.post('/admin/api/player/:id/patch', adminGuard, async (req, res) => {
+  const { id } = req.params;
+  const fields = req.body && req.body.fields;
+  const fieldCount = (fields && typeof fields === 'object' && !Array.isArray(fields))
+    ? Object.keys(fields).length : 0;
+  console.log(`[admin] POST /admin/api/player/${id}/patch fields=${fieldCount} — ip=${req.ip}`);
+
+  if (!fields || typeof fields !== 'object' || Array.isArray(fields)) {
+    return res.status(400).json({ error: 'fields должен быть объектом { имя_поля: значение }' });
+  }
+  const names = Object.keys(fields);
+  if (names.length === 0) {
+    return res.status(400).json({ error: 'Пустой объект fields — нечего менять' });
+  }
+  if (names.length > 100) {
+    return res.status(400).json({ error: 'Слишком много полей: максимум 100 за раз' });
+  }
+  for (const name of names) {
+    if (ADMIN_FORBIDDEN_FIELDS.has(name) || !String(name).trim()) {
+      return res.status(400).json({ error: `Недопустимое имя поля: ${name}` });
+    }
+  }
+
+  try {
+    const key = `cloudsave:${id}`;
+    const payload = parseRedisJson(await redisGet(key));
+    if (!payload || typeof payload !== 'object' ||
+        !payload.data || typeof payload.data !== 'object') {
+      return res.status(404).json({ error: 'У игрока нет облачного сейва' });
+    }
+
+    // Стоимость «возможностей» до правки считаем ОДИН раз:
+    // по разнице syncAdminWallet выдаст бюджет, как платный сундук.
+    const prevCapability = (SERVER_AUTHORITATIVE && gameCore)
+      ? withCoreState(payload.data, function () { return gameCore.capability(); })
+      : null;
+
+    const changed = [];
+    for (const name of names) {
+      payload.data[name] = fields[name];
+      changed.push(name);
+    }
+
+    // Один bump версии на всю пачку, иначе клиент увидит лишние ревизии.
+    payload.saved_at = Date.now();
+    payload.version = (Number(payload.version) || 0) + 1;
+
+    // Кошелёк и права синхронизируем тоже один раз на пачку.
+    await syncAdminWallet(id, payload.data, prevCapability);
+    if (Object.prototype.hasOwnProperty.call(fields, 'shieldUntil')) {
+      await syncAdminEntitlement(id, payload.data, 'shieldUntil');
+    }
+    if (Object.prototype.hasOwnProperty.call(fields, 'boosters')) {
+      await syncAdminEntitlement(id, payload.data, 'boosters');
+    }
+    await markAdminTrust(id);
+    await redisSet(key, JSON.stringify(payload));
+
+    // Сводка и кошелёк — «мягкие» чтения: правка уже записана.
+    const wallet = await adminSafeRead('кошелёк', () => readWallet(id), null);
+    const entitlements = await readAdminEntitlements(id);
+
+    console.log(`[admin] игроку ${id} изменено полей: ${changed.join(', ')}`);
+    res.json({
+      ok: true,
+      changed,
+      summary: summarizeSave(payload.data, { now: Date.now() }),
+      wallet,
+      entitlements,
+    });
+  } catch (e) {
+    console.error('[admin] /admin/api/player/patch', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /admin/api/player/:id/wallet  { capBudget }
+// Ручная правка «бюджета возможностей»: без него сервер сочтёт
+// админские системы/планеты неоплаченными и обрежет их.
+app.post('/admin/api/player/:id/wallet', adminGuard, async (req, res) => {
+  const { id } = req.params;
+  const requested = req.body ? req.body.capBudget : undefined;
+  console.log(`[admin] POST /admin/api/player/${id}/wallet capBudget=${requested} — ip=${req.ip}`);
+
+  if (!id || !String(id).trim()) {
+    return res.status(400).json({ error: 'Не указан id игрока' });
+  }
+  const cap = Math.max(0, Number(requested));
+  if (!Number.isFinite(cap)) {
+    return res.status(400).json({ error: 'capBudget должен быть числом' });
+  }
+
+  try {
+    // Сейв нужен, только чтобы создать потерянный кошелёк (ensureWallet).
+    const payload = parseRedisJson(await redisGet(`cloudsave:${id}`));
+    const save = (payload && payload.data && typeof payload.data === 'object') ? payload.data : null;
+    const existing = await readWallet(id);
+    if (!existing && !save) {
+      return res.status(404).json({ error: 'У игрока нет ни кошелька, ни облачного сейва' });
+    }
+
+    const wallet = ensureWallet(existing, save || {}, Date.now());
+    wallet.capBudget = cap;
+    const written = await writeWallet(id, wallet);
+    if (!written) {
+      return res.status(500).json({ error: 'Не удалось записать кошелёк' });
+    }
+
+    console.log(`[admin] игроку ${id} установлен capBudget = ${cap}`);
+    res.json({ ok: true, wallet });
+  } catch (e) {
+    console.error('[admin] /admin/api/player/wallet', e);
     res.status(500).json({ error: e.message });
   }
 });

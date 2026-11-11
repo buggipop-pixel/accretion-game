@@ -3,100 +3,238 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
   <title>Админ-панель Аккреция</title>
   <style>
-    body { font-family: -apple-system, sans-serif; background: #0a0620; color: #e8e2ff; padding: 20px; margin: 0; }
-    h1 { font-size: 24px; color: #b9a8ff; margin-bottom: 20px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
-    th, td { padding: 12px; border: 1px solid rgba(139, 127, 212, 0.3); text-align: left; }
-    th { background: rgba(139, 127, 212, 0.15); color: #b9a8ff; font-weight: 600; }
-    tr:hover { background: rgba(139, 127, 212, 0.05); cursor: pointer; }
-    button { padding: 8px 16px; border-radius: 8px; border: none; background: #6b4de6; color: #fff; font-weight: bold; cursor: pointer; transition: 0.2s; font-family: inherit; }
-    button:hover { background: #8b5cf6; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .btn-danger { background: #ff4a4a; color: #fff; }
-    .btn-danger:hover { background: #ff2a2a; }
-    .btn-warning { background: #ffb347; color: #1a0f35; }
-    .btn-warning:hover { background: #ffcc00; }
+    :root {
+      --bg: #0a0620;
+      --bg-2: #120a28;
+      --panel: #171033;
+      --panel-2: #1d1440;
+      --line: rgba(139, 127, 212, 0.28);
+      --line-soft: rgba(139, 127, 212, 0.14);
+      --text: #e8e2ff;
+      --muted: #a89ce0;
+      --dim: #7c73a8;
+      --accent: #8b5cf6;
+      --accent-2: #6b4de6;
+      --good: #4ade80;
+      --warn: #ffb347;
+      --bad: #ff5a5a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background:
+        radial-gradient(900px 500px at 12% -10%, rgba(107, 77, 230, 0.24), transparent 60%),
+        radial-gradient(700px 420px at 96% 0%, rgba(255, 90, 90, 0.10), transparent 60%),
+        var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 20px;
+    }
+    h1 { font-size: 22px; margin: 0; color: #cbbcff; letter-spacing: .4px; }
+    h2 { font-size: 17px; margin: 0; }
+    a { color: #b9a8ff; }
+    .muted { color: var(--muted); }
+    .dim { color: var(--dim); }
+    .small { font-size: 12px; }
+    .mono { font-variant-numeric: tabular-nums; }
 
-    /* Статус присутствия (внутренняя информация) — рядом с ником */
-    .presence-badge { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; vertical-align: middle; }
-    .presence-online { background: rgba(70, 200, 120, 0.18); color: #6ee7a0; border: 1px solid rgba(70, 200, 120, 0.45); }
-    .presence-offline { background: rgba(255, 90, 90, 0.15); color: #ff9b9b; border: 1px solid rgba(255, 90, 90, 0.4); }
-    .presence-unknown { background: rgba(160, 160, 180, 0.15); color: #b8b4cc; border: 1px solid rgba(160, 160, 180, 0.35); }
+    button {
+      padding: 8px 14px; border-radius: 9px; border: 1px solid transparent;
+      background: var(--accent-2); color: #fff; font-weight: 600; cursor: pointer;
+      transition: .15s; font-family: inherit; font-size: 13px;
+    }
+    button:hover { background: var(--accent); }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-ghost { background: transparent; border-color: var(--line); color: var(--muted); }
+    .btn-ghost:hover { background: rgba(139,127,212,.12); color: #fff; }
+    .btn-danger { background: #c53030; }
+    .btn-danger:hover { background: #e53e3e; }
+    .btn-warning { background: #b7791f; color: #fff; }
+    .btn-warning:hover { background: #d69e2e; }
+    .btn-good { background: #16794b; }
+    .btn-good:hover { background: #1c9c60; }
+    .btn-sm { padding: 5px 10px; font-size: 12px; border-radius: 7px; }
 
-    /* Модалка и карточка игрока */
-    #playerModal { display: none; position: fixed; inset: 0; background: rgba(2, 1, 10, 0.9); backdrop-filter: blur(5px); z-index: 100; align-items: center; justify-content: center; padding: 20px; overflow-y: auto; }
-    .modal-content { background: linear-gradient(180deg, #1a1030, #0a0620); border: 1px solid #6b4de6; border-radius: 16px; padding: 24px; max-width: 600px; width: 100%; box-shadow: 0 10px 40px rgba(0,0,0,0.8); max-height: 90vh; overflow-y: auto; }
+    input, select {
+      padding: 9px 10px; border-radius: 8px; border: 1px solid var(--line);
+      background: rgba(0,0,0,.45); color: #fff; font-family: inherit; font-size: 13px;
+      min-width: 0;
+    }
+    input:focus, select:focus { outline: none; border-color: #b9a8ff; box-shadow: 0 0 0 2px rgba(139,92,246,.25); }
+    input[type=number] { width: 100%; }
+    select { width: 100%; }
+    label.field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+    label.field > span { font-size: 11px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); }
 
-    #starsModal { display: none; position: fixed; inset: 0; background: rgba(2, 1, 10, 0.9); backdrop-filter: blur(5px); z-index: 110; align-items: center; justify-content: center; padding: 20px; overflow-y: auto; }
-    #starsModal .modal-content { max-width: 900px; }
-    .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid rgba(139, 127, 212, 0.3); padding-bottom: 10px; }
-    .section-title { font-size: 12px; color: #8b7fd4; text-transform: uppercase; letter-spacing: 1px; margin: 15px 0 10px; font-weight: bold; border-bottom: 1px dashed rgba(139, 127, 212, 0.2); padding-bottom: 4px; }
+    /* ── Шапка / авторизация ── */
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+    .topbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .auth-box {
+      background: linear-gradient(180deg, var(--panel-2), var(--panel));
+      padding: 30px; border-radius: 18px; border: 1px solid var(--accent-2);
+      max-width: 340px; margin: 80px auto; text-align: center;
+    }
+    .auth-box input { width: 100%; margin-bottom: 14px; padding: 12px; font-size: 15px; }
+    .auth-box button { width: 100%; }
 
-    .input-group { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
-    .input-group label { font-size: 12px; color: #a89ce0; }
-    .input-group input, .input-group select { padding: 10px; border-radius: 8px; border: 1px solid rgba(139, 127, 212, 0.5); background: rgba(0,0,0,0.5); color: #fff; font-family: inherit; font-size: 14px; }
-    .input-group input:focus, .input-group select:focus { outline: none; border-color: #b9a8ff; }
+    /* ── Карточки / сетки ── */
+    .card {
+      background: linear-gradient(180deg, rgba(29,20,64,.92), rgba(18,10,40,.92));
+      border: 1px solid var(--line); border-radius: 16px; padding: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    }
+    .card + .card { margin-top: 14px; }
+    .card h3 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: #b9a8ff; }
+    .grid { display: grid; gap: 12px; }
+    .grid.c2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .grid.c3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+    .grid.c4 { grid-template-columns: repeat(4, minmax(0,1fr)); }
+    .grid.c5 { grid-template-columns: repeat(5, minmax(0,1fr)); }
+    @media (max-width: 900px) { .grid.c3, .grid.c4, .grid.c5 { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+    @media (max-width: 560px) { .grid.c2, .grid.c3, .grid.c4, .grid.c5 { grid-template-columns: 1fr; } }
 
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-    .btn-row { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+    /* ── Таблица игроков ── */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
+    th { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); background: rgba(139,127,212,.08); }
+    tbody tr:hover { background: rgba(139,127,212,.06); }
+    .player-id { font-weight: 700; letter-spacing: .3px; }
+    .player-sub { display: block; font-size: 11px; color: var(--dim); margin-top: 2px; }
+    .presence-badge { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; vertical-align: middle; }
+    .presence-online { background: rgba(70,200,120,.16); color: #6ee7a0; border: 1px solid rgba(70,200,120,.42); }
+    .presence-offline { background: rgba(255,90,90,.14); color: #ff9b9b; border: 1px solid rgba(255,90,90,.4); }
+    .presence-unknown { background: rgba(160,160,180,.14); color: #b8b4cc; border: 1px solid rgba(160,160,180,.32); }
+    .empty { text-align: center; color: var(--muted); padding: 26px; }
 
-    /* Вход */
-    .auth-box { background: rgba(25, 15, 50, 0.8); padding: 30px; border-radius: 16px; border: 1px solid #6b4de6; max-width: 300px; margin: 100px auto; text-align: center; }
-    .auth-box input { width: 100%; box-sizing: border-box; margin-bottom: 15px; padding: 12px; border-radius: 8px; border: 1px solid #6b4de6; background: rgba(0,0,0,0.5); color: #fff; font-size: 16px; }
+    /* ── Выдвижная карточка игрока ── */
+    .drawer {
+      position: fixed; inset: 0; z-index: 100; display: none;
+      background: rgba(2,1,10,.78); backdrop-filter: blur(6px);
+      padding: 18px;
+    }
+    .drawer.open { display: flex; }
+    .drawer-inner {
+      margin: auto; width: min(1200px, 100%); max-height: calc(100vh - 36px);
+      display: flex; flex-direction: column;
+      background: linear-gradient(180deg, #1b1238, #0c0722);
+      border: 1px solid var(--accent-2); border-radius: 18px;
+      box-shadow: 0 24px 70px rgba(0,0,0,.75); overflow: hidden;
+    }
+    .drawer-head {
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+      padding: 16px 18px; border-bottom: 1px solid var(--line);
+      background: rgba(139,127,212,.06); flex-wrap: wrap;
+    }
+    .drawer-title { display: flex; flex-direction: column; gap: 4px; }
+    .drawer-title .name { font-size: 18px; font-weight: 700; }
+    .drawer-title .meta { font-size: 12px; color: var(--dim); display: flex; gap: 10px; flex-wrap: wrap; }
+    .drawer-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .tabs { flex: none; display: flex; gap: 6px; padding: 10px 14px 0; overflow-x: auto; overflow-y: hidden; border-bottom: 1px solid var(--line); }
+    .tab {
+      padding: 8px 12px; border-radius: 9px 9px 0 0; border: 1px solid transparent; border-bottom: none;
+      background: transparent; color: var(--muted); font-size: 13px; font-weight: 600; white-space: nowrap;
+    }
+    .tab:hover { color: #fff; background: rgba(139,127,212,.08); }
+    .tab.active { background: rgba(139,127,212,.16); color: #fff; border-color: var(--line); }
+    .panes { padding: 16px 18px 24px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+
+    /* ── Данные / чипы ── */
+    .kv { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--line-soft); font-size: 13px; }
+    .kv:last-child { border-bottom: none; }
+    .kv .k { color: var(--muted); }
+    .kv .v { font-weight: 600; text-align: right; word-break: break-word; }
+    .stat { background: rgba(0,0,0,.25); border: 1px solid var(--line-soft); border-radius: 12px; padding: 10px 12px; }
+    .stat .label { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+    .stat .value { font-size: 20px; font-weight: 700; margin-top: 2px; }
+    .stat .hint { font-size: 11px; color: var(--dim); margin-top: 2px; }
+
+    .chip {
+      display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px;
+      border: 1px solid var(--line); background: rgba(0,0,0,.3); font-size: 12px;
+    }
+    .chip.good { border-color: rgba(74,222,128,.45); background: rgba(74,222,128,.10); }
+    .chip.bad { border-color: rgba(255,90,90,.45); background: rgba(255,90,90,.10); }
+    .chip.warn { border-color: rgba(255,179,71,.45); background: rgba(255,179,71,.10); }
+    .chip button { background: transparent; border: none; color: var(--muted); padding: 0 2px; font-size: 14px; line-height: 1; }
+    .chip button:hover { color: var(--bad); background: transparent; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    .row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+    .row > * { flex: 1 1 140px; }
+    .row > .fixed { flex: 0 0 auto; }
+    .inline-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+
+    .note { font-size: 12px; color: var(--dim); line-height: 1.5; }
+    .danger-zone { border-color: rgba(255,90,90,.35); }
+    .danger-zone h3 { color: #ff9b9b; }
+    .hint-badge { font-size: 11px; color: var(--dim); font-weight: 400; text-transform: none; letter-spacing: 0; }
+
+    /* ── Тосты ── */
+    #toasts { position: fixed; right: 18px; bottom: 18px; z-index: 200; display: flex; flex-direction: column; gap: 8px; max-width: 360px; }
+    .toast {
+      background: #1c1440; border: 1px solid var(--line); border-left: 3px solid var(--good);
+      border-radius: 10px; padding: 10px 14px; font-size: 13px; box-shadow: 0 10px 24px rgba(0,0,0,.5);
+      animation: toast-in .18s ease-out;
+    }
+    .toast.error { border-left-color: var(--bad); }
+    .toast .t { font-weight: 700; }
+    .toast .s { color: var(--muted); font-size: 12px; margin-top: 2px; word-break: break-word; }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+    /* ── Модалка транзакций ── */
+    .modal { position: fixed; inset: 0; z-index: 110; display: none; background: rgba(2,1,10,.8); backdrop-filter: blur(5px); padding: 20px; }
+    .modal.open { display: flex; }
+    .modal .modal-inner {
+      margin: auto; width: min(960px, 100%); max-height: calc(100vh - 40px); overflow-y: auto;
+      background: linear-gradient(180deg, #1a1030, #0a0620); border: 1px solid var(--accent-2);
+      border-radius: 16px; padding: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.8);
+    }
+    .modal-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .balance { font-size: 30px; font-weight: 800; color: #ffd54a; margin-bottom: 12px; }
+    .progress-track { height: 8px; background: rgba(0,0,0,.4); border-radius: 999px; overflow: hidden; border: 1px solid var(--line-soft); }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, #6b4de6, #b9a8ff); }
+    .progress-fill.good { background: linear-gradient(90deg, #16794b, #4ade80); }
+    .progress-fill.bad { background: linear-gradient(90deg, #9b2c2c, #ff5a5a); }
   </style>
 </head>
 <body>
 
+  <!-- ═══ Вход ═══ -->
   <div id="authBlock" class="auth-box">
-    <h1>🛠 Вход в Админку</h1>
-    <input type="password" id="adminToken" placeholder="Введите ADMIN_TOKEN">
-    <button onclick="loadPlayers()" style="width: 100%;">Войти</button>
+    <h1 style="margin-bottom:18px;">🛠 Вход в админку</h1>
+    <input type="password" id="adminToken" placeholder="ADMIN_TOKEN" autocomplete="current-password">
+    <button onclick="login()">Войти</button>
+    <p class="note" style="margin:14px 0 0;">Токен хранится только в этом браузере.</p>
   </div>
 
-  <div id="mainBlock" style="display: none;">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-      <h1>🛠 Управление игроками</h1>
-      <div style="display: flex; gap: 10px;">
-        <button onclick="openStarsModal()">⭐ Транзакции</button>
-        <button onclick="loadPlayers()">🔄 Обновить</button>
+  <!-- ═══ Список игроков ═══ -->
+  <div id="mainBlock" style="display:none;">
+    <div class="topbar">
+      <div>
+        <h1>🛠 Управление игроками</h1>
+        <div class="note" id="playersSummary" style="margin-top:4px;">—</div>
+      </div>
+      <div class="topbar-actions">
+        <input id="playerSearch" placeholder="Поиск по ID или нику" style="width:220px;" oninput="renderPlayers()">
+        <button class="btn-ghost" onclick="openStarsModal()">⭐ Транзакции</button>
+        <button class="btn-ghost" onclick="loadPlayers()">🔄 Обновить</button>
+        <button class="btn-ghost" onclick="logout()">Выйти</button>
       </div>
     </div>
-    <table id="playersTable">
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Ник (Telegram)</th>
-          <th>Имя системы</th>
-          <th>Фаза</th>
-          <th>Действие</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </div>
 
-  <!-- Модалка транзакций Telegram Stars -->
-  <div id="starsModal">
-    <div class="modal-content">
-      <div class="header-row">
-        <h2 style="margin: 0; color: #fff;">⭐ Telegram Stars</h2>
-        <button class="btn-danger" onclick="closeStarsModal()">✕ Закрыть</button>
-      </div>
-
-      <div class="section-title">Текущий баланс</div>
-      <div id="starsBalance" style="font-size: 32px; font-weight: bold; color: #ffd54a; margin-bottom: 10px;">—</div>
-
-      <div class="section-title">Последние транзакции</div>
-      <table id="starsTable">
+    <div class="card" style="padding:0; overflow:hidden;">
+      <table id="playersTable">
         <thead>
           <tr>
-            <th>Дата</th>
-            <th>ID пользователя</th>
-            <th>Сумма</th>
-            <th>Название товара</th>
+            <th style="width:190px;">ID / сохранён</th>
+            <th>Ник + статус</th>
+            <th style="width:170px;">Фаза</th>
+            <th style="width:150px;">Действие</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -104,162 +242,80 @@
     </div>
   </div>
 
-  <!-- Модалка управления игроком -->
-  <div id="playerModal">
-    <div class="modal-content">
-      <div class="header-row">
-        <h2 id="modalTitle" style="margin: 0; color: #fff;">Игрок</h2>
-        <button class="btn-danger" onclick="closePlayerModal()">✕ Закрыть</button>
-      </div>
-
-      <!-- РЕСУРСЫ -->
-      <div class="section-title">💰 Ресурсы</div>
-      <div class="grid-2">
-        <div class="input-group">
-          <label>Пыль (Dust)</label>
-          <input type="number" id="edit-dust">
+  <!-- ═══ Карточка игрока ═══ -->
+  <div id="playerDrawer" class="drawer">
+    <div class="drawer-inner">
+      <div class="drawer-head">
+        <div class="drawer-title">
+          <div class="name" id="drawerName">Игрок</div>
+          <div class="meta" id="drawerMeta"></div>
         </div>
-        <div class="input-group">
-          <label>Энергия (Energy)</label>
-          <input type="number" id="edit-energy">
-        </div>
-        <div class="input-group">
-          <label>Цивилизация (Civ)</label>
-          <input type="number" id="edit-civ">
-        </div>
-        <div class="input-group">
-          <label>Металлы (Metals)</label>
-          <input type="number" id="edit-metals">
+        <div class="drawer-actions">
+          <button class="btn-ghost btn-sm" onclick="refreshPlayer()">⟳ Обновить</button>
+          <button class="btn-danger btn-sm" onclick="closePlayer()">✕ Закрыть</button>
         </div>
       </div>
-      <button onclick="saveResources()" style="width: 100%;">Сохранить ресурсы</button>
-
-      <!-- СТАТУСЫ -->
-      <div class="section-title">🧪 Статусы</div>
-      <div class="grid-2">
-        <div class="input-group">
-          <label>Щит (shieldUntil)</label>
-          <div id="status-shield" style="font-size: 13px;">—</div>
-        </div>
-        <div class="input-group">
-          <label>Дебафф вторжения</label>
-          <div id="status-invasion" style="font-size: 13px;">—</div>
-        </div>
-        <div class="input-group" style="grid-column: 1 / -1;">
-          <label>Активные мировые события</label>
-          <div id="status-events" style="font-size: 13px; word-break: break-word;">—</div>
-        </div>
-      </div>
-      <div class="btn-row">
-        <button class="btn-danger" onclick="adminClearDebuffs()">🧹 Снять все дебаффы</button>
-        <button class="btn-warning" onclick="adminApplyShield(24)">🛡 Выдать Щит 24ч</button>
-      </div>
-      <div class="grid-2">
-        <div class="input-group">
-          <label>Событие</label>
-          <select id="admin-event-id">
-            <option value="golden_hour">Золотой час</option>
-            <option value="trade_boom">Торговый бум</option>
-            <option value="week_golden_age">День Золотого века</option>
-            <option value="dust_drought">Пылевая засуха</option>
-          </select>
-        </div>
-        <div class="input-group" style="justify-content: flex-end;">
-          <button onclick="adminApplyWorldEvent()">Наложить ивент</button>
-        </div>
-      </div>
-      <!-- ФАЗА -->
-      <div class="section-title">🌀 Фаза игры</div>
-      <div class="input-group">
-        <select id="edit-stage">
-          <option value="cloud">Фаза I: Облако</option>
-          <option value="condense">Фаза II: Диск</option>
-          <option value="protostar">Фаза III: Протозвезда</option>
-          <option value="firstPlanet">Фаза IV: Первая планета</option>
-          <option value="system">Фаза V: Система</option>
-          <option value="galaxy">Фаза VI: Галактика</option>
-        </select>
-      </div>
-      <button onclick="saveStage()" style="width: 100%;">Сменить фазу</button>
-
-      <!-- ПРАЙМ ОБЪЕКТ -->
-      <div class="section-title">👑 Прайм-объект</div>
-      <div class="grid-2">
-        <div class="input-group">
-          <label>Тип объекта</label>
-          <select id="edit-prime-obj" onchange="togglePrimeLevel()">
-            <option value="none">Нет</option>
-            <option value="blackHole">Чёрная дыра</option>
-            <option value="wormhole">Кротовая нора</option>
-            <option value="quasar">Квазар</option>
-            <option value="pulsar">Пульсар</option>
-            <option value="magnetar">Магнетар</option>
-            <option value="gravLens">Гравитационная линза</option>
-            <option value="darkMatter">Тёмная материя</option>
-            <option value="quarkVoid">Кварковый войд</option>
-            <option value="primeBH">Первичная ЧД</option>
-          </select>
-        </div>
-        <div class="input-group" id="primeLevelBox" style="display: none;">
-          <label>Уровень</label>
-          <select id="edit-prime-lvl">
-            <option value="1">1</option>
-            <option value="2">2</option>
-            <option value="3">3</option>
-          </select>
-        </div>
-      </div>
-      <button onclick="savePrime()" style="width: 100%;">Выдать Прайм</button>
-
-      <!-- ПРЕМИУМ -->
-      <div class="section-title">🎁 Премиум</div>
-      <div class="btn-row">
-        <button class="btn-warning" onclick="giveShield()">🛡 Выдать Щит (24ч)</button>
-        <button class="btn-warning" onclick="giveChest()">🎁 Выдать Сундук</button>
-      </div>
-
-      <!-- ВТОРЖЕНИЯ -->
-      <div class="section-title">⚔️ Вторжения</div>
-      <div class="btn-row">
-        <button class="btn-danger" onclick="triggerInvasion()">⚔️ Запустить Вторжение</button>
-      </div>
-
-      <!-- ХРАНИЛИЩЕ -->
-      <div class="section-title">📦 Хранилище</div>
-      <div class="grid-3">
-        <div class="input-group">
-          <label>Ресурс</label>
-          <select id="edit-storage-res" onchange="syncStorageLevel()">
-            <option value="dust">Пыль</option>
-            <option value="energy">Энергия</option>
-            <option value="civ">Цивилизация</option>
-          </select>
-        </div>
-        <div class="input-group">
-          <label>Уровень (1-7)</label>
-          <input type="number" id="edit-storage-lvl" min="1" max="7" value="1">
-        </div>
-        <div class="input-group" style="justify-content: flex-end;">
-          <button onclick="saveStorage()">Применить</button>
-        </div>
-      </div>
-
-      <!-- УДАЛЕНИЕ -->
-      <div class="section-title" style="color: #ff4a4a; border-color: rgba(255,74,74,0.3);">Опасная зона</div>
-      <button class="btn-danger" onclick="deletePlayer()" style="width: 100%;">🗑 Удалить аккаунт</button>
+      <div class="tabs" id="tabs"></div>
+      <div class="panes" id="panes"></div>
     </div>
   </div>
 
-  <script>
-    const API_BASE = '';
-    let currentToken = '';
-    let currentPlayerId = null;
-    let currentPlayerData = null;
+  <!-- ═══ Транзакции Telegram Stars ═══ -->
+  <div id="starsModal" class="modal">
+    <div class="modal-inner">
+      <div class="modal-head">
+        <h2>⭐ Telegram Stars</h2>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-ghost btn-sm" onclick="loadStars()">⟳ Обновить</button>
+          <button class="btn-danger btn-sm" onclick="closeStarsModal()">✕ Закрыть</button>
+        </div>
+      </div>
+      <div class="note">Баланс бота</div>
+      <div class="balance" id="starsBalance">—</div>
+      <div class="note" style="margin-bottom:8px;">Последние 50 транзакций</div>
+      <div style="overflow:auto;">
+        <table id="starsTable">
+          <thead><tr><th>Дата</th><th>ID пользователя</th><th>Сумма</th><th>Товар</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 
-    // ─── Данные Прайм-объектов (копия js/prime.js) ───
-    // Нужны админке, чтобы записывать в сейв настоящее имя и настоящие бонусы,
-    // а не технический ключ с пустым объектом (иначе игрок видит «blackHole»
-    // и не получает множителей).
+  <div id="toasts"></div>
+
+  <script>
+    'use strict';
+
+    const API_BASE = '';
+    const TOKEN_KEY = 'accretion_admin_token';
+    let token = localStorage.getItem(TOKEN_KEY) || '';
+    let players = [];
+    let cur = null;              // { id, data, presence, wallet, entitlements, purchases, version, savedAt }
+    let activeTab = 'overview';
+    let patchAvailable = true;   // false → падаем обратно на /set
+
+    // ─── Справочники игры (не тянут клиент, чтобы админка работала отдельно) ───
+    const STAGE_LABELS = {
+      cloud:       { tag: 'Фаза I',   name: 'Молекулярное облако' },
+      condense:    { tag: 'Фаза II',  name: 'Протопланетный диск' },
+      protostar:   { tag: 'Фаза III', name: 'Протозвезда' },
+      firstPlanet: { tag: 'Фаза IV',  name: 'Первая планета' },
+      system:      { tag: 'Фаза V',   name: 'Формирование системы' },
+      galaxy:      { tag: 'Фаза VI',  name: 'Межзвёздная экспансия' }
+    };
+    const PLANET_LABELS = {
+      rocky: 'Скалистая', superEarth: 'Суперземля', iceGiant: 'Ледяной гигант',
+      gasGiant: 'Газовый гигант', lava: 'Лавовая'
+    };
+    const GALAXY_FORMS = { spiral: 'Спиральная', elliptic: 'Эллиптическая', irregular: 'Неправильная' };
+    const FLEET_SHIPS = {
+      interceptor: 'Перехватчик', cruiser: 'Крейсер', dreadnought: 'Дредноут'
+    };
+    const INVASION_TIERS = { scout: 'Разведка', raid: 'Рейд', siege: 'Осада' };
+
+    // Объекты Прайм-системы — копия js/prime.js: пишем в сейв настоящее имя,
+    // иконку и бонусы, иначе игра покажет технический ключ и не даст множители.
     const PRIME_OBJECTS = {
       blackHole:  { name: 'Чёрная дыра',              icon: 'blackHole',  bonus: { dustMult: 0.25 },   absorbRadius: 150 },
       massiveBH:  { name: 'Массивная ЧД',             icon: 'massiveBH',  bonus: { dustMult: 0.50 },   absorbRadius: 200 },
@@ -270,114 +326,175 @@
       wormhole:   { name: 'Малая кротовая нора',      icon: 'wormhole',   bonus: { keepSystems: 0.2 }, absorbRadius: 90  },
       wormhole2:  { name: 'Кротовая нора',            icon: 'wormhole',   bonus: { keepSystems: 0.3 }, absorbRadius: 120 },
       wormhole3:  { name: 'Гигантская кротовая нора', icon: 'wormhole',   bonus: { keepSystems: 0.5 }, absorbRadius: 150 },
-      darkMatter: { name: 'Тёмная материя',            icon: 'darkMatter', bonus: { incomePerHour: 0.005 }, absorbRadius: 0 },
-      gravLens:   { name: 'Гравитационная линза',      icon: 'gravLens',   bonus: { autoClick: 2 },     absorbRadius: 0 },
-      quarkVoid:  { name: 'Кварковый войд',            icon: 'quarkVoid',  bonus: { offlineMult: 2.0, capPenalty: 0.2 }, absorbRadius: 220 },
-      primeBH:    { name: 'Первичная ЧД',              icon: 'primeBH',    bonus: { rareChance: 0.05 }, absorbRadius: 300 },
+      darkMatter: { name: 'Тёмная материя',           icon: 'darkMatter', bonus: { incomePerHour: 0.005 }, absorbRadius: 0 },
+      gravLens:   { name: 'Гравитационная линза',     icon: 'gravLens',   bonus: { autoClick: 2 },     absorbRadius: 0 },
+      quarkVoid:  { name: 'Кварковый войд',           icon: 'quarkVoid',  bonus: { offlineMult: 2.0, capPenalty: 0.2 }, absorbRadius: 220 },
+      primeBH:    { name: 'Первичная ЧД',             icon: 'primeBH',    bonus: { rareChance: 0.05 }, absorbRadius: 300 }
     };
-
-    // Уровни есть ТОЛЬКО у чёрной дыры и кротовой норы — остальные объекты
-    // (quasar, primeBH, massiveBH/superBH и т.д.) уже отдельные сущности.
+    // Уровни есть только у чёрной дыры и кротовой норы.
     const PRIME_MAP = {
-      blackHole: { name: 'Чёрная дыра', lvl2: 'massiveBH', lvl3: 'superBH' },
-      wormhole:  { name: 'Кротовая нора', lvl2: 'wormhole2', lvl3: 'wormhole3' },
+      blackHole: { lvl2: 'massiveBH', lvl3: 'superBH' },
+      wormhole:  { lvl2: 'wormhole2', lvl3: 'wormhole3' }
     };
-    const PRIME_LEVELABLE = Object.keys(PRIME_MAP);
-
-    // Таблица лута сундука (копия js/config.js: CHEST_CFG.lootTable).
     const CHEST_LOOT = [
       { key: 'blackHole', weight: 20 }, { key: 'pulsar', weight: 20 }, { key: 'wormhole', weight: 20 },
       { key: 'quasar', weight: 10 }, { key: 'magnetar', weight: 10 }, { key: 'gravLens', weight: 10 },
       { key: 'massiveBH', weight: 4 }, { key: 'superBH', weight: 2 }, { key: 'darkMatter', weight: 2 },
-      { key: 'quarkVoid', weight: 1 }, { key: 'primeBH', weight: 1 },
+      { key: 'quarkVoid', weight: 1 }, { key: 'primeBH', weight: 1 }
     ];
+    const CHEST_UPGRADES = { blackHole: 'massiveBH', massiveBH: 'superBH', wormhole: 'wormhole2', wormhole2: 'wormhole3' };
 
-    // ─── Копии игровых генераторов (js/config.js, js/premium.js) ───
-    const ORBIT_BASE_R = 170, ORBIT_RATIO = 1.22;
-    const PLANET_MASS = { rocky: 1.0, superEarth: 2.5, iceGiant: 4.0, gasGiant: 8.0, lava: 1.5 };
-    const PLANET_DIAMETER = { rocky: 1.0, superEarth: 1.3, iceGiant: 1.5, gasGiant: 1.8, lava: 0.9 };
-    const SYS_PREFIXES = ['Альфа','Бета','Гамма','Дельта','Эпсилон','Дзета','Эта','Тета','Йота','Каппа','Лямбда','Мю','Ню','Кси','Омикрон','Пи','Ро','Сигма','Тау','Ипсилон','Фи','Хи','Пси','Омега'];
-    const SYS_NAMES = ['Кентавра','Центавра','Ориона','Лебедя','Лира','Дракона','Феникса','Кита','Гидры','Пегаса','Кассиопеи','Персея','Андромеды','Волопаса','Геркулеса','Змееносца','Ворона','Орла','Павлина','Журавля','Тукана','Единорога'];
-    const SYS_SUFFIXES = ['',' I',' II',' III',' IV',' V',' A',' B'];
+    // Мировые события: daily-kind 'world' + все недельные. Прочие daily-события
+    // (боссы, тапы, награды) не лежат в activeWorldEvents, их сюда не кладём.
+    const WORLD_EVENTS = [
+      { id: 'golden_hour',   title: 'Золотой час',          tier: 'daily' },
+      { id: 'trade_boom',    title: 'Торговый бум',         tier: 'daily' },
+      { id: 'solar_wind',    title: 'Солнечный ветер',      tier: 'daily' },
+      { id: 'renaissance',   title: 'Ренессанс',            tier: 'daily' },
+      { id: 'forge_fever',   title: 'Кузнечная лихорадка',  tier: 'daily' },
+      { id: 'lucky_star',    title: 'Счастливая звезда',    tier: 'daily' },
+      { id: 'neural_boost',  title: 'Нейроусиление',        tier: 'daily' },
+      { id: 'dust_drought',  title: 'Пылевая засуха',       tier: 'daily' },
+      { id: 'energy_leak',   title: 'Утечка энергии',       tier: 'daily' },
+      { id: 'week_golden_age', title: 'День Золотого века', tier: 'weekly' },
+      { id: 'week_comet',    title: 'День Комет',           tier: 'weekly' },
+      { id: 'week_forge',    title: 'День Кузни',           tier: 'weekly' },
+      { id: 'week_mind',     title: 'День Разума',          tier: 'weekly' },
+      { id: 'week_storm',    title: 'День Штормов',         tier: 'weekly' },
+      { id: 'week_void',     title: 'День Пустоты',         tier: 'weekly' },
+      { id: 'week_wanderers',title: 'День Странников',      tier: 'weekly' },
+      { id: 'week_harvest',  title: 'День Урожая',          tier: 'weekly' },
+      { id: 'week_singularity', title: 'Полдня Сингулярности', tier: 'weekly' },
+      { id: 'week_plague',   title: 'День Чумы',            tier: 'weekly' },
+      { id: 'week_fortune',  title: 'День Фортуны',         tier: 'weekly' },
+      { id: 'week_black_market', title: 'День Чёрного рынка', tier: 'weekly' },
+      { id: 'week_taxes',    title: 'День Налогов',         tier: 'weekly' },
+      { id: 'week_famine',   title: 'День Голода',          tier: 'weekly' },
+      { id: 'week_darkness', title: 'День Тьмы',            tier: 'weekly' },
+      { id: 'week_discord',  title: 'День Раздора',         tier: 'weekly' },
+      { id: 'week_titanforge', title: 'День Титанов',       tier: 'weekly' },
+      { id: 'week_echo',     title: 'День Эха',             tier: 'weekly' },
+      { id: 'week_war',      title: 'День Войны',           tier: 'weekly' }
+    ];
+    const WORLD_EVENT_BY_ID = {};
+    WORLD_EVENTS.forEach(function(ev) { WORLD_EVENT_BY_ID[ev.id] = ev; });
 
-    function getOrbitR(i) { return ORBIT_BASE_R * Math.pow(ORBIT_RATIO, i); }
+    const PRESENCE_REASONS = {
+      hidden: 'окно скрыто', blur: 'без фокуса', idle: 'нет действий',
+      'loop-stale': 'игра на паузе', 'no-report': 'нет отчёта', active: 'в игре'
+    };
 
-    function generateSystemName() {
-      const prefix = SYS_PREFIXES[Math.floor(Math.random() * SYS_PREFIXES.length)];
-      const base = SYS_NAMES[Math.floor(Math.random() * SYS_NAMES.length)];
-      const suffix = SYS_SUFFIXES[Math.floor(Math.random() * SYS_SUFFIXES.length)];
-      return prefix + ' ' + base + suffix;
-    }
-
-    // Планета ровно в той форме, что и в generatePerfectPrimeSystem().
-    function makePlanet(type, orbitR) {
-      return {
-        type: type,
-        angle: Math.random() * Math.PI * 2,
-        speed: 0.2 / Math.pow(orbitR / 90, 1.5),
-        baseOrbitR: orbitR,
-        orbitR: orbitR,
-        driftPhase: Math.random() * Math.PI * 2,
-        rotation: Math.random() * Math.PI * 2,
-        seed: Math.random() * 1e6,
-        forming: false,
-        formUntil: 0,
-        mass: PLANET_MASS[type] || 1.0,
-        diameter: PLANET_DIAMETER[type] || 1.0,
-        moons: [],
-        precession: 0,
-        trueAnomaly: 0,
-      };
-    }
-
-    // Упрощённая серверная версия generatePerfectPrimeSystem():
-    // идеальная звезда «G», 8 планет от центра к краю.
-    function makePerfectPrimeSystem(primeData) {
-      const perfect = ['lava','lava','superEarth','superEarth','gasGiant','gasGiant','iceGiant','iceGiant'];
-      const planets = [];
-      for (let i = 0; i < perfect.length; i++) planets.push(makePlanet(perfect[i], getOrbitR(i)));
-      return {
-        name: generateSystemName(),
-        starType: 'G',
-        systemType: 'single',
-        planets: planets,
-        isPrime: true,
-        primeData: primeData,
-      };
-    }
-
-    // Объект Прайм-системы — как createPrimeSystem() в js/prime.js.
-    function makePrimeData(objKey) {
-      const def = PRIME_OBJECTS[objKey];
-      return {
-        name: generateSystemName(),
-        objectKey: objKey,
-        objectName: def.name,
-        objectIcon: def.icon,
-        bonus: Object.assign({}, def.bonus),
-        absorbRadius: def.absorbRadius,
-        createdAt: Date.now(),
-      };
-    }
-
-    // Экранирование: ник и имя системы вводит игрок, вставлять их в innerHTML
-    // «как есть» — это XSS в админке и ломаная вёрстка строки.
+    // ─── Утилиты ────────────────────────────────────────────────
     function esc(value) {
       return String(value == null ? '' : value).replace(/[&<>"']/g, function(ch) {
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
       });
     }
+    function num(value, fallback) {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : (fallback || 0);
+    }
+    function fmt(value) {
+      const n = num(value);
+      if (Math.abs(n) >= 1e15) return n.toExponential(2).replace('+', '');
+      if (Math.abs(n) >= 1e12) return (n / 1e12).toFixed(2) + ' трлн';
+      if (Math.abs(n) >= 1e9) return (n / 1e9).toFixed(2) + ' млрд';
+      if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(2) + ' млн';
+      return Math.round(n).toLocaleString('ru-RU');
+    }
+    function fmtDur(ms) {
+      const total = Math.max(0, Math.floor(num(ms) / 1000));
+      const d = Math.floor(total / 86400);
+      const h = Math.floor((total % 86400) / 3600);
+      const m = Math.floor((total % 3600) / 60);
+      if (d > 0) return d + ' д ' + h + ' ч';
+      if (h > 0) return h + ' ч ' + m + ' мин';
+      if (m > 0) return m + ' мин';
+      return total + ' с';
+    }
+    function fmtDate(ts) {
+      const t = num(ts);
+      return t > 0 ? new Date(t).toLocaleString('ru-RU') : '—';
+    }
+    function ago(ts) {
+      const t = num(ts);
+      if (t <= 0) return '—';
+      const sec = Math.max(0, Math.round((Date.now() - t) / 1000));
+      if (sec < 60) return sec + ' с назад';
+      if (sec < 3600) return Math.round(sec / 60) + ' мин назад';
+      if (sec < 86400) return Math.round(sec / 3600) + ' ч назад';
+      return Math.round(sec / 86400) + ' дн назад';
+    }
+    function pct(part, total) {
+      const p = num(total) > 0 ? (num(part) / num(total)) * 100 : 0;
+      return Math.max(0, Math.min(100, p));
+    }
+    function stageLabel(stage) {
+      const s = STAGE_LABELS[stage];
+      return s ? s.tag + ': ' + s.name : (stage || '—');
+    }
+    function toast(title, sub, isError) {
+      const box = document.getElementById('toasts');
+      const el = document.createElement('div');
+      el.className = 'toast' + (isError ? ' error' : '');
+      el.innerHTML = '<div class="t">' + esc(title) + '</div>' + (sub ? '<div class="s">' + esc(sub) + '</div>' : '');
+      box.appendChild(el);
+      setTimeout(function() { el.remove(); }, isError ? 6000 : 3000);
+    }
 
-    // Статус присутствия — внутренняя информация (игрок её не видит).
-    // Приходит с /admin/api/players и /admin/api/player/:id как p.presence.
-    const PRESENCE_REASONS = {
-      hidden: 'окно скрыто',
-      blur: 'без фокуса',
-      idle: 'нет действий',
-      'loop-stale': 'игра на паузе',
-      'no-report': 'нет отчёта (вкладка спит)',
-      active: 'в игре',
-    };
+    // ─── HTTP ───────────────────────────────────────────────────
+    async function call(path, options) {
+      const opts = Object.assign({}, options || {});
+      const headers = Object.assign({ 'X-Admin-Token': token }, opts.headers || {});
+      if (opts.body && typeof opts.body !== 'string') {
+        opts.body = JSON.stringify(opts.body);
+        headers['Content-Type'] = 'application/json';
+      }
+      opts.headers = headers;
+      const res = await fetch(API_BASE + path, opts);
+      if (res.status === 401) throw new Error('Неверный токен');
+      return res;
+    }
+    async function readJson(res) {
+      try { return await res.json(); } catch (e) { return {}; }
+    }
+
+    // ─── Авторизация и список ───────────────────────────────────
+    function login() {
+      const value = document.getElementById('adminToken').value.trim();
+      if (!value) { toast('Введите токен', '', true); return; }
+      token = value;
+      localStorage.setItem(TOKEN_KEY, token);
+      loadPlayers();
+    }
+    function logout() {
+      token = '';
+      localStorage.removeItem(TOKEN_KEY);
+      players = [];
+      cur = null;
+      document.getElementById('mainBlock').style.display = 'none';
+      document.getElementById('authBlock').style.display = 'block';
+      document.getElementById('playerDrawer').classList.remove('open');
+    }
+
+    async function loadPlayers() {
+      if (!token) return;
+      try {
+        const res = await call('/admin/api/players');
+        const json = await readJson(res);
+        if (!res.ok || !json.ok) throw new Error(json.error || ('HTTP ' + res.status));
+        players = Array.isArray(json.players) ? json.players : [];
+        document.getElementById('authBlock').style.display = 'none';
+        document.getElementById('mainBlock').style.display = 'block';
+        renderPlayers();
+      } catch (e) {
+        toast('Ошибка загрузки', e.message, true);
+        if (e.message === 'Неверный токен') {
+          document.getElementById('authBlock').style.display = 'block';
+          document.getElementById('mainBlock').style.display = 'none';
+        }
+      }
+    }
 
     function presenceBadge(p) {
       if (!p || !p.status || p.status === 'unknown') {
@@ -387,241 +504,1053 @@
         return '<span class="presence-badge presence-online" title="Игрок сейчас в игре">🟢 онлайн</span>';
       }
       const reason = PRESENCE_REASONS[p.reason] || 'причина неизвестна';
-      const idleMin = Math.floor((Number(p.idleSec) || 0) / 60);
+      const idleMin = Math.floor(num(p.idleSec) / 60);
       const idle = idleMin > 0 ? ', ' + idleMin + ' мин' : '';
-      const agoSec = p.at > 0 ? Math.max(0, Math.round((Date.now() - p.at) / 1000)) : 0;
-      const ago = agoSec > 0
-        ? (agoSec >= 60 ? Math.round(agoSec / 60) + ' мин назад' : agoSec + ' с назад')
-        : 'только что';
-      return '<span class="presence-badge presence-offline" title="Последний отчёт: ' +
-        esc(ago) + '">🔴 офлайн · ' + esc(reason) + esc(idle) + '</span>';
+      const agoSec = num(p.at) > 0 ? Math.max(0, Math.round((Date.now() - p.at) / 1000)) : 0;
+      const agoText = agoSec > 0 ? (agoSec >= 60 ? Math.round(agoSec / 60) + ' мин назад' : agoSec + ' с назад') : 'только что';
+      return '<span class="presence-badge presence-offline" title="Последний отчёт: ' + esc(agoText) + '">🔴 оффлайн · ' + esc(reason) + esc(idle) + '</span>';
     }
 
-    async function loadPlayers() {
-      const tokenInput = document.getElementById('adminToken').value;
-      if (tokenInput) currentToken = tokenInput;
-      if (!currentToken) { alert('Введите токен!'); return; }
+    function renderPlayers() {
+      const tbody = document.querySelector('#playersTable tbody');
+      const filter = document.getElementById('playerSearch').value.trim().toLowerCase();
+      const list = players.filter(function(p) {
+        if (!filter) return true;
+        return String(p.id).toLowerCase().includes(filter) || String(p.name || '').toLowerCase().includes(filter);
+      });
+      document.getElementById('playersSummary').textContent =
+        'Всего игроков: ' + players.length + (filter ? ' · найдено: ' + list.length : '');
 
-      try {
-        const res = await fetch(API_BASE + '/admin/api/players', {
-          headers: { 'X-Admin-Token': currentToken }
-        });
-        if (res.status === 401) { alert('Неверный токен!'); return; }
-        const json = await res.json();
-        if (!json.ok) throw new Error(json.error || 'Ошибка сервера');
-
-        document.getElementById('authBlock').style.display = 'none';
-        document.getElementById('mainBlock').style.display = 'block';
-
-        const tbody = document.querySelector('#playersTable tbody');
-        tbody.innerHTML = '';
-
-        if (json.players.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">Игроков пока нет</td></tr>';
-          return;
-        }
-
-        json.players.forEach(p => {
-          const tr = document.createElement('tr');
-          tr.innerHTML = `
-            <td>${esc(p.id)}</td>
-            <td>${esc(p.name)} ${presenceBadge(p.presence)}</td>
-            <td>${esc(p.systemName || '—')}</td>
-            <td>${esc(p.stage)}</td>
-            <td><button class="btn-warning" onclick="openPlayer('${esc(p.id)}')">Управлять</button></td>
-          `;
-          tbody.appendChild(tr);
-        });
-      } catch (e) {
-        alert('Ошибка: ' + e.message);
+      if (list.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="empty">' + (players.length ? 'Никого не найдено' : 'Игроков пока нет') + '</td></tr>';
+        return;
       }
+      tbody.innerHTML = list.map(function(p) {
+        return '<tr>'
+          + '<td><span class="player-id">' + esc(p.id) + '</span>'
+          +     '<span class="player-sub">' + esc(ago(p.savedAt)) + '</span></td>'
+          + '<td><strong>' + esc(p.name || 'Безымянный') + '</strong>' + presenceBadge(p.presence)
+          +     '<span class="player-sub">' + esc(p.systemName || '—') + '</span></td>'
+          + '<td>' + esc(stageLabel(p.stage)) + '</td>'
+          + '<td><button class="btn-warning btn-sm" onclick="openPlayer(\'' + esc(String(p.id)) + '\')">Управлять</button></td>'
+          + '</tr>';
+      }).join('');
     }
 
+    // ─── Карточка игрока: загрузка ───────────────────────────────
     async function openPlayer(id) {
       try {
-        const res = await fetch(API_BASE + `/admin/api/player/${id}`, {
-          headers: { 'X-Admin-Token': currentToken }
-        });
-        const json = await res.json();
-        if (!json.ok) throw new Error(json.error);
-
-        currentPlayerId = id;
-        currentPlayerData = json.data;
-
-        // Статус — рядом с ником (внутренняя информация).
-        document.getElementById('modalTitle').innerHTML =
-          'Игрок: ' + esc(json.data.playerName || 'Безымянный') + ' (' + esc(id) + ') ' +
-          presenceBadge(json.presence);
-
-        // Заполняем поля
-        document.getElementById('edit-dust').value = Math.floor(json.data.dust || 0);
-        document.getElementById('edit-energy').value = Math.floor(json.data.energy || 0);
-        document.getElementById('edit-civ').value = Math.floor(json.data.civLevel || 0);
-        document.getElementById('edit-metals').value = Math.floor(json.data.metalAmount || 0);
-        document.getElementById('edit-stage').value = json.data.stage || 'cloud';
-
-        // Прайм: показываем в списках то, что уже есть у игрока.
-        // Уровневые варианты обратно разворачиваем в базовый объект + уровень.
-        const prime = json.data.primeSystem;
-        let primeObj = prime && PRIME_OBJECTS[prime.objectKey] ? prime.objectKey : 'none';
-        let primeLvl = '1';
-        for (const baseKey in PRIME_MAP) {
-          if (PRIME_MAP[baseKey].lvl2 === primeObj) { primeObj = baseKey; primeLvl = '2'; break; }
-          if (PRIME_MAP[baseKey].lvl3 === primeObj) { primeObj = baseKey; primeLvl = '3'; break; }
-        }
-        const primeSelect = document.getElementById('edit-prime-obj');
-        // Объекты из сейва могут отсутствовать в <select> (новые/старые ключи).
-        if (!primeSelect.querySelector(`option[value="${primeObj}"]`)) primeObj = 'none';
-        primeSelect.value = primeObj;
-        document.getElementById('edit-prime-lvl').value = primeLvl;
-        togglePrimeLevel();
-
-        // Хранилище: показываем уровень того ресурса, который выбран в списке.
-        const storageRes = document.getElementById('edit-storage-res').value;
-        const levels = json.data.storageLevels || {};
-        document.getElementById('edit-storage-lvl').value = Number(levels[storageRes]) || 1;
-        // Статусы: щит, дебафф вторжения, мировые события
-        const now = Date.now();
-
-        const shieldUntil = Number(json.data.shieldUntil) || 0;
-        document.getElementById('status-shield').textContent = shieldUntil > now
-          ? ('активен, ещё ' + Math.ceil((shieldUntil - now) / 3600000) + ' ч (до ' + new Date(shieldUntil).toLocaleString() + ')')
-          : 'нет';
-
-        const debuff = json.data.invasionDebuff;
-        document.getElementById('status-invasion').textContent =
-          (debuff && Number(debuff.until) > now)
-            ? ('−' + Math.round((Number(debuff.pct) || 0) * 100) + '%, ещё ' + Math.ceil((Number(debuff.until) - now) / 3600000) + ' ч')
-            : 'нет';
-
-        const events = Array.isArray(json.data.activeWorldEvents) ? json.data.activeWorldEvents : [];
-        const activeEvents = events.filter(function(ev) { return ev && Number(ev.endsAt) > now; });
-        document.getElementById('status-events').textContent = activeEvents.length
-          ? activeEvents.map(function(ev) {
-              return ev.id + ' (' + (ev.tier || 'daily') + ', ещё ' + Math.ceil((Number(ev.endsAt) - now) / 3600000) + ' ч)';
-            }).join(', ')
-          : 'нет';
-
-        document.getElementById('playerModal').style.display = 'flex';
+        const res = await call('/admin/api/player/' + encodeURIComponent(id));
+        const json = await readJson(res);
+        if (!res.ok || !json.ok) throw new Error(json.error || ('HTTP ' + res.status));
+        cur = {
+          id: String(json.id || id),
+          data: (json.data && typeof json.data === 'object') ? json.data : {},
+          presence: json.presence || null,
+          wallet: json.wallet || null,
+          entitlements: json.entitlements || null,
+          purchases: Array.isArray(json.purchases) ? json.purchases : [],
+          version: num(json.version),
+          savedAt: num(json.savedAt)
+        };
+        activeTab = 'overview';
+        document.getElementById('playerDrawer').classList.add('open');
+        render();
       } catch (e) {
-        alert(e.message);
+        toast('Не удалось открыть игрока', e.message, true);
       }
     }
 
-    function closePlayerModal() {
-      document.getElementById('playerModal').style.display = 'none';
-      currentPlayerId = null;
-      currentPlayerData = null;
-    }
-
-    function openStarsModal() {
-      document.getElementById('starsModal').style.display = 'flex';
-      loadStars();
-    }
-
-    function closeStarsModal() {
-      document.getElementById('starsModal').style.display = 'none';
-    }
-
-    async function loadStars() {
-      const tokenInput = document.getElementById('adminToken').value;
-      if (tokenInput) currentToken = tokenInput;
-      if (!currentToken) { alert('Введите токен!'); return; }
-
-      const balanceEl = document.getElementById('starsBalance');
-      const tbody = document.querySelector('#starsTable tbody');
-      balanceEl.textContent = '…';
-      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">Загрузка…</td></tr>';
-
+    async function refreshPlayer() {
+      if (!cur) return;
       try {
-        const res = await fetch(API_BASE + '/admin/api/stars', {
-          headers: { 'X-Admin-Token': currentToken }
-        });
-        const json = await res.json().catch(function() { return {}; });
-        if (!res.ok || !json.ok) {
-          throw new Error(json.error || ('HTTP ' + res.status));
-        }
-
-        balanceEl.textContent = '⭐ ' + (Number(json.balance) || 0).toLocaleString();
-
-        const txs = Array.isArray(json.transactions) ? json.transactions : [];
-        if (txs.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">Транзакций пока нет</td></tr>';
-          return;
-        }
-
-        tbody.innerHTML = txs.map(function(t) {
-          const src = t.source || {};
-          const recv = t.receiver || {};
-          const userId = (src.user && src.user.id) || (recv.user && recv.user.id) || '—';
-          const product = t.productName || (src.product && src.product.name) || (recv.product && recv.product.name) || '—';
-          const amount = Number(t.amount) || 0;
-          const amountText = (amount > 0 ? '+' : '') + amount;
-          const date = t.date ? new Date(t.date * 1000).toLocaleString() : '—';
-
-          return '<tr>'
-            + '<td>' + esc(date) + '</td>'
-            + '<td>' + esc(userId) + '</td>'
-            + '<td>' + esc(amountText) + '</td>'
-            + '<td>' + esc(product) + '</td>'
-            + '</tr>';
-        }).join('');
+        const res = await call('/admin/api/player/' + encodeURIComponent(cur.id));
+        const json = await readJson(res);
+        if (!res.ok || !json.ok) throw new Error(json.error || ('HTTP ' + res.status));
+        cur.data = (json.data && typeof json.data === 'object') ? json.data : {};
+        cur.presence = json.presence || null;
+        cur.wallet = json.wallet || null;
+        cur.entitlements = json.entitlements || null;
+        cur.purchases = Array.isArray(json.purchases) ? json.purchases : [];
+        cur.version = num(json.version);
+        cur.savedAt = num(json.savedAt);
+        render();
+        toast('Данные обновлены');
       } catch (e) {
-        balanceEl.textContent = '—';
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">Ошибка: ' + esc(e.message) + '</td></tr>';
+        toast('Ошибка обновления', e.message, true);
       }
     }
 
-    // Записывает набор полей в сейв. Каждый ответ проверяем: раньше ошибки
-    // (401/404/500) молча проглатывались, а админ видел «Сохранено!».
-    async function setFields(fields) {
+    function closePlayer() {
+      document.getElementById('playerDrawer').classList.remove('open');
+      cur = null;
+      loadPlayers();
+    }
+
+    // ─── Сохранение полей ───────────────────────────────────────
+    // Основной путь — батч-патч одним запросом (атомарно на сервере).
+    // Если сервер старый и /patch ещё нет — построчно через /set.
+    async function patch(fields, message) {
+      if (!cur) return false;
+      const payload = fields && typeof fields === 'object' ? fields : {};
+      if (Object.keys(payload).length === 0) return true;
+
       try {
-        for (const key in fields) {
-          const res = await fetch(API_BASE + `/admin/api/player/${currentPlayerId}/set`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Admin-Token': currentToken },
-            body: JSON.stringify({ field: key, value: fields[key] })
+        if (patchAvailable) {
+          const res = await call('/admin/api/player/' + encodeURIComponent(cur.id) + '/patch', {
+            method: 'POST', body: { fields: payload }
           });
-          const json = await res.json().catch(function() { return {}; });
-          if (!res.ok || !json.ok) {
-            throw new Error(json.error || ('Не удалось записать поле ' + key + ' (HTTP ' + res.status + ')'));
+          if (res.status === 404 || res.status === 405) {
+            patchAvailable = false;
+          } else {
+            const json = await readJson(res);
+            if (!res.ok || !json.ok) throw new Error(json.error || ('HTTP ' + res.status));
+            if (json.wallet) cur.wallet = json.wallet;
+            if (json.entitlements) cur.entitlements = json.entitlements;
+            applyLocal(payload);
+            if (message) toast('Сохранено', message);
+            return true;
           }
         }
-        alert('Сохранено!');
-        await openPlayer(currentPlayerId); // Обновляем данные
-      } catch (e) { alert('Ошибка: ' + e.message); }
+        if (!patchAvailable) {
+          for (const key in payload) {
+            const res = await call('/admin/api/player/' + encodeURIComponent(cur.id) + '/set', {
+              method: 'POST', body: { field: key, value: payload[key] }
+            });
+            const json = await readJson(res);
+            if (!res.ok || !json.ok) throw new Error(json.error || ('Не удалось записать ' + key));
+          }
+          applyLocal(payload);
+          if (message) toast('Сохранено', message);
+          return true;
+        }
+      } catch (e) {
+        toast('Ошибка сохранения', e.message, true);
+        return false;
+      }
+      return false;
     }
 
-    // --- Обработчики кнопок ---
-    function saveResources() {
-      const dust = Number(document.getElementById('edit-dust').value);
-      // dustTotal — накопленная за всю игру пыль, она не должна уменьшаться.
-      // Админ может поднять dust, тогда поднимаем и dustTotal до нового значения,
-      // но при снижении dust оставляем прежний максимум.
-      const prevTotal = Number(currentPlayerData && currentPlayerData.dustTotal) || 0;
-      setFields({
-        dust: dust,
-        dustTotal: Math.max(prevTotal, Number.isFinite(dust) ? dust : 0),
-        energy: Number(document.getElementById('edit-energy').value),
-        civLevel: Number(document.getElementById('edit-civ').value),
-        metalAmount: Number(document.getElementById('edit-metals').value)
+    function applyLocal(fields) {
+      if (!cur) return;
+      for (const key in fields) cur.data[key] = fields[key];
+      cur.version = num(cur.version) + 1;
+      cur.savedAt = Date.now();
+      render();
+    }
+
+    // Обёртка для одного поля: перерисовываем после успеха.
+    async function saveField(field, value, message) {
+      const fields = {};
+      fields[field] = value;
+      await patch(fields, message || (field + ' = ' + (typeof value === 'object' ? 'обновлено' : value)));
+    }
+
+    function saveNested(field, subField, value, message) {
+      const base = (cur && cur.data[field] && typeof cur.data[field] === 'object') ? Object.assign({}, cur.data[field]) : {};
+      base[subField] = value;
+      return saveField(field, base, message);
+    }
+
+    // ─── Деривация статистики из сейва ───────────────────────────
+    function primeInfo(primeData) {
+      const key = primeData && primeData.objectKey ? String(primeData.objectKey) : '';
+      const def = PRIME_OBJECTS[key];
+      let level = 1;
+      for (const base in PRIME_MAP) {
+        if (PRIME_MAP[base].lvl2 === key) level = 2;
+        if (PRIME_MAP[base].lvl3 === key) level = 3;
+      }
+      return {
+        objectKey: key,
+        objectName: (primeData && primeData.objectName) || (def ? def.name : (key || '—')),
+        level: level,
+        bonus: (primeData && primeData.bonus) || (def ? def.bonus : null)
+      };
+    }
+
+    function derive(d) {
+      const now = Date.now();
+      const activeIdx = num(d.activeSystemIdx);
+      const planets = Array.isArray(d.planets) ? d.planets : [];
+      const others = Array.isArray(d.otherSystems) ? d.otherSystems : [];
+      // Сейв хранит активную систему в d.planets, а её же копию — в otherSystems[activeIdx].
+      // Индекс 0 — родная система: null, пока она активна, иначе data родной системы.
+      const homeSystem = (activeIdx === 0) ? {
+        name: d.systemName || 'Родная', planets: planets,
+        isPrime: !!d.primeSystem, primeData: d.primeSystem || null
+      } : (others[0] || null);
+      const activeSystem = {
+        name: d.systemName || 'Активная', planets: planets,
+        isPrime: !!d.primeSystem, primeData: d.primeSystem || null
+      };
+      const uniqueSystems = [];
+      if (homeSystem) uniqueSystems.push({ idx: 0, sys: homeSystem, active: activeIdx === 0 });
+      if (activeIdx > 0) uniqueSystems.push({ idx: activeIdx, sys: activeSystem, active: true });
+      others.forEach(function(sys, i) {
+        if (!sys || typeof sys !== 'object' || i === 0 || i === activeIdx) return;
+        uniqueSystems.push({ idx: i, sys: sys, active: false });
       });
+
+      let otherPlanets = 0;
+      const types = {};
+      uniqueSystems.forEach(function(entry) {
+        const list = Array.isArray(entry.sys.planets) ? entry.sys.planets : [];
+        if (!entry.active) otherPlanets += list.length;
+        list.forEach(function(p) { if (p && p.type) types[p.type] = (types[p.type] || 0) + 1; });
+      });
+
+      const primes = [];
+      uniqueSystems.forEach(function(entry) {
+        const sys = entry.sys;
+        if (!sys || (!sys.primeData && !sys.isPrime)) return;
+        primes.push(Object.assign({
+          scope: entry.active ? 'active' : (entry.idx === 0 ? 'home' : 'other'),
+          index: entry.idx,
+          active: entry.active,
+          systemName: sys.name || ('Система ' + (entry.idx + 1))
+        }, primeInfo(sys.primeData || {})));
+      });
+      const worldEvents = (Array.isArray(d.activeWorldEvents) ? d.activeWorldEvents : [])
+        .filter(function(ev) { return ev && typeof ev === 'object'; })
+        .map(function(ev) {
+          const cfg = WORLD_EVENT_BY_ID[ev.id];
+          return {
+            id: ev.id,
+            title: cfg ? cfg.title : ev.id,
+            tier: ev.tier || (cfg ? cfg.tier : 'daily'),
+            startedAt: num(ev.startedAt),
+            endsAt: num(ev.endsAt),
+            active: num(ev.endsAt) > now
+          };
+        });
+
+      const invasions = (Array.isArray(d.invasions) ? d.invasions : [])
+        .filter(function(inv) { return inv && typeof inv === 'object'; })
+        .map(function(inv) {
+          const ships = Array.isArray(inv.ships) ? inv.ships : [];
+          const alive = ships.filter(function(s) { return s && !s.destroyed && num(s.hp, 1) > 0; }).length;
+          return {
+            id: inv.id || '',
+            tierKey: inv.tierKey || 'raid',
+            tierLabel: INVASION_TIERS[inv.tierKey] || inv.tierKey || '—',
+            targetType: inv.targetType || 'system',
+            systemIdx: num(inv.systemIdx),
+            systemName: inv.systemName || '',
+            planetName: inv.planetName || '',
+            shipsAlive: alive,
+            shipsTotal: num(inv.shipsTotal, ships.length),
+            hp: num(inv.hp),
+            maxHp: num(inv.maxHp, 200),
+            spawnedAt: num(inv.spawnedAt),
+            robberyEndsAt: num(inv.robberyEndsAt),
+            destructionEndsAt: num(inv.destructionEndsAt)
+          };
+        });
+
+      const trophyEffects = (Array.isArray(d.activeTrophyEffects) ? d.activeTrophyEffects : [])
+        .filter(function(t) { return t && typeof t === 'object'; })
+        .map(function(t) {
+          return { type: t.type || '—', value: t.value, expiresAt: num(t.expiresAt), active: num(t.expiresAt) > now };
+        });
+
+      const debuff = (d.invasionDebuff && typeof d.invasionDebuff === 'object') ? d.invasionDebuff : {};
+      const boosters = (d.boosters && typeof d.boosters === 'object') ? d.boosters : {};
+
+      return {
+        now: now,
+        planets: planets,
+        otherSystems: others,
+        primes: primes,
+        worldEvents: worldEvents,
+        invasions: invasions,
+        trophyEffects: trophyEffects,
+        planetTypes: types,
+        activeIdx: activeIdx,
+        activePlanets: planets.length,
+        homePlanets: (activeIdx === 0)
+          ? planets.length
+          : (others[0] && Array.isArray(others[0].planets) ? others[0].planets.length : 0),
+        otherPlanets: otherPlanets,
+        planetsCount: planets.length + otherPlanets,
+        systemsCount: uniqueSystems.length,
+        shieldUntil: num(d.shieldUntil),
+        shieldActive: num(d.shieldUntil) > now,
+        boosterUntil: num(boosters.incomeUntil),
+        boosterActive: num(boosters.incomeUntil) > now,
+        invasionDebuff: { pct: num(debuff.pct), until: num(debuff.until), active: num(debuff.until) > now },
+        primeDebuffUntil: num(d.primeDebuffUntil),
+        primeDebuffActive: num(d.primeDebuffUntil) > now,
+        nightDefense: { level: num(d.nightDefenseLevel), until: num(d.nightDefenseExpiresAt), active: num(d.nightDefenseExpiresAt) > now },
+        systemDamagedUntil: num(d.activeSystemDamagedUntil),
+        activeRandomEvent: d.activeRandomEvent || null
+      };
     }
 
-    function saveStage() {
-      const stage = document.getElementById('edit-stage').value;
-      setFields({ stage: stage });
+    // ─── Рендер карточки ────────────────────────────────────────
+    const TABS = [
+      { id: 'overview',  title: '📊 Обзор' },
+      { id: 'resources', title: '💰 Ресурсы' },
+      { id: 'statuses',  title: '🧪 Статусы' },
+      { id: 'phase',     title: '🌀 Фаза' },
+      { id: 'prime',     title: '👑 Прайм' },
+      { id: 'invasions', title: '⚔️ Вторжения' },
+      { id: 'premium',   title: '⭐ Премиум' },
+      { id: 'misc',      title: '⚙️ Прочее' }
+    ];
+
+    function render() {
+      if (!cur) return;
+      renderHead();
+      renderTabs();
+      const panes = document.getElementById('panes');
+      const fn = PANES[activeTab] || PANES.overview;
+      panes.innerHTML = fn();
     }
 
-    function togglePrimeLevel() {
-      const obj = document.getElementById('edit-prime-obj').value;
-      // Уровни есть только у blackHole и wormhole. Для primeBH/massiveBH/
-      // superBH, квазара и прочих список уровней не показываем.
-      document.getElementById('primeLevelBox').style.display = PRIME_LEVELABLE.indexOf(obj) !== -1 ? 'flex' : 'none';
+    function renderHead() {
+      const d = cur.data;
+      const name = d.playerName || 'Безымянный';
+      document.getElementById('drawerName').innerHTML = esc(name) + presenceBadge(cur.presence);
+      document.getElementById('drawerMeta').innerHTML = [
+        'ID: <b>' + esc(cur.id) + '</b>',
+        'Система: ' + esc(d.systemName || '—'),
+        'Фаза: ' + esc(stageLabel(d.stage)),
+        'Сейв: ' + esc(ago(cur.savedAt)),
+        'v' + esc(num(cur.version)),
+        '⏱ ' + esc(fmtDate(cur.savedAt))
+      ].map(function(x) { return '<span>' + x + '</span>'; }).join('');
     }
 
-    // Улучшение Прайм-объекта: имя/иконка/бонусы берём у нового объекта,
-    // но имя системы и дату создания сохраняем исходные (как в игре).
+    function renderTabs() {
+      document.getElementById('tabs').innerHTML = TABS.map(function(t) {
+        return '<button class="tab' + (t.id === activeTab ? ' active' : '') + '" data-tab="' + t.id + '">' + t.title + '</button>';
+      }).join('');
+    }
+
+    // ─── Поля-хелперы ──────────────────────────────────────────
+    function inputField(label, attrs, value, hint) {
+      return '<label class="field"><span>' + esc(label) + '</span>'
+        + '<input ' + attrs + ' value="' + esc(value) + '">'
+        + (hint ? '<span class="hint-badge">' + esc(hint) + '</span>' : '')
+        + '</label>';
+    }
+    function selectField(label, attrs, options, value) {
+      const opts = options.map(function(o) {
+        return '<option value="' + esc(o.value) + '"' + (String(o.value) === String(value) ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+      }).join('');
+      return '<label class="field"><span>' + esc(label) + '</span><select ' + attrs + '>' + opts + '</select></label>';
+    }
+    function kv(key, value) {
+      return '<div class="kv"><span class="k">' + esc(key) + '</span><span class="v">' + value + '</span></div>';
+    }
+    function stat(label, value, hint) {
+      return '<div class="stat"><div class="label">' + esc(label) + '</div>'
+        + '<div class="value">' + value + '</div>'
+        + (hint ? '<div class="hint">' + esc(hint) + '</div>' : '') + '</div>';
+    }
+
+    // ─── ПАНЕЛИ ────────────────────────────────────────────────
+    const PANES = {
+      overview: function() {
+        const d = cur.data;
+        const x = derive(d);
+        const now = x.now;
+        const statusChips = []
+          .concat(x.shieldActive ? ['<span class="chip good">🛡 Щит · ' + esc(fmtDur(x.shieldUntil - now)) + '</span>'] : [])
+          .concat(x.boosterActive ? ['<span class="chip good">⚡ Бустер ×2 · ' + esc(fmtDur(x.boosterUntil - now)) + '</span>'] : [])
+          .concat(x.invasionDebuff.active ? ['<span class="chip bad">📉 Дебафф −' + Math.round(x.invasionDebuff.pct * 100) + '% · ' + esc(fmtDur(x.invasionDebuff.until - now)) + '</span>'] : [])
+          .concat(x.primeDebuffActive ? ['<span class="chip warn">👑 Прайм −50% · ' + esc(fmtDur(x.primeDebuffUntil - now)) + '</span>'] : [])
+          .concat(x.worldEvents.filter(function(e) { return e.active; }).map(function(e) {
+            return '<span class="chip warn">' + esc(e.title) + ' · ' + esc(fmtDur(e.endsAt - now)) + '</span>';
+          }))
+          .concat(x.invasions.length ? ['<span class="chip bad">⚔️ Вторжений: ' + x.invasions.length + '</span>'] : [])
+          .concat(x.nightDefense.active ? ['<span class="chip good">🛡 Оборона ур.' + x.nightDefense.level + ' · ' + esc(fmtDur(x.nightDefense.until - now)) + '</span>'] : [])
+          .concat(x.trophyEffects.filter(function(t) { return t.active; }).map(function(t) {
+            return '<span class="chip good">🎫 ' + esc(t.type) + ' · ' + esc(fmtDur(t.expiresAt - now)) + '</span>';
+          }));
+
+        const caps = cur.wallet || {};
+        const spent = premiumTotals();
+
+        return ''
+          + '<div class="grid c4">'
+          + stat('Пыль', esc(fmt(d.dust)), 'всего: ' + esc(fmt(d.dustTotal)))
+          + stat('Энергия', esc(fmt(d.energy)), 'цив. ур. ' + esc(fmt(d.civLevel)))
+          + stat('Металлы', esc(fmt(d.metalAmount)), 'флот: ' + esc(fmt(fleetTotal())))
+          + stat('Планет / систем', esc(x.planetsCount) + ' / ' + esc(num(d.systems, 1)), 'галактик: ' + esc(num(d.galaxies, 1)))
+          + '</div>'
+
+          + '<div class="card" style="margin-top:14px;"><h3>Статусы сейчас</h3>'
+          + (statusChips.length ? '<div class="chips">' + statusChips.join('') + '</div>' : '<div class="note">Активных эффектов нет.</div>')
+          + '</div>'
+
+          + '<div class="grid c2" style="margin-top:14px;">'
+          + '<div class="card"><h3>Прогресс</h3>'
+          + kv('Фаза', esc(stageLabel(d.stage)))
+          + kv('Престиж', esc(num(d.prestigeLevel)) + ' · сингулярности: ' + esc(num(d.singularities)))
+          + kv('Форма галактики', esc(GALAXY_FORMS[d.galaxyForm] || d.galaxyForm || '—'))
+          + kv('Систем создано за всё время', esc(num(d.totalSystemsCreated, 1)))
+          + kv('Прайм-объектов', esc(x.primes.length))
+          + kv('Достижения', esc((Array.isArray(d.achievements) ? d.achievements.length : 0)) + ' / ' + esc(Object.keys(d.unlockedAch || {}).length) + ' откр.')
+          + kv('Части Прайма', esc(num(d.primeParts)) + ' · собрано: ' + esc(num(d.primeCrafts)))
+          + '</div>'
+          + '<div class="card"><h3>Сервер</h3>'
+          + kv('Кошелёк обновлён', esc(fmtDate(caps.updatedAt)))
+          + kv('Бюджет возможностей', esc(fmt(caps.capBudget)))
+          + kv('Право на щит', esc(fmtDate(cur.entitlements && cur.entitlements.shieldUntil)))
+          + kv('Право на бустер', esc(fmtDate(cur.entitlements && cur.entitlements.boosterUntil)))
+          + kv('Потрачено Stars', esc(fmt(spent.stars)))
+          + kv('Покупок', esc(spent.count))
+          + kv('Присутствие', presenceBadge(cur.presence))
+          + '</div>'
+          + '</div>'
+
+          + '<div class="grid c4" style="margin-top:14px;">'
+          + stat('Клики', esc(fmt((d.stats || {}).clicks)))
+          + stat('Вторжений отбито', esc(fmt((d.stats || {}).invasionsDefeated)))
+          + stat('Планет создано', esc(fmt((d.stats || {}).planets)))
+          + stat('Ежедневок', esc(fmt((d.stats || {}).dailyClaims)))
+          + '</div>';
+      },
+
+      resources: function() {
+        const d = cur.data;
+        const x = derive(d);
+        const levels = d.storageLevels || {};
+        const progress = d.storageProgress || {};
+        const wallet = cur.wallet || {};
+
+        let storageRows = '';
+        ['dust', 'energy', 'civ'].forEach(function(res) {
+          const label = res === 'dust' ? 'Пыль' : res === 'energy' ? 'Энергия' : 'Цивилизация';
+          const lvl = Math.min(7, Math.max(1, num(levels[res], 1)));
+          storageRows += '<tr>'
+            + '<td>' + esc(label) + '</td>'
+            + '<td style="width:120px;"><select data-act="storage-lvl" data-res="' + res + '">'
+            + [1,2,3,4,5,6,7].map(function(n) { return '<option value="' + n + '"' + (n === lvl ? ' selected' : '') + '>' + n + '</option>'; }).join('')
+            + '</select></td>'
+            + '<td style="width:150px;"><input type="number" min="0" step="1" data-act="storage-progress" data-res="' + res + '" value="' + esc(num(progress[res])) + '"></td>'
+            + '<td class="mono">≈ ' + esc(fmt(storageCap(res, lvl))) + '</td>'
+            + '</tr>';
+        });
+
+        return ''
+          + '<div class="card"><h3>Ресурсы <span class="hint-badge">правки синхронизируются с серверным кошельком</span></h3>'
+          + '<div class="grid c4">'
+          + inputField('Пыль', 'type="number" min="0" step="1" data-act="field" data-field="dust"', num(d.dust))
+          + inputField('Всего пыли (dustTotal)', 'type="number" min="0" step="1" data-act="field" data-field="dustTotal"', num(d.dustTotal), 'исторический максимум')
+          + inputField('Энергия', 'type="number" min="0" step="1" data-act="field" data-field="energy"', num(d.energy))
+          + inputField('Цивилизация (уровень)', 'type="number" min="0" step="1" data-act="field" data-field="civLevel"', num(d.civLevel))
+          + inputField('Металлы', 'type="number" min="0" step="1" data-act="field" data-field="metalAmount"', num(d.metalAmount))
+          + '</div>'
+          + '<div class="inline-actions">'
+          + '<button class="btn-ghost btn-sm" data-act="add-res" data-field="dust" data-amount="1000000">+1 млн пыли</button>'
+          + '<button class="btn-ghost btn-sm" data-act="add-res" data-field="energy" data-amount="100000">+100 тыс. энергии</button>'
+          + '<button class="btn-ghost btn-sm" data-act="add-res" data-field="metalAmount" data-amount="100000">+100 тыс. металла</button>'
+          + '<button class="btn-ghost btn-sm" data-act="add-res" data-field="civLevel" data-amount="10">+10 цив.</button>'
+          + '</div>'
+          + '</div>'
+
+          + '<div class="card"><h3>Хранилище</h3>'
+          + '<table><thead><tr><th>Ресурс</th><th>Уровень</th><th>Накоплено в апгрейд</th><th>Флэт-лимит</th></tr></thead>'
+          + '<tbody>' + storageRows + '</tbody></table>'
+          + '<p class="note" style="margin:10px 0 0;">Уровни 1–7. Фактический лимит может быть выше флэт-лимита за счёт дохода × часы хранилища.</p>'
+          + '</div>'
+
+          + '<div class="card"><h3>Флот</h3><div class="grid c3">'
+          + Object.keys(FLEET_SHIPS).map(function(key) {
+              return inputField(FLEET_SHIPS[key], 'type="number" min="0" step="1" data-act="fleet" data-ship="' + key + '"', num((d.fleet || {})[key]));
+            }).join('')
+          + '</div><p class="note" style="margin:10px 0 0;">Купленные корабли работают всегда, отдельной активации нет.</p></div>'
+
+          + '<div class="card"><h3>Бюджет возможностей (сервер)</h3>'
+          + '<div class="grid c2">'
+          + inputField('capBudget', 'type="number" min="0" step="1" id="walletCapBudget"', num(wallet.capBudget), 'покрывает добавленные планеты/системы')
+          + '<div style="display:flex;align-items:flex-end;"><button data-act="save-wallet" style="width:100%;">Применить бюджет</button></div>'
+          + '</div>'
+          + '<p class="note" style="margin:10px 0 0;">Кошелёк обновлён: ' + esc(fmtDate(wallet.updatedAt)) + '</p>'
+          + '</div>';
+      },
+
+      statuses: function() {
+        const d = cur.data;
+        const x = derive(d);
+        const now = x.now;
+
+        const eventChips = x.worldEvents.map(function(ev, i) {
+          const cls = ev.active ? (ev.tier === 'weekly' ? 'warn' : 'good') : '';
+          return '<span class="chip ' + cls + '">'
+            + esc(ev.title) + ' <span class="dim">(' + esc(ev.tier) + (ev.active ? ', ' + esc(fmtDur(ev.endsAt - now)) : ', истекло') + ')</span>'
+            + '<button title="Убрать событие" data-act="event-del" data-id="' + esc(ev.id) + '">✕</button>'
+            + '</span>';
+        }).join('');
+
+        const trophyChips = x.trophyEffects.map(function(t, i) {
+          return '<span class="chip ' + (t.active ? 'good' : '') + '">'
+            + '🎫 ' + esc(t.type) + ' · ' + esc(t.active ? fmtDur(t.expiresAt - now) : 'истёк')
+            + '<button data-act="trophy-del" data-idx="' + i + '">✕</button></span>';
+        }).join('');
+
+        return ''
+          + '<div class="grid c2">'
+          + '<div class="card"><h3>🛡 Щит</h3>'
+          + '<div class="kv"><span class="k">Сейчас</span><span class="v">' + (x.shieldActive
+              ? '<span style="color:var(--good)">активен, ещё ' + esc(fmtDur(x.shieldUntil - now)) + '</span>'
+              : '<span class="dim">нет</span>') + '</span></div>'
+          + '<div class="kv"><span class="k">До</span><span class="v">' + esc(fmtDate(x.shieldUntil)) + '</span></div>'
+          + '<div class="inline-actions">'
+          + [1, 8, 24, 72].map(function(h) { return '<button class="btn-warning btn-sm" data-act="shield" data-hours="' + h + '">' + h + ' ч</button>'; }).join('')
+          + '<button class="btn-danger btn-sm" data-act="shield" data-hours="0">Снять</button>'
+          + '</div>'
+          + '<div class="row" style="margin-top:10px;">'
+          + inputField('Свои часы', 'type="number" min="0" step="1" id="shieldCustomHours"', 24)
+          + '<button data-act="shield-custom" class="fixed">Выдать</button>'
+          + '</div>'
+          + '</div>'
+
+          + '<div class="card"><h3>⚡ Бустер дохода</h3>'
+          + '<div class="kv"><span class="k">Сейчас</span><span class="v">' + (x.boosterActive
+              ? '<span style="color:var(--good)">×2, ещё ' + esc(fmtDur(x.boosterUntil - now)) + '</span>'
+              : '<span class="dim">нет</span>') + '</span></div>'
+          + '<div class="kv"><span class="k">До</span><span class="v">' + esc(fmtDate(x.boosterUntil)) + '</span></div>'
+          + '<div class="inline-actions">'
+          + [2, 12, 24].map(function(h) { return '<button class="btn-warning btn-sm" data-act="booster" data-hours="' + h + '">' + h + ' ч</button>'; }).join('')
+          + '<button class="btn-danger btn-sm" data-act="booster" data-hours="0">Снять</button>'
+          + '</div>'
+          + '<div class="row" style="margin-top:10px;">'
+          + inputField('Свои часы', 'type="number" min="0" step="1" id="boosterCustomHours"', 2)
+          + '<button data-act="booster-custom" class="fixed">Выдать</button>'
+          + '</div>'
+          + '</div>'
+          + '</div>'
+
+          + '<div class="card"><h3>📉 Дебафф вторжения</h3>'
+          + '<div class="kv"><span class="k">Сейчас</span><span class="v">' + (x.invasionDebuff.active
+              ? '<span style="color:var(--bad)">−' + Math.round(x.invasionDebuff.pct * 100) + '%, ещё ' + esc(fmtDur(x.invasionDebuff.until - now)) + '</span>'
+              : '<span class="dim">нет</span>') + '</span></div>'
+          + '<div class="row">'
+          + inputField('Процент (−%)', 'type="number" min="0" max="80" step="1" id="debuffPct"', Math.round(x.invasionDebuff.pct * 100))
+          + inputField('Часы', 'type="number" min="0" step="1" id="debuffHours"', 2)
+          + '<button data-act="debuff-set" class="fixed">Применить</button>'
+          + '<button data-act="debuff-clear" class="btn-danger fixed">Снять</button>'
+          + '</div>'
+          + '</div>'
+
+          + '<div class="card"><h3>🌍 Мировые события <span class="hint-badge">всего ' + x.worldEvents.length + '</span></h3>'
+          + (eventChips ? '<div class="chips">' + eventChips + '</div>' : '<div class="note">Активных мировых событий нет.</div>')
+          + '<div class="row" style="margin-top:12px;">'
+          + '<label class="field" style="flex:2 1 260px;"><span>Событие</span><select id="eventPick">'
+          + '<optgroup label="Ежедневные">' + WORLD_EVENTS.filter(function(e) { return e.tier === 'daily'; }).map(function(e) {
+              return '<option value="' + esc(e.id) + '">' + esc(e.title) + '</option>';
+            }).join('') + '</optgroup>'
+          + '<optgroup label="Недельные">' + WORLD_EVENTS.filter(function(e) { return e.tier === 'weekly'; }).map(function(e) {
+              return '<option value="' + esc(e.id) + '">' + esc(e.title) + '</option>';
+            }).join('') + '</optgroup>'
+          + '</select></label>'
+          + inputField('Часы', 'type="number" min="1" step="1" id="eventHours"', 24)
+          + '<button data-act="event-add" class="fixed">Добавить</button>'
+          + '<button data-act="events-clear" class="btn-danger fixed">Очистить</button>'
+          + '</div>'
+          + '<p class="note" style="margin:8px 0 0;">Повторное добавление того же события обновляет срок, как в игре.</p>'
+          + '</div>'
+
+          + '<div class="grid c2">'
+          + '<div class="card"><h3>👑 Прайм-дебафф</h3>'
+          + '<div class="kv"><span class="k">Сейчас</span><span class="v">' + (x.primeDebuffActive
+              ? '<span style="color:var(--warn)">−50% до ' + esc(fmtDate(x.primeDebuffUntil)) + '</span>'
+              : '<span class="dim">нет</span>') + '</span></div>'
+          + '<div class="row" style="margin-top:10px;">'
+          + inputField('Наложить на часы', 'type="number" min="1" step="1" id="primeDebuffHours"', 2)
+          + '<button data-act="prime-debuff-set" class="fixed">Наложить −50%</button>'
+          + '</div>'
+          + '<div class="inline-actions">'
+          + '<button class="btn-danger btn-sm" data-act="prime-debuff-clear">Снять дебафф</button>'
+          + '</div></div>'
+
+          + '<div class="card"><h3>🌙 Ночная оборона</h3>'
+          + '<div class="kv"><span class="k">Уровень</span><span class="v">' + esc(x.nightDefense.level) + '</span></div>'
+          + '<div class="kv"><span class="k">Активна до</span><span class="v">' + (x.nightDefense.active ? esc(fmtDate(x.nightDefense.until)) : '<span class="dim">нет</span>') + '</span></div>'
+          + '<div class="row">'
+          + inputField('Уровень', 'type="number" min="0" max="10" step="1" id="nightLevel"', x.nightDefense.level)
+          + inputField('Часы', 'type="number" min="0" step="1" id="nightHours"', 12)
+          + '<button data-act="night-set" class="fixed">Применить</button>'
+          + '<button data-act="night-clear" class="btn-danger fixed">Снять</button>'
+          + '</div></div>'
+          + '</div>'
+
+          + '<div class="card"><h3>🎫 Трофеи и прочие таймеры</h3>'
+          + (trophyChips ? '<div class="chips">' + trophyChips + '</div>' : '<div class="note">Активных трофейных эффектов нет.</div>')
+          + '<div class="row" style="margin-top:10px;">'
+          + selectField('Тип трофея', 'id="trophyType"', [{ value: 'shield', label: 'Щит' }, { value: 'defense_level', label: 'Уровень обороны' }], 'shield')
+          + inputField('Значение', 'type="number" min="0" step="1" id="trophyValue"', 5)
+          + inputField('Часы', 'type="number" min="1" step="1" id="trophyHours"', 12)
+          + '<button class="fixed" data-act="trophy-add">Добавить</button>'
+          + '</div>'
+          + '<div class="inline-actions">'
+          + '<button class="btn-danger btn-sm" data-act="trophies-clear">Очистить все трофеи</button>'
+          + '<button class="btn-danger btn-sm" data-act="system-damage-clear">Снять простой системы</button>'
+          + '<button class="btn-danger btn-sm" data-act="random-event-clear">Сбросить интерактивное событие</button>'
+          + '<button class="btn-danger btn-sm" data-act="all-status-clear">Снять всё (щит, дебаффы, события)</button>'
+          + '</div>'
+          + '<div class="kv" style="margin-top:10px;"><span class="k">Система повреждена до</span><span class="v">' + esc(fmtDate(x.systemDamagedUntil)) + '</span></div>'
+          + '<div class="kv"><span class="k">Интерактивное событие</span><span class="v">' + (x.activeRandomEvent ? esc((x.activeRandomEvent && x.activeRandomEvent.id) || 'есть') : '<span class="dim">нет</span>') + '</span></div>'
+          + '<div class="kv"><span class="k">Офлайн-атак применено</span><span class="v">' + esc(num(d.offlineAttacksDone)) + '</span></div>'
+          + '</div>';
+      },
+
+      phase: function() {
+        const d = cur.data;
+        const x = derive(d);
+        const progress = d.phaseProgress || {};
+        const stageOpts = Object.keys(STAGE_LABELS).map(function(key) {
+          return { value: key, label: STAGE_LABELS[key].tag + ': ' + STAGE_LABELS[key].name };
+        });
+        const maxProg = { cloud: 2000, condense: 25000, protostar: 100 };
+
+        return ''
+          + '<div class="card"><h3>Фаза игры</h3>'
+          + '<div class="grid c2">'
+          + selectField('Текущая фаза', 'data-act="field" data-field="stage"', stageOpts, d.stage)
+          + inputField('Активная система (индекс)', 'type="number" min="0" step="1" data-act="field" data-field="activeSystemIdx"', num(d.activeSystemIdx))
+          + '</div>'
+          + '<div class="grid c3" style="margin-top:12px;">'
+          + ['cloud', 'condense', 'protostar'].map(function(key) {
+              const val = num(progress[key]);
+              const max = maxProg[key];
+              return '<div class="stat"><div class="label">' + esc(STAGE_LABELS[key].name) + '</div>'
+                + '<div class="value">' + esc(fmt(val)) + '</div>'
+                + '<div class="progress-track" style="margin:8px 0 6px;"><div class="progress-fill" style="width:' + pct(val, max).toFixed(1) + '%"></div></div>'
+                + '<input type="number" min="0" step="1" data-act="phase-progress" data-key="' + key + '" value="' + esc(val) + '">'
+                + '</div>';
+            }).join('')
+          + '</div>'
+          + '<div class="grid c3" style="margin-top:12px;">'
+          + inputField('Качество зажигания', 'type="number" min="0" max="1" step="0.01" data-act="field" data-field="lastIgnitionQuality"', num(d.lastIgnitionQuality, 0.5))
+          + inputField('Жар протозвезды', 'type="number" min="0" step="1" data-act="field" data-field="protostarHeat"', num(d.protostarHeat))
+          + inputField('Кулдаун сборки (timestamp)', 'type="number" min="0" step="1" data-act="field" data-field="assemblyCooldownUntil"', num(d.assemblyCooldownUntil), fmtDate(d.assemblyCooldownUntil))
+          + '</div>'
+          + '</div>'
+
+          + '<div class="card"><h3>Галактика и империя</h3>'
+          + '<div class="grid c4">'
+          + inputField('Систем', 'type="number" min="1" step="1" data-act="field" data-field="systems"', num(d.systems, 1))
+          + inputField('Систем создано', 'type="number" min="1" step="1" data-act="field" data-field="totalSystemsCreated"', num(d.totalSystemsCreated, 1))
+          + inputField('Галактик', 'type="number" min="1" step="1" data-act="field" data-field="galaxies"', num(d.galaxies, 1))
+          + inputField('Престиж', 'type="number" min="0" step="1" data-act="field" data-field="prestigeLevel"', num(d.prestigeLevel))
+          + inputField('Сингулярности', 'type="number" min="0" step="1" data-act="field" data-field="singularities"', num(d.singularities))
+          + inputField('Множитель галактики', 'type="number" min="0" step="0.01" data-act="field" data-field="galaxyMultiplier"', num(d.galaxyMultiplier, 1))
+          + inputField('Бонус дохода систем', 'type="number" min="0" step="0.01" data-act="field" data-field="systemIncomeBonus"', num(d.systemIncomeBonus))
+          + inputField('Пол цены систем', 'type="number" min="0" step="1" data-act="field" data-field="systemCostFloor"', num(d.systemCostFloor))
+          + '</div>'
+          + '<div class="grid c2" style="margin-top:12px;">'
+          + selectField('Форма галактики', 'data-act="field" data-field="galaxyForm"', Object.keys(GALAXY_FORMS).map(function(k) { return { value: k, label: GALAXY_FORMS[k] }; }), d.galaxyForm)
+          + '</div>'
+          + '</div>'
+
+          + '<div class="card"><h3>Игрок и системы</h3>'
+          + '<div class="grid c2">'
+          + inputField('Ник игрока', 'data-act="field" data-field="playerName"', d.playerName || '')
+          + inputField('Имя родной системы', 'data-act="field" data-field="systemName"', d.systemName || '')
+          + '</div>'
+          + '<div class="grid c4" style="margin-top:12px;">'
+          + stat('Родных планет', esc(x.homePlanets))
+          + stat('В других системах', esc(x.otherPlanets))
+          + stat('Всего планет', esc(x.planetsCount))
+          + stat('Систем (распознано)', esc(x.systemsCount))
+          + '</div>'
+          + '</div>'
+
+          + '<div class="card"><h3>Состав планет</h3>'
+          + (Object.keys(x.planetTypes).length
+              ? '<div class="chips">' + Object.keys(x.planetTypes).map(function(t) {
+                  return '<span class="chip">' + esc(PLANET_LABELS[t] || t) + ': <b>' + x.planetTypes[t] + '</b></span>';
+                }).join('') + '</div>'
+              : '<div class="note">Планет пока нет.</div>')
+          + '<p class="note" style="margin:8px 0 0;">Планеты считаются по всем системам империи без дублей (активная система хранится и в S.planets, и в otherSystems[activeSystemIdx]).</p>'
+          + '</div>';
+      },
+
+      prime: function() {
+        const d = cur.data;
+        const x = derive(d);
+        const homeKey = d.primeSystem && d.primeSystem.objectKey ? d.primeSystem.objectKey : 'none';
+        let homeBase = homeKey, homeLvl = '1';
+        for (const base in PRIME_MAP) {
+          if (PRIME_MAP[base].lvl2 === homeKey) { homeBase = base; homeLvl = '2'; }
+          if (PRIME_MAP[base].lvl3 === homeKey) { homeBase = base; homeLvl = '3'; }
+        }
+        const objOptions = [{ value: 'none', label: 'Нет' }].concat(Object.keys(PRIME_OBJECTS).map(function(key) {
+          return { value: key, label: PRIME_OBJECTS[key].name };
+        }));
+        const levelable = PRIME_MAP[homeBase] ? true : false;
+
+        // Активный Прайм редактируется блоком выше; здесь — родная (когда активна другая
+        // система) и остальные системы, чтобы не дублировать одну и ту же запись.
+        const otherRows = x.primes.filter(function(p) { return !p.active; }).map(function(p) {
+          const isHome = p.scope === 'home';
+          return '<tr>'
+            + '<td>#' + p.index + ' · ' + esc(p.systemName) + (isHome ? ' <span class="hint-badge">родная</span>' : '') + '</td>'
+            + '<td>' + esc(p.objectName) + '</td>'
+            + '<td>ур. ' + esc(p.level || 1) + '</td>'
+            + '<td class="note">' + esc(p.objectKey) + '</td>'
+            + '<td style="white-space:nowrap;">'
+            + '<button class="btn-danger btn-sm" data-act="prime-other-remove-status" data-idx="' + p.index + '">Убрать статус</button>'
+            + (isHome ? '' : ' <button class="btn-danger btn-sm" data-act="prime-other-delete" data-idx="' + p.index + '">Удалить систему</button>')
+            + '</td></tr>';
+        }).join('');
+
+        return ''
+          + '<div class="card"><h3>Прайм активной системы <span class="hint-badge">S.primeSystem</span></h3>'
+          + '<div class="grid c3">'
+          + selectField('Объект', 'data-act="prime-home-object"', objOptions, homeBase)
+          + (levelable
+              ? selectField('Уровень', 'data-act="prime-home-level"', [{ value: '1', label: '1' }, { value: '2', label: '2' }, { value: '3', label: '3' }], homeLvl)
+              : '<div class="field"><span>Уровень</span><div class="note" style="padding:9px 0;">не применимо</div></div>')
+          + (d.primeSystem && typeof d.primeSystem === 'object'
+              ? '<div class="field"><span>Бонус</span><div class="note" style="padding:9px 0;">' + esc(JSON.stringify(d.primeSystem.bonus || {})) + '</div></div>'
+              : '<div class="field"><span>Бонус</span><div class="note" style="padding:9px 0;">нет</div></div>')
+          + '</div>'
+          + '<div class="inline-actions">'
+          + '<button class="btn-danger btn-sm" data-act="prime-home-remove">Убрать Прайм</button>'
+          + '</div>'
+          + '<p class="note" style="margin:8px 0 0;">Уровни (2–3) есть только у чёрной дыры и кротовой норы. Объект пишется в сейв с настоящим именем и бонусами.</p>'
+          + '</div>'
+
+          + '<div class="card"><h3>Прайм в остальных системах <span class="hint-badge">всего Прайм-объектов: ' + x.primes.length + '</span></h3>'
+          + (otherRows
+              ? '<table><thead><tr><th>Система</th><th>Объект</th><th>Уровень</th><th>Ключ</th><th>Действия</th></tr></thead><tbody>' + otherRows + '</tbody></table>'
+              : '<div class="note">В других системах Прайм-объектов нет.</div>')
+          + '</div>'
+
+          + '<div class="card"><h3>Создать Прайм-систему</h3>'
+          + '<div class="grid c3">'
+          + selectField('Объект', 'id="newPrimeObject"', Object.keys(PRIME_OBJECTS).map(function(key) {
+              return { value: key, label: PRIME_OBJECTS[key].name };
+            }), 'blackHole')
+          + '<div style="display:flex;align-items:flex-end;"><button data-act="prime-create" style="width:100%;">Создать идеальную систему</button></div>'
+          + '</div>'
+          + '<p class="note" style="margin:8px 0 0;">Создаётся система из 8 планет со звездой G и выбранным объектом — как после платного сундука. Счётчик систем увеличивается.</p>'
+          + '</div>';
+      },
+
+      invasions: function() {
+        const d = cur.data;
+        const x = derive(d);
+        const now = Date.now();
+        const rows = x.invasions.map(function(inv) {
+          const left = inv.destructionEndsAt > now ? fmtDur(inv.destructionEndsAt - now) : 'истекло';
+          const target = inv.targetType === 'planet'
+            ? ('планета ' + (inv.planetName || '—') + ' (система ' + inv.systemIdx + ')')
+            : ('система ' + (inv.systemName || '#') + ' [' + inv.systemIdx + ']');
+          return '<tr>'
+            + '<td><b>' + esc(inv.tierLabel) + '</b><span class="player-sub">' + esc(inv.id) + '</span></td>'
+            + '<td>' + esc(target) + '</td>'
+            + '<td class="mono">' + esc(inv.shipsAlive) + ' / ' + esc(inv.shipsTotal) + '</td>'
+            + '<td class="mono">' + esc(inv.hp) + ' / ' + esc(inv.maxHp) + '</td>'
+            + '<td>' + esc(left) + '</td>'
+            + '<td><button class="btn-danger btn-sm" data-act="invasion-del" data-id="' + esc(inv.id) + '">Отменить</button></td>'
+            + '</tr>';
+        }).join('');
+
+        return ''
+          + '<div class="card"><h3>Активные вторжения <span class="hint-badge">' + x.invasions.length + '</span></h3>'
+          + (x.invasions.length
+              ? '<table><thead><tr><th>Тип</th><th>Цель</th><th>Корабли</th><th>Прочность</th><th>Осталось</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>'
+              : '<div class="note">Активных вторжений нет.</div>')
+          + '<div class="inline-actions">'
+          + '<button class="btn-danger btn-sm" data-act="invasions-clear">Очистить все вторжения</button>'
+          + '</div>'
+          + '</div>'
+
+          + '<div class="card"><h3>Запустить вторжение</h3>'
+          + '<div class="grid c3">'
+          + selectField('Уровень', 'id="invasionTier"', Object.keys(INVASION_TIERS).map(function(key) {
+              return { value: key, label: INVASION_TIERS[key] };
+            }), 'raid')
+          + '<div style="display:flex;align-items:flex-end;"><button class="btn-warning" data-act="invasion-add" style="width:100%;">Запустить</button></div>'
+          + '</div>'
+          + '<p class="note" style="margin:8px 0 0;">Доступно только на фазе «Система» или «Галактика» (сейчас: ' + esc(stageLabel(d.stage)) + '). Сервер строит вторжение в формате игры.</p>'
+          + '</div>'
+
+          + '<div class="card"><h3>Простой и урон</h3>'
+          + kv('Система повреждена до', esc(fmtDate(d.activeSystemDamagedUntil)))
+          + kv('Дебафф вторжения', x.invasionDebuff.active ? ('−' + Math.round(x.invasionDebuff.pct * 100) + '% до ' + fmtDate(x.invasionDebuff.until)) : 'нет')
+          + '<div class="inline-actions">'
+          + '<button class="btn-danger btn-sm" data-act="system-damage-clear">Снять простой системы</button>'
+          + '<button class="btn-danger btn-sm" data-act="debuff-clear">Снять дебафф</button>'
+          + '</div></div>';
+      },
+
+      premium: function() {
+        const d = cur.data;
+        const totals = premiumTotals();
+        const purchases = (cur.purchases || []).map(normalizePurchase).sort(function(a, b) { return b.paidAt - a.paidAt; });
+        const rows = purchases.map(function(p) {
+          return '<tr>'
+            + '<td>' + esc(fmtDate(p.paidAt)) + '</td>'
+            + '<td>' + esc(productLabel(p.product)) + '</td>'
+            + '<td class="mono">⭐ ' + esc(fmt(p.stars)) + '</td>'
+            + '<td>' + (p.granted ? '<span style="color:var(--good)">выдан</span>' : '<span style="color:var(--warn)">не выдан</span>') + '</td>'
+            + '</tr>';
+        }).join('');
+        const ent = cur.entitlements || {};
+
+        return ''
+          + '<div class="grid c3">'
+          + stat('Потрачено Stars', esc(fmt(totals.stars)), 'по серверным покупкам')
+          + stat('Покупок', esc(totals.count))
+          + stat('Последняя оплата', esc(fmtDate(totals.lastPaidAt)))
+          + '</div>'
+
+          + '<div class="card"><h3>Покупки игрока</h3>'
+          + (purchases.length
+              ? '<table><thead><tr><th>Дата</th><th>Товар</th><th>Stars</th><th>Статус</th></tr></thead><tbody>' + rows + '</tbody></table>'
+              : '<div class="note">Серверных покупок нет (или сервер не отдаёт список).</div>')
+          + '</div>'
+
+          + '<div class="card"><h3>Серверные права</h3>'
+          + kv('Щит (entitlement)', esc(fmtDate(ent.shieldUntil)) + (num(ent.shieldUntil) > Date.now() ? ' · активен' : ''))
+          + kv('Бустер (entitlement)', esc(fmtDate(ent.boosterUntil)) + (num(ent.boosterUntil) > Date.now() ? ' · активен' : ''))
+          + kv('Бюджет возможностей', esc(fmt((cur.wallet || {}).capBudget)))
+          + '</div>'
+
+          + '<div class="card"><h3>Выдать вручную</h3>'
+          + '<div class="inline-actions">'
+          + '<button class="btn-warning btn-sm" data-act="grant-shield">🛡 Щит 24 ч</button>'
+          + '<button class="btn-warning btn-sm" data-act="grant-booster">⚡ Бустер 2 ч</button>'
+          + '<button class="btn-warning btn-sm" data-act="grant-chest">🎁 Сундук (случайный Прайм)</button>'
+          + '</div>'
+          + '<p class="note" style="margin:8px 0 0;">Щит и бустер дополнительно пишутся в серверные права, иначе /api/load обрежет их.</p>'
+          + '</div>';
+      },
+
+      misc: function() {
+        const d = cur.data;
+        const settings = d.settings || {};
+        const night = d.nightConfig || {};
+        const daily = d.dailyReward || {};
+        const stats = d.stats || {};
+        const anticheat = d.anticheat || {};
+        const achCount = Array.isArray(d.achievements) ? d.achievements.length : 0;
+        const unlocked = Object.keys(d.unlockedAch || {}).length;
+
+        return ''
+          + '<div class="grid c2">'
+          + '<div class="card"><h3>Обучение</h3>'
+          + '<div class="grid c2">'
+          + inputField('Шаг обучения (0–5)', 'type="number" min="0" max="5" step="1" data-act="field" data-field="tutorialStep"', num(d.tutorialStep))
+          + '<label class="field"><span>Обучение пройдено</span><select data-act="toggle-field" data-field="tutorialDone" data-type="bool">'
+          + '<option value="true"' + (d.tutorialDone ? ' selected' : '') + '>Да</option>'
+          + '<option value="false"' + (!d.tutorialDone ? ' selected' : '') + '>Нет</option></select></label>'
+          + '</div></div>'
+
+          + '<div class="card"><h3>Настройки игрока</h3>'
+          + '<div class="grid c3">'
+          + inputField('Яркость', 'type="number" min="0.2" max="2" step="0.05" data-act="settings" data-key="brightness"', num(settings.brightness, 1))
+          + '<label class="field"><span>Звук</span><select data-act="settings-bool" data-key="sound" data-type="bool">'
+          + '<option value="true"' + (settings.sound !== false ? ' selected' : '') + '>Вкл</option>'
+          + '<option value="false"' + (settings.sound === false ? ' selected' : '') + '>Выкл</option></select></label>'
+          + '<label class="field"><span>Пуши</span><select data-act="settings-bool" data-key="pushEnabled" data-type="bool">'
+          + '<option value="true"' + (settings.pushEnabled !== false ? ' selected' : '') + '>Вкл</option>'
+          + '<option value="false"' + (settings.pushEnabled === false ? ' selected' : '') + '>Выкл</option></select></label>'
+          + '</div></div>'
+          + '</div>'
+
+          + '<div class="card"><h3>Ночной режим</h3>'
+          + '<div class="grid c4">'
+          + selectField('Режим', 'data-act="night-config" data-key="mode"', [
+              { value: 'balanced', label: 'Сбалансированный' },
+              { value: 'defense', label: 'Оборона' },
+              { value: 'expedition', label: 'Экспедиции' },
+              { value: 'comet', label: 'Кометы' }
+            ], night.mode || 'balanced')
+          + '<label class="field"><span>Защита</span><select data-act="night-bool" data-key="defenseEnabled">'
+          + '<option value="true"' + (night.defenseEnabled !== false ? ' selected' : '') + '>Вкл</option>'
+          + '<option value="false"' + (night.defenseEnabled === false ? ' selected' : '') + '>Выкл</option></select></label>'
+          + inputField('Часы комет', 'type="number" min="0" max="24" step="1" data-act="night-config" data-key="cometHours"', num(night.cometHours))
+          + inputField('Экспедиции, %', 'type="number" min="0" max="100" step="1" data-act="night-config" data-key="expeditionPercent"', num(night.expeditionPercent))
+          + '</div></div>'
+
+          + '<div class="card"><h3>Ежедневная награда</h3>'
+          + '<div class="grid c3">'
+          + inputField('День', 'type="number" min="0" step="1" data-act="daily" data-key="day"', num(daily.day))
+          + inputField('lastClaimed', 'type="number" min="0" step="1" data-act="daily" data-key="lastClaimed"', num(daily.lastClaimed))
+          + inputField('lastClaimedDay', 'type="number" min="0" step="1" data-act="daily" data-key="lastClaimedDay"', num(daily.lastClaimedDay))
+          + '</div>'
+          + '<div class="inline-actions"><button class="btn-danger btn-sm" data-act="daily-reset">Сбросить ежедневку</button></div>'
+          + '</div>'
+
+          + '<div class="grid c2">'
+          + '<div class="card"><h3>Достижения</h3>'
+          + kv('Получено', esc(achCount))
+          + kv('Открыто (unlockedAch)', esc(unlocked))
+          + kv('Части Прайма', esc(num(d.primeParts)) + ' · собрано: ' + esc(num(d.primeCrafts)))
+          + '<div class="inline-actions"><button class="btn-danger btn-sm" data-act="ach-clear">Очистить достижения</button></div>'
+          + '</div>'
+          + '<div class="card"><h3>Античит</h3>'
+          + kv('Флаги', esc(num(anticheat.flags)))
+          + kv('Причины', anticheat.reasons && anticheat.reasons.length ? esc(anticheat.reasons.join(', ')) : '—')
+          + kv('Метка времени', esc(fmtDate(anticheat.ts)))
+          + '<div class="inline-actions"><button class="btn-danger btn-sm" data-act="anticheat-clear">Сбросить флаги</button></div>'
+          + '</div>'
+          + '</div>'
+
+          + '<div class="card"><h3>Статистика игрока</h3>'
+          + '<div class="grid c3">'
+          + Object.keys({ clicks: 'Клики', comets: 'Кометы', expeditions: 'Экспедиции', invasionsDefeated: 'Вторжений отбито', planets: 'Планет создано', dailyClaims: 'Ежедневок' }).map(function(key) {
+              return inputField(key, 'type="number" min="0" step="1" data-act="stats" data-key="' + key + '"', num(stats[key]));
+            }).join('')
+          + '</div></div>'
+
+          + '<div class="grid c2">'
+          + '<div class="card"><h3>Журнал событий</h3>'
+          + kv('Непрочитанных', esc(num(d.eventLogUnread)))
+          + kv('Записей', esc(Array.isArray(d.eventLog) ? d.eventLog.length : 0))
+          + kv('Просмотрено лора', esc(Array.isArray(d.seenLore) ? d.seenLore.length : 0))
+          + '<div class="inline-actions"><button class="btn-danger btn-sm" data-act="eventlog-clear">Очистить журнал</button></div>'
+          + '</div>'
+          + '<div class="card"><h3>Сырые счётчики</h3>'
+          + kv('Старт сессии', esc(fmtDate(d.sessionStart)))
+          + kv('Первый ночной щит', d.firstNightShieldUsed ? 'использован' : 'нет')
+          + kv('Активная система (индекс)', esc(num(d.activeSystemIdx)))
+          + kv('Прайм-дебафф до', esc(fmtDate(d.primeDebuffUntil)))
+          + '</div>'
+          + '</div>'
+
+          + '<div class="card"><h3>Дополнительные поля (JSON)</h3>'
+          + '<p class="note" style="margin-top:0;">Редкие поля сейва одним JSON-объектом: ключи верхнего уровня сохранятся батчем. Нужны, когда значение не вынесено в отдельную форму.</p>'
+          + '<textarea id="advancedJson" spellcheck="false" style="width:100%;min-height:220px;font-family:ui-monospace,Consolas,monospace;font-size:12px;padding:10px;border-radius:8px;border:1px solid var(--line);background:rgba(0,0,0,.45);color:#fff;">' + esc(advancedFieldsJson(d)) + '</textarea>'
+          + '<div class="inline-actions"><button data-act="apply-json">Применить JSON</button><button class="btn-ghost" data-act="reload-json">Вернуть текущие</button></div>'
+          + '</div>'
+
+          + '<div class="card danger-zone"><h3>Опасная зона</h3>'
+          + '<p class="note" style="margin-top:0;">Сброс стирает облачный сейв и серверный кошелёк игрока. При следующем входе он начнёт новую игру.</p>'
+          + '<button class="btn-danger" data-act="delete-player">🗑 Сбросить аккаунт</button>'
+          + '</div>';
+      }
+    };
+
+    // ─── Хелперы панелей ───────────────────────────────────────
+    // Редкие поля, которые не вынесены в отдельные формы: правим одним JSON.
+    function advancedFields(d) {
+      return {
+        activeEvent: d.activeEvent || null,
+        lastEventAt: num(d.lastEventAt),
+        lastRandomEvent: num(d.lastRandomEvent),
+        activeRandomEvent: d.activeRandomEvent || null,
+        lastDailyEventDay: num(d.lastDailyEventDay),
+        lastWeeklyEventWeek: num(d.lastWeeklyEventWeek),
+        weeklyEventPlan: d.weeklyEventPlan || null,
+        lastIgnitionQuality: num(d.lastIgnitionQuality),
+        assemblyCooldownUntil: num(d.assemblyCooldownUntil),
+        primeLastHealedAt: num(d.primeLastHealedAt),
+        primeCandidates: Array.isArray(d.primeCandidates) ? d.primeCandidates : [],
+        cosmicTrail: d.cosmicTrail || null,
+        galaxyZoomLevel: num(d.galaxyZoomLevel),
+        galaxyFocus: d.galaxyFocus || null,
+        galaxyManualLod: !!d.galaxyManualLod,
+        systemShopProgress: d.systemShopProgress || {},
+        systemShopBatch: num(d.systemShopBatch, 1),
+        systemShopCost: d.systemShopCost || null,
+        dailyProgress: d.dailyProgress || {},
+        dailyClaimed: d.dailyClaimed || {},
+        dailyDayIndex: num(d.dailyDayIndex),
+        lastDailyReset: num(d.lastDailyReset),
+        seenMinigame: d.seenMinigame || {},
+        fleetActive: !!d.fleetActive,
+        offlineAttacksDone: num(d.offlineAttacksDone),
+        firstNightShieldUsed: !!d.firstNightShieldUsed,
+        trophyContracts: Array.isArray(d.trophyContracts) ? d.trophyContracts : []
+      };
+    }
+    function advancedFieldsJson(d) {
+      try { return JSON.stringify(advancedFields(d), null, 2); }
+      catch (e) { return '{}'; }
+    }
+    function fleetTotal() {
+      const fleet = (cur && cur.data && cur.data.fleet) || {};
+      return num(fleet.interceptor) + num(fleet.cruiser) + num(fleet.dreadnought);
+    }
+    function storageCap(res, lvl) {
+      const level = Math.min(7, Math.max(1, num(lvl, 1)));
+      const hours = [8, 16, 24, 36, 48, 60, 72][level - 1];
+      if (res === 'dust') return 50000 * Math.pow(10, level - 1) * hours;
+      if (res === 'energy') return 100000 * Math.pow(5, level - 1);
+      if (res === 'civ') return 500 * Math.pow(3, level - 1);
+      return 0;
+    }
+    function productLabel(key) {
+      const map = { chest: 'Космический сундук', shield: 'Премиум Щит (24ч)', booster: 'Бустер дохода (2ч ×2)' };
+      return map[key] || key || '—';
+    }
+    function normalizePurchase(p) {
+      const src = (p && typeof p === 'object') ? p : {};
+      return {
+        product: src.product || '',
+        stars: num(src.stars),
+        paidAt: num(src.paidAt != null ? src.paidAt : src.paid_at),
+        granted: !!src.granted
+      };
+    }
+    function premiumTotals() {
+      const list = (Array.isArray(cur && cur.purchases) ? cur.purchases : []).map(normalizePurchase);
+      let stars = 0, last = 0;
+      list.forEach(function(p) {
+        stars += p.stars;
+        if (p.paidAt > last) last = p.paidAt;
+      });
+      return { stars: stars, count: list.length, lastPaidAt: last };
+    }
+    function generateSystemName() {
+      const prefixes = ['Альфа','Бета','Гамма','Дельта','Эпсилон','Дзета','Эта','Тета','Йота','Каппа','Лямбда','Мю','Ню','Кси','Омикрон','Пи','Ро','Сигма','Тау','Ипсилон','Фи','Хи','Пси','Омега'];
+      const names = ['Кентавра','Центавра','Ориона','Лебедя','Лира','Дракона','Феникса','Кита','Гидры','Пегаса','Кассиопеи','Персея','Андромеды','Волопаса','Геркулеса','Змееносца','Ворона','Орла','Павлина','Журавля','Тукана','Единорога'];
+      const suffixes = ['', ' I', ' II', ' III', ' IV', ' V', ' A', ' B'];
+      return prefixes[Math.floor(Math.random() * prefixes.length)] + ' '
+        + names[Math.floor(Math.random() * names.length)]
+        + suffixes[Math.floor(Math.random() * suffixes.length)];
+    }
+    function getOrbitR(i) { return 170 * Math.pow(1.22, i); }
+    function makePlanet(type, orbitR) {
+      const mass = { rocky: 1.0, superEarth: 2.5, iceGiant: 4.0, gasGiant: 8.0, lava: 1.5 };
+      const diam = { rocky: 1.0, superEarth: 1.3, iceGiant: 1.5, gasGiant: 1.8, lava: 0.9 };
+      return {
+        type: type,
+        angle: Math.random() * Math.PI * 2,
+        speed: 0.2 / Math.pow(orbitR / 90, 1.5),
+        baseOrbitR: orbitR, orbitR: orbitR,
+        driftPhase: Math.random() * Math.PI * 2,
+        rotation: Math.random() * Math.PI * 2,
+        seed: Math.random() * 1e6,
+        forming: false, formUntil: 0,
+        mass: mass[type] || 1.0, diameter: diam[type] || 1.0,
+        moons: [], precession: 0, trueAnomaly: 0
+      };
+    }
+    function makePrimeData(objKey) {
+      const def = PRIME_OBJECTS[objKey];
+      return {
+        name: generateSystemName(),
+        objectKey: objKey,
+        objectName: def.name,
+        objectIcon: def.icon,
+        bonus: Object.assign({}, def.bonus),
+        absorbRadius: def.absorbRadius,
+        createdAt: Date.now()
+      };
+    }
+    function makePerfectPrimeSystem(primeData) {
+      const perfect = ['lava','lava','superEarth','superEarth','gasGiant','gasGiant','iceGiant','iceGiant'];
+      const planets = perfect.map(function(type, i) { return makePlanet(type, getOrbitR(i)); });
+      return {
+        name: generateSystemName(),
+        starType: 'G',
+        systemType: 'single',
+        planets: planets,
+        isPrime: true,
+        primeData: primeData
+      };
+    }
     function upgradePrimeData(existing, nextKey) {
       const def = PRIME_OBJECTS[nextKey];
       return Object.assign({}, existing, {
@@ -629,42 +1558,406 @@
         objectName: def.name,
         objectIcon: def.icon,
         bonus: Object.assign({}, def.bonus),
-        absorbRadius: def.absorbRadius,
+        absorbRadius: def.absorbRadius
       });
     }
-
-    function savePrime() {
-      let objKey = document.getElementById('edit-prime-obj').value;
-      if (objKey === 'none') { setFields({ primeSystem: null }); return; }
-      if (!PRIME_OBJECTS[objKey]) { alert('Неизвестный Прайм-объект: ' + objKey); return; }
-
-      const lvl = document.getElementById('edit-prime-lvl').value;
-      if (PRIME_MAP[objKey]) {
-        if (lvl === '2') objKey = PRIME_MAP[objKey].lvl2;
-        if (lvl === '3') objKey = PRIME_MAP[objKey].lvl3;
+    function resolvePrimeKey(baseKey, level) {
+      if (PRIME_MAP[baseKey]) {
+        if (String(level) === '2') return PRIME_MAP[baseKey].lvl2;
+        if (String(level) === '3') return PRIME_MAP[baseKey].lvl3;
       }
-
-      // Полноценный объект: настоящее имя, иконка, бонусы и радиус поглощения.
-      // Раньше сюда писался технический ключ и пустой bonus — игра показывала
-      // «blackHole» и не применяла множители.
-      setFields({ primeSystem: makePrimeData(objKey) });
+      return baseKey;
     }
 
-    async function giveShield() {
-      const until = Date.now() + 24 * 3600 * 1000;
-      setFields({ shieldUntil: until });
+    // ─── Действия ──────────────────────────────────────────────
+    async function doAction(act, el) {
+      const d = cur ? cur.data : null;
+      if (!cur || !d) return;
+      const now = Date.now();
+
+      switch (act) {
+        case 'shield': {
+          const hours = num(el.dataset.hours);
+          await saveField('shieldUntil', hours > 0 ? now + hours * 3600e3 : 0);
+          return;
+        }
+        case 'shield-custom': {
+          const hours = Math.max(0, num((document.getElementById('shieldCustomHours') || {}).value));
+          await saveField('shieldUntil', hours > 0 ? now + hours * 3600e3 : 0);
+          return;
+        }
+        case 'booster': {
+          const hours = num(el.dataset.hours);
+          await patch({ boosters: { incomeUntil: hours > 0 ? now + hours * 3600e3 : 0 } });
+          return;
+        }
+        case 'booster-custom': {
+          const hours = Math.max(0, num((document.getElementById('boosterCustomHours') || {}).value));
+          await patch({ boosters: { incomeUntil: hours > 0 ? now + hours * 3600e3 : 0 } });
+          return;
+        }
+        case 'debuff-set': {
+          const p = Math.max(0, Math.min(80, num((document.getElementById('debuffPct') || {}).value))) / 100;
+          const h = Math.max(0, num((document.getElementById('debuffHours') || {}).value));
+          await saveField('invasionDebuff', { pct: p, until: h > 0 ? now + h * 3600e3 : 0 });
+          return;
+        }
+        case 'debuff-clear': {
+          await saveField('invasionDebuff', { pct: 0, until: 0 });
+          return;
+        }
+        case 'prime-debuff-clear': {
+          await saveField('primeDebuffUntil', 0);
+          return;
+        }
+        case 'prime-debuff-set': {
+          const h = Math.max(1, num((document.getElementById('primeDebuffHours') || {}).value));
+          await saveField('primeDebuffUntil', now + h * 3600e3, 'Прайм-дебафф −50% на ' + h + ' ч');
+          return;
+        }
+        case 'event-del': {
+          const id = el.dataset.id;
+          const list = (Array.isArray(d.activeWorldEvents) ? d.activeWorldEvents : []).filter(function(ev) { return ev && ev.id !== id; });
+          await saveField('activeWorldEvents', list);
+          return;
+        }
+        case 'event-add': {
+          const pick = document.getElementById('eventPick');
+          const hours = Math.max(1, num((document.getElementById('eventHours') || {}).value, 24));
+          const id = pick ? pick.value : '';
+          const cfg = WORLD_EVENT_BY_ID[id];
+          if (!id || !cfg) { toast('Выберите событие', '', true); return; }
+          const list = (Array.isArray(d.activeWorldEvents) ? d.activeWorldEvents : [])
+            .filter(function(ev) { return ev && ev.id !== id; });
+          list.push({ id: id, tier: cfg.tier, startedAt: now, endsAt: now + hours * 3600e3 });
+          await saveField('activeWorldEvents', list);
+          return;
+        }
+        case 'events-clear': {
+          await saveField('activeWorldEvents', []);
+          return;
+        }
+        case 'night-set': {
+          const level = Math.max(0, num((document.getElementById('nightLevel') || {}).value));
+          const h = Math.max(0, num((document.getElementById('nightHours') || {}).value));
+          await patch({ nightDefenseLevel: level, nightDefenseExpiresAt: h > 0 ? now + h * 3600e3 : 0 });
+          return;
+        }
+        case 'night-clear': {
+          await patch({ nightDefenseLevel: 0, nightDefenseExpiresAt: 0 });
+          return;
+        }
+        case 'trophy-del': {
+          const idx = num(el.dataset.idx);
+          const list = (Array.isArray(d.activeTrophyEffects) ? d.activeTrophyEffects : []).slice();
+          list.splice(idx, 1);
+          await saveField('activeTrophyEffects', list);
+          return;
+        }
+        case 'trophy-add': {
+          const typeEl = document.getElementById('trophyType');
+          const type = typeEl ? typeEl.value : 'shield';
+          const value = Math.max(0, num((document.getElementById('trophyValue') || {}).value));
+          const hours = Math.max(1, num((document.getElementById('trophyHours') || {}).value, 12));
+          const list = (Array.isArray(d.activeTrophyEffects) ? d.activeTrophyEffects.slice() : []);
+          list.push({ type: type, value: value, expiresAt: now + hours * 3600e3 });
+          await saveField('activeTrophyEffects', list, 'трофей ' + type + ' на ' + hours + ' ч');
+          return;
+        }
+        case 'trophies-clear': {
+          await patch({ activeTrophyEffects: [], trophyContracts: [] });
+          return;
+        }
+        case 'system-damage-clear': {
+          await saveField('activeSystemDamagedUntil', 0);
+          return;
+        }
+        case 'random-event-clear': {
+          await saveField('activeRandomEvent', null);
+          return;
+        }
+        case 'all-status-clear': {
+          await patch({
+            shieldUntil: 0,
+            boosters: { incomeUntil: 0 },
+            invasionDebuff: { pct: 0, until: 0 },
+            primeDebuffUntil: 0,
+            activeWorldEvents: [],
+            nightDefenseExpiresAt: 0,
+            activeSystemDamagedUntil: 0,
+            activeTrophyEffects: []
+          }, 'щит, дебаффы и события сняты');
+          return;
+        }
+        case 'add-res': {
+          const field = el.dataset.field;
+          const amount = num(el.dataset.amount);
+          await saveField(field, num(d[field]) + amount);
+          return;
+        }
+        case 'save-wallet': {
+          const value = Math.max(0, num((document.getElementById('walletCapBudget') || {}).value));
+          try {
+            const res = await call('/admin/api/player/' + encodeURIComponent(cur.id) + '/wallet', {
+              method: 'POST', body: { capBudget: value }
+            });
+            const json = await readJson(res);
+            if (!res.ok || !json.ok) throw new Error(json.error || ('HTTP ' + res.status));
+            cur.wallet = json.wallet || cur.wallet;
+            render();
+            toast('Бюджет обновлён', String(value));
+          } catch (e) {
+            toast('Ошибка', e.message, true);
+          }
+          return;
+        }
+        case 'prime-home-remove': {
+          await saveField('primeSystem', null);
+          toast('Прайм снят');
+          return;
+        }
+        case 'prime-create': {
+          const sel = document.getElementById('newPrimeObject');
+          const key = sel ? sel.value : 'blackHole';
+          if (!PRIME_OBJECTS[key]) { toast('Неизвестный объект', key, true); return; }
+          const others = (Array.isArray(d.otherSystems) ? d.otherSystems.slice() : []);
+          while (others.length < 1) others.push(null);
+          others.push(makePerfectPrimeSystem(makePrimeData(key)));
+          await patch({
+            otherSystems: others,
+            systems: num(d.systems, 1) + 1,
+            totalSystemsCreated: num(d.totalSystemsCreated, 1) + 1
+          }, 'создана Прайм-система: ' + PRIME_OBJECTS[key].name);
+          return;
+        }
+        case 'prime-other-remove-status': {
+          const idx = num(el.dataset.idx);
+          const others = (Array.isArray(d.otherSystems) ? d.otherSystems.slice() : []);
+          if (!others[idx]) return;
+          others[idx] = Object.assign({}, others[idx], { isPrime: false, primeData: null });
+          await saveField('otherSystems', others);
+          return;
+        }
+        case 'prime-other-delete': {
+          const idx = num(el.dataset.idx);
+          const others = (Array.isArray(d.otherSystems) ? d.otherSystems.slice() : []);
+          if (!others[idx]) return;
+          if (!confirm('Удалить систему «' + (others[idx].name || '#' + idx) + '» вместе с планетами?')) return;
+          others.splice(idx, 1);
+          const fields = {
+            otherSystems: others,
+            systems: Math.max(1, num(d.systems, 1) - 1)
+          };
+          if (num(d.activeSystemIdx) >= idx && num(d.activeSystemIdx) > 0) fields.activeSystemIdx = num(d.activeSystemIdx) - 1;
+          await patch(fields, 'система удалена');
+          return;
+        }
+        case 'invasion-del': {
+          const id = el.dataset.id;
+          const list = (Array.isArray(d.invasions) ? d.invasions : []).filter(function(inv) { return inv && String(inv.id) !== String(id); });
+          await saveField('invasions', list, 'вторжение отменено');
+          return;
+        }
+        case 'invasions-clear': {
+          if (!confirm('Снять все вторжения?')) return;
+          await saveField('invasions', []);
+          return;
+        }
+        case 'invasion-add': {
+          const sel = document.getElementById('invasionTier');
+          const tier = sel ? sel.value : 'raid';
+          try {
+            const res = await call('/admin/api/player/' + encodeURIComponent(cur.id) + '/invasion', {
+              method: 'POST', body: { tier: tier }
+            });
+            const json = await readJson(res);
+            if (!res.ok || !json.ok) throw new Error(json.error || ('HTTP ' + res.status));
+            toast('Вторжение запущено', 'уровень: ' + (INVASION_TIERS[tier] || tier));
+            await refreshPlayer();
+          } catch (e) {
+            toast('Ошибка', e.message, true);
+          }
+          return;
+        }
+        case 'grant-shield': {
+          await saveField('shieldUntil', now + 24 * 3600e3);
+          return;
+        }
+        case 'grant-booster': {
+          await patch({ boosters: { incomeUntil: now + 2 * 3600e3 } });
+          return;
+        }
+        case 'grant-chest': {
+          await giveChest();
+          return;
+        }
+        case 'daily-reset': {
+          await saveField('dailyReward', { day: 0, lastClaimed: 0, lastClaimedDay: 0 });
+          return;
+        }
+        case 'ach-clear': {
+          await patch({ achievements: [], unlockedAch: {}, primeParts: 0, primeCrafts: 0 });
+          return;
+        }
+        case 'anticheat-clear': {
+          await saveField('anticheat', { flags: 0, reasons: [], ts: 0, prestiges: [] });
+          return;
+        }
+        case 'eventlog-clear': {
+          await patch({ eventLog: [], eventLogUnread: 0 });
+          return;
+        }
+        case 'delete-player': {
+          await deletePlayer();
+          return;
+        }
+        case 'apply-json': {
+          const el = document.getElementById('advancedJson');
+          let parsed = null;
+          try { parsed = JSON.parse(el ? el.value : '{}'); }
+          catch (e) { toast('Некорректный JSON', e.message, true); return; }
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            toast('Нужен JSON-объект', '', true);
+            return;
+          }
+          const fields = {};
+          Object.keys(parsed).forEach(function(key) {
+            if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) return;
+            if (key === '__proto__' || key === 'constructor' || key === 'prototype') return;
+            fields[key] = parsed[key];
+          });
+          if (Object.keys(fields).length === 0) { toast('Нет валидных полей', '', true); return; }
+          await patch(fields, 'доп. поля обновлены');
+          return;
+        }
+        case 'reload-json': {
+          render();
+          toast('Показаны текущие значения');
+          return;
+        }
+        default:
+          return;
+      }
     }
 
-    // ─── Сундук ───
-    // Как в игре (js/premium.js: showChestResult): выпадает случайный
-    // Прайм-объект. Если он уже есть — объект улучшается (blackHole→massiveBH
-    // →superBH, wormhole→wormhole2→wormhole3), иначе создаётся новая
-    // идеальная система (8 планет, звезда «G»).
-    const CHEST_UPGRADES = {
-      blackHole: 'massiveBH', massiveBH: 'superBH',
-      wormhole: 'wormhole2', wormhole2: 'wormhole3',
-    };
+    // ─── Обработчики панелей ───────────────────────────────────
+    function onPaneClick(event) {
+      const btn = event.target.closest('button[data-act]');
+      if (btn) {
+        event.preventDefault();
+        const act = btn.dataset.act;
+        doAction(act, btn);
+        return;
+      }
+      const tab = event.target.closest('[data-tab]');
+      if (tab) {
+        activeTab = tab.dataset.tab;
+        render();
+      }
+    }
 
+    function onPaneChange(event) {
+      const el = event.target;
+      if (!el || !el.dataset) return;
+      if (!cur) return;
+      const d = cur.data;
+      const act = el.dataset.act;
+
+      if (act === 'field') {
+        const field = el.dataset.field;
+        let value = el.value;
+        if (el.type === 'number') value = num(value);
+        saveField(field, value);
+        return;
+      }
+      if (act === 'toggle-field') {
+        saveField(el.dataset.field, el.value === 'true');
+        return;
+      }
+      if (act === 'storage-lvl') {
+        const res = el.dataset.res;
+        const levels = Object.assign({ dust: 1, energy: 1, civ: 1 }, d.storageLevels || {});
+        levels[res] = Math.max(1, Math.min(7, num(el.value, 1)));
+        saveField('storageLevels', levels);
+        return;
+      }
+      if (act === 'storage-progress') {
+        const res = el.dataset.res;
+        const progress = Object.assign({ dust: 0, energy: 0, civ: 0 }, d.storageProgress || {});
+        progress[res] = Math.max(0, num(el.value));
+        saveField('storageProgress', progress);
+        return;
+      }
+      if (act === 'fleet') {
+        const ship = el.dataset.ship;
+        const fleet = Object.assign({ interceptor: 0, cruiser: 0, dreadnought: 0 }, d.fleet || {});
+        fleet[ship] = Math.max(0, num(el.value));
+        saveField('fleet', fleet);
+        return;
+      }
+      if (act === 'phase-progress') {
+        const key = el.dataset.key;
+        const progress = Object.assign({ cloud: 0, condense: 0, protostar: 0 }, d.phaseProgress || {});
+        progress[key] = Math.max(0, num(el.value));
+        saveField('phaseProgress', progress);
+        return;
+      }
+      if (act === 'prime-home-object') {
+        const baseKey = el.value;
+        if (baseKey === 'none') { saveField('primeSystem', null); return; }
+        const levelEl = document.querySelector('[data-act="prime-home-level"]');
+        const level = levelEl ? levelEl.value : '1';
+        const key = resolvePrimeKey(baseKey, level);
+        saveField('primeSystem', makePrimeData(key));
+        return;
+      }
+      if (act === 'prime-home-level') {
+        const objEl = document.querySelector('[data-act="prime-home-object"]');
+        const baseKey = objEl ? objEl.value : 'blackHole';
+        if (!PRIME_MAP[baseKey]) return;
+        saveField('primeSystem', makePrimeData(resolvePrimeKey(baseKey, el.value)));
+        return;
+      }
+      if (act === 'settings') {
+        const settings = Object.assign({ brightness: 1, sound: true, pushEnabled: true }, d.settings || {});
+        settings[el.dataset.key] = num(el.value);
+        saveField('settings', settings);
+        return;
+      }
+      if (act === 'settings-bool') {
+        const settings = Object.assign({ brightness: 1, sound: true, pushEnabled: true }, d.settings || {});
+        settings[el.dataset.key] = el.value === 'true';
+        saveField('settings', settings);
+        return;
+      }
+      if (act === 'night-config') {
+        const night = Object.assign({ mode: 'balanced', defenseEnabled: true, cometHours: 0, expeditionPercent: 0 }, d.nightConfig || {});
+        const key = el.dataset.key;
+        night[key] = (key === 'mode') ? el.value : num(el.value);
+        saveField('nightConfig', night);
+        return;
+      }
+      if (act === 'night-bool') {
+        const night = Object.assign({ mode: 'balanced', defenseEnabled: true, cometHours: 0, expeditionPercent: 0 }, d.nightConfig || {});
+        night[el.dataset.key] = el.value === 'true';
+        saveField('nightConfig', night);
+        return;
+      }
+      if (act === 'daily') {
+        const daily = Object.assign({ day: 0, lastClaimed: 0, lastClaimedDay: 0 }, d.dailyReward || {});
+        daily[el.dataset.key] = Math.max(0, num(el.value));
+        saveField('dailyReward', daily);
+        return;
+      }
+      if (act === 'stats') {
+        const stats = Object.assign({ comets: 0, expeditions: 0, invasionsDefeated: 0, clicks: 0, planets: 0, dailyClaims: 0 }, d.stats || {});
+        stats[el.dataset.key] = Math.max(0, num(el.value));
+        saveField('stats', stats);
+        return;
+      }
+    }
+
+    // ─── Сундук (клиентский ролл, как в игре) ───────────────────
     function pickChestKey() {
       const total = CHEST_LOOT.reduce(function(sum, item) { return sum + item.weight; }, 0);
       let roll = Math.random() * total;
@@ -676,137 +1969,114 @@
     }
 
     async function giveChest() {
-      if (!currentPlayerData) { alert('Сначала открой игрока'); return; }
+      if (!cur) return;
       if (!confirm('Выдать сундук? Выпадет случайный Прайм-объект (или слияние).')) return;
-
+      const d = cur.data;
       const key = pickChestKey();
-      const data = currentPlayerData;
       const nextKey = CHEST_UPGRADES[key] || null;
 
-      // 1) Такой объект уже есть в текущей (домашней) системе — слияние.
-      if (data.primeSystem && data.primeSystem.objectKey === key) {
-        if (!nextKey) {
-          alert('Выпал «' + PRIME_OBJECTS[key].name + '», но улучшать его некуда.');
-          return;
-        }
-        setFields({ primeSystem: upgradePrimeData(data.primeSystem, nextKey) });
+      // 1) Такой объект уже в домашней системе — слияние.
+      if (d.primeSystem && d.primeSystem.objectKey === key) {
+        if (!nextKey) { toast('Выпал «' + PRIME_OBJECTS[key].name + '»', 'улучшать некуда', true); return; }
+        await saveField('primeSystem', upgradePrimeData(d.primeSystem, nextKey), 'улучшен до ' + PRIME_OBJECTS[nextKey].name);
         return;
       }
-
-      // 2) Такой объект есть на другой планете/в другой системе — слияние там.
-      const systems = Array.isArray(data.otherSystems) ? data.otherSystems.slice() : [];
+      // 2) Такой объект есть в другой системе — слияние там.
+      const systems = (Array.isArray(d.otherSystems) ? d.otherSystems.slice() : []);
       for (let i = 1; i < systems.length; i++) {
         const sys = systems[i];
         if (sys && sys.primeData && sys.primeData.objectKey === key && nextKey) {
           systems[i] = Object.assign({}, sys, { primeData: upgradePrimeData(sys.primeData, nextKey) });
-          setFields({ otherSystems: systems });
+          await saveField('otherSystems', systems, 'улучшен Прайм в системе «' + (sys.name || i) + '»');
           return;
         }
       }
-
-      // 3) Новый Прайм — добавляем идеальную систему, как после сундука.
-      // Индекс 0 в otherSystems зарезервирован под родную систему (null).
-      if (systems.length === 0 || systems[0] === undefined) systems[0] = null;
+      // 3) Новый Прайм — создаём идеальную систему.
+      while (systems.length < 1) systems.push(null);
       systems.push(makePerfectPrimeSystem(makePrimeData(key)));
-      setFields({
+      await patch({
         otherSystems: systems,
-        systems: (Number(data.systems) || 1) + 1,
-        totalSystemsCreated: (Number(data.totalSystemsCreated) || 1) + 1,
-      });
+        systems: num(d.systems, 1) + 1,
+        totalSystemsCreated: num(d.totalSystemsCreated, 1) + 1
+      }, 'выпал «' + PRIME_OBJECTS[key].name + '» — создана система');
     }
 
-    async function triggerInvasion() {
-      if (!currentPlayerId) { alert('Сначала открой игрока'); return; }
-      const stage = currentPlayerData && currentPlayerData.stage;
-      if (stage !== 'system' && stage !== 'galaxy') {
-        alert('Вторжение возможно только на фазе «Система» или «Галактика» (сейчас: ' + (stage || '—') + ')');
-        return;
-      }
-      if (!confirm('Запустить вторжение на этого игрока?')) return;
+    // ─── Транзакции Stars ──────────────────────────────────────
+    function openStarsModal() {
+      document.getElementById('starsModal').classList.add('open');
+      loadStars();
+    }
+    function closeStarsModal() {
+      document.getElementById('starsModal').classList.remove('open');
+    }
+    async function loadStars() {
+      const balanceEl = document.getElementById('starsBalance');
+      const tbody = document.querySelector('#starsTable tbody');
+      balanceEl.textContent = '…';
+      tbody.innerHTML = '<tr><td colspan="4" class="empty">Загрузка…</td></tr>';
       try {
-        const res = await fetch(API_BASE + `/admin/api/player/${currentPlayerId}/invasion`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Admin-Token': currentToken },
-          body: JSON.stringify({})
-        });
-        const json = await res.json().catch(function() { return {}; });
-        if (res.ok && json.ok) {
-          alert('Вторжение запущено! Игрок увидит его после синхронизации сейва.');
-          await openPlayer(currentPlayerId);
-        } else {
-          alert('Ошибка: ' + (json.error || ('HTTP ' + res.status)));
+        const res = await call('/admin/api/stars');
+        const json = await readJson(res);
+        if (!res.ok || !json.ok) throw new Error(json.error || ('HTTP ' + res.status));
+        balanceEl.textContent = '⭐ ' + fmt(json.balance);
+        const txs = Array.isArray(json.transactions) ? json.transactions : [];
+        if (txs.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="4" class="empty">Транзакций пока нет</td></tr>';
+          return;
         }
-      } catch (e) { alert(e.message); }
-    }
-
-    // ─── Статусы: дебаффы / щит / мировые события ───
-    async function adminClearDebuffs() {
-      if (!currentPlayerId) { alert('Сначала открой игрока'); return; }
-      if (!confirm('Снять все дебаффы, щит и мировые события?')) return;
-      await setFields({
-        invasionDebuff: { pct: 0, until: 0 },
-        activeWorldEvents: [],
-        shieldUntil: 0,
-        nightDefenseExpiresAt: 0,
-      });
-    }
-
-    async function adminApplyShield(hours) {
-      if (!currentPlayerId) { alert('Сначала открой игрока'); return; }
-      const h = Number(hours) || 24;
-      const until = Date.now() + h * 3600 * 1000;
-      await setFields({ shieldUntil: until });
-    }
-
-    async function adminApplyWorldEvent() {
-      if (!currentPlayerId) { alert('Сначала открой игрока'); return; }
-      const id = document.getElementById('admin-event-id').value;
-      if (!id) { alert('Выбери событие'); return; }
-      const now = Date.now();
-      const list = (currentPlayerData && Array.isArray(currentPlayerData.activeWorldEvents))
-        ? currentPlayerData.activeWorldEvents.slice()
-        : [];
-      list.push({ id: id, tier: 'daily', startedAt: now, endsAt: now + 24 * 3600 * 1000 });
-      await setFields({ activeWorldEvents: list });
-    }
-
-    function saveStorage() {
-      const res = document.getElementById('edit-storage-res').value;
-      const lvl = Number(document.getElementById('edit-storage-lvl').value);
-      if (!Number.isFinite(lvl) || lvl < 1 || lvl > 7) {
-        alert('Уровень хранилища — целое число от 1 до 7');
-        return;
+        tbody.innerHTML = txs.map(function(t) {
+          const src = t.source || {};
+          const recv = t.receiver || {};
+          const userId = (src.user && src.user.id) || (recv.user && recv.user.id) || '—';
+          const product = t.productName || '—';
+          const amount = num(t.amount);
+          return '<tr>'
+            + '<td>' + esc(t.date ? new Date(t.date * 1000).toLocaleString('ru-RU') : '—') + '</td>'
+            + '<td>' + esc(userId) + '</td>'
+            + '<td class="mono">' + esc((amount > 0 ? '+' : '') + amount) + '</td>'
+            + '<td>' + esc(product) + '</td>'
+            + '</tr>';
+        }).join('');
+      } catch (e) {
+        balanceEl.textContent = '—';
+        tbody.innerHTML = '<tr><td colspan="4" class="empty">Ошибка: ' + esc(e.message) + '</td></tr>';
       }
-      const newLevels = Object.assign({}, currentPlayerData.storageLevels || {}, { [res]: Math.floor(lvl) });
-      setFields({ storageLevels: newLevels });
     }
 
-    // При смене ресурса в «Хранилище» показываем его текущий уровень.
-    function syncStorageLevel() {
-      if (!currentPlayerData) return;
-      const res = document.getElementById('edit-storage-res').value;
-      const levels = currentPlayerData.storageLevels || {};
-      document.getElementById('edit-storage-lvl').value = Number(levels[res]) || 1;
-    }
-
+    // ─── Удаление аккаунта ─────────────────────────────────────
     async function deletePlayer() {
-      if (!currentPlayerId) { alert('Сначала открой игрока'); return; }
+      if (!cur) return;
       if (!confirm('Сбросить аккаунт игрока? Сейв и кошелёк будут удалены, при следующем входе игрок начнёт с нуля.')) return;
       try {
-        const res = await fetch(API_BASE + `/admin/api/player/${currentPlayerId}/delete`, {
-          method: 'POST',
-          headers: { 'X-Admin-Token': currentToken }
-        });
-        const json = await res.json().catch(function() { return {}; });
-        if (res.ok && json.ok) {
-          alert('Аккаунт сброшен. При следующем входе игрок начнёт новую игру.');
-          closePlayerModal();
-          loadPlayers();
-        } else {
-          alert('Ошибка: ' + (json.error || ('HTTP ' + res.status)));
-        }
-      } catch (e) { alert(e.message); }
+        const res = await call('/admin/api/player/' + encodeURIComponent(cur.id) + '/delete', { method: 'POST' });
+        const json = await readJson(res);
+        if (!res.ok || !json.ok) throw new Error(json.error || ('HTTP ' + res.status));
+        toast('Аккаунт сброшен', 'при следующем входе игрок начнёт новую игру');
+        document.getElementById('playerDrawer').classList.remove('open');
+        cur = null;
+        loadPlayers();
+      } catch (e) {
+        toast('Ошибка', e.message, true);
+      }
     }
+
+    // ─── Инициализация ─────────────────────────────────────────
+    document.getElementById('tabs').addEventListener('click', onPaneClick);
+    document.getElementById('panes').addEventListener('click', onPaneClick);
+    document.getElementById('panes').addEventListener('change', onPaneChange);
+
+    (function init() {
+      if (token) {
+        document.getElementById('adminToken').value = token;
+        loadPlayers();
+      }
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+          if (document.getElementById('starsModal').classList.contains('open')) closeStarsModal();
+          else if (document.getElementById('playerDrawer').classList.contains('open')) closePlayer();
+        }
+      });
+    })();
   </script>
 </body>
 </html>
