@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "node tests/smoke-test.js",
+    "test:tutorial": "node tests/tutorial-test.js",
     "test:cloud": "node tests/cloud-sync-test.js",
     "test:security": "node tests/save-validation-test.js",
     "test:economy": "node tests/game-core-test.js",

@@ -10,8 +10,7 @@
 
 (function () {
   'use strict';
-
-  var VERSION = 2;
+  var VERSION = 3;
 
   // Порядок фаз для «догоняющей» миграции старых сейвов.
   var STAGE_RANK = { cloud: 1, condense: 2, protostar: 3, firstPlanet: 4, system: 5, galaxy: 6 };
@@ -23,7 +22,10 @@
     { id: 'protostar', tag: 'ФАЗА III', title: 'Протозвезда' },
     { id: 'firstPlanet', tag: 'ФАЗА IV', title: 'Первая планета' },
     { id: 'system', tag: 'ФАЗА V', title: 'Формирование системы' },
-    { id: 'galaxy', tag: 'ФАЗА VI', title: 'Галактика' },
+    { id: 'galaxy', tag: 'ФАЗА VI', title: 'Созвездие' },
+    { id: 'nebula', tag: 'ФАЗА VII', title: 'Туманность' },
+    { id: 'cluster', tag: 'ФАЗА VIII', title: 'Скопление' },
+    { id: 'supercluster', tag: 'ФАЗА IX', title: 'Сверхскопление' },
     { id: 'meta', tag: 'МЕТА', title: 'Долгосрочные системы' }
   ];
 
@@ -178,7 +180,7 @@
       id: 'sys_mission', ch: 'system', mode: 'action',
       when: function (s) { return s.stage === 'system'; },
       title: '☄️ Запусти миссию',
-      sub: 'Кнопки миссий справа внизу. Комета даёт пыль, экспедиция — металлы и шанс колонии.',
+      sub: 'Кнопки миссий справа внизу. Комета (нужна ледяная планета) даёт пыль; экспедиция (жизнь + 🧬6) — металлы и шанс колонии.',
       target: '#missionButtons',
       done: function (s) { return (s.stats && (s.stats.comets >= 1 || s.stats.expeditions >= 1)); }
     },
@@ -273,8 +275,43 @@
       id: 'gal_intro', ch: 'galaxy', mode: 'info', autoNext: 9000,
       when: function (s) { return s.stage === 'galaxy'; },
       title: '🌌 Галактика',
-      sub: 'Двойной тап по системе — войти в неё, одиночный — выбрать. «🌌 В галактику» возвращает на карту.',
+      sub: 'Двойной тап по системе — войти, одиночный — выбрать. Галактика растёт макро-фазами VI–IX: созвездие → туманность → скопление → сверхскопление.',
       target: '#backToGalaxyBtn'
+    },
+    {
+      id: 'gal_lod', ch: 'galaxy', mode: 'info', autoNext: 10000,
+      when: function (s) { return s.stage === 'galaxy' && (s.systems || 1) >= 10; },
+      title: '🔭 Макро-масштаб',
+      sub: 'На 10 системах звёзды складываются в созвездия. Щипок — масштаб карты, двойной тап по макро-объекту — влететь внутрь.',
+      target: '#galaxyCaption'
+    },
+    {
+      id: 'gal_phase6', ch: 'galaxy', mode: 'info', autoNext: 11000,
+      when: function (s) { return s.stage === 'galaxy' && (s.systems || 1) >= 10; },
+      title: '✨ ФАЗА VI · Созвездие',
+      sub: 'Цель фазы — 10 систем: они объединяются в созвездие. Кольцо фазы и квесты показывают прогресс.',
+      target: '#phaseOrb'
+    },
+    {
+      id: 'gal_phase7', ch: 'nebula', mode: 'info', autoNext: 11000,
+      when: function (s) { return s.stage === 'galaxy' && (s.systems || 1) >= 50; },
+      title: '🌫 ФАЗА VII · Туманность',
+      sub: '50 систем складываются в туманность. Двойной тап по туманности — войти, одиночный — выбрать.',
+      target: '#galaxyCaption'
+    },
+    {
+      id: 'gal_phase8', ch: 'cluster', mode: 'info', autoNext: 11000,
+      when: function (s) { return s.stage === 'galaxy' && (s.systems || 1) >= 150; },
+      title: '✨ ФАЗА VIII · Скопление',
+      sub: '150 систем — это скопление туманностей. Следи за квестом фазы и не забывай про Сверхновую.',
+      target: '#phaseOrb'
+    },
+    {
+      id: 'gal_phase9', ch: 'supercluster', mode: 'info', autoNext: 12000,
+      when: function (s) { return s.stage === 'galaxy' && (s.systems || 1) >= 450; },
+      title: '🌌 ФАЗА IX · Сверхскопление',
+      sub: '450 систем — сверхскопление. Дальше циклы: каждые 450 систем открывают новое сверхскопление.',
+      target: '#galaxyCaption'
     },
     {
       id: 'gal_expand', ch: 'galaxy', mode: 'info', autoNext: 10000,
@@ -289,7 +326,7 @@
       id: 'gal_prime', ch: 'galaxy', mode: 'info', autoNext: 9000,
       when: function (s) { return s.stage === 'galaxy'; },
       title: '🌑 Прайм-объекты',
-      sub: '11 типов: чёрные дыры, квазары, пульсары, кротовые норы. Собирай куски за достижения или открывай сундуки.',
+      sub: '13 типов: чёрные дыры, квазары, пульсары, кротовые норы. Собирай куски за достижения или открывай сундуки.',
       target: '#achBtn',
       open: function () { if (typeof openAchievements === 'function') openAchievements(); }
     },
@@ -305,7 +342,7 @@
       id: 'gal_prestige', ch: 'galaxy', mode: 'info', autoNext: 11000,
       when: function (s) { return s.stage === 'galaxy' || (s.prestigeLevel || 0) > 0; },
       title: '💥 Сверхновая',
-      sub: 'Престиж: сбрасывает прогресс, но навсегда повышает множитель дохода. Кнопка появляется в панели квестов, когда хватает систем.',
+      sub: 'Сверхновая — престиж: сбрасывает прогресс, но навсегда повышает множитель дохода. Доступна на 10/22/35… систем — это лестница фаз.',
       target: '#phaseOrb'
     },
     {
@@ -421,6 +458,7 @@
       catchUp(t);
     }
     syncPassedPhases(t);
+    syncGalaxyPhases(t);
     t.v = VERSION;
   }
 
@@ -438,6 +476,28 @@
       if (st.ch === 'meta' || t.done[st.id]) continue;
       var cRank = STAGE_RANK[chapterStage(st.ch)];
       if (cRank && cRank < rank) { t.done[st.id] = 1; changed = true; }
+    }
+    if (changed) queueSave();
+  }
+
+  // Макро-фазы галактики VI–IX: не показываем устаревшие анонсы
+  // фаз, которые игрок уже прошёл по числу систем.
+  function syncGalaxyPhases(t) {
+    if (!t) return;
+    var sys = Number(S.systems) || 1;
+    var marks = [
+      ['gal_lod', 50],
+      ['gal_phase6', 50],
+      ['gal_phase7', 150],
+      ['gal_phase8', 450],
+      ['gal_phase9', 900]
+    ];
+    var changed = false;
+    for (var i = 0; i < marks.length; i++) {
+      if (sys >= marks[i][1] && !t.done[marks[i][0]]) {
+        t.done[marks[i][0]] = 1;
+        changed = true;
+      }
     }
     if (changed) queueSave();
   }
