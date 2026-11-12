@@ -1206,6 +1206,52 @@ window.openTrophyModal = openTrophyModal;
 // ═══════════════════════════════════════════════════════════════
 let _tempNightConfig = null;
 
+// Стоимость ночных опций в одном месте: «Прогноз» и «Готово» считают одинаково.
+// Экспедиция берёт процент от ресурсов, оставшихся после обороны и кометы:
+// иначе «100%» съедало весь металл и «Готово» не могло оплатить выбранную оборону.
+function nightConfigCosts(nc) {
+  const cfg = nc || {};
+  const selLvl = Math.max(0, Math.min(5, Number(cfg.defenseLevel) || 0));
+  const systemsExtra = Math.max(0, (S.systems || 1) - 1);
+  const mCostDefense = (selLvl > 0 && cfg.defenseDirty)
+    ? (typeof defenseActivationCost === 'function'
+        ? defenseActivationCost(selLvl)
+        : Math.floor(INVASION_CFG.defenseCost[selLvl] * (1 + systemsExtra * INVASION_CFG.defenseCostMultiplierPerSystem)))
+    : 0;
+  const cometHours = Math.max(0, Math.floor(Number(cfg.cometHours) || 0));
+  const expPct = Math.max(0, Math.min(100, Number(cfg.expeditionPercent) || 0));
+  const mCostComet = cometHours * 100;
+  const dCostComet = Math.floor(Math.max(500000, dustPerSec() * 600));
+  const metalLeft = Math.max(0, (S.metalAmount || 0) - mCostDefense - mCostComet);
+  return {
+    mCostDefense: mCostDefense,
+    cometHours: cometHours,
+    mCostComet: mCostComet,
+    dCostComet: dCostComet,
+    expPct: expPct,
+    eCostExp: Math.floor((S.energy || 0) * (expPct / 100)),
+    mCostExp: Math.floor(metalLeft * (expPct / 100)),
+    cCostExp: Math.floor((S.civLevel || 0) * (expPct / 100)),
+  };
+}
+
+// Тост уходит под модалку (док ниже неё по z-index), поэтому ошибку
+// дублируем красной строкой внутри карточки обороны.
+function nightConfigError(text) {
+  if (typeof toast === 'function') toast('Активная оборона', text);
+  const card = document.getElementById('modalCard');
+  if (!card) return;
+  let el = document.getElementById('nightConfigError');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'nightConfigError';
+    el.style.cssText = 'margin-top:8px;color:#ff8a8a;font-size:11px;text-align:center;';
+    card.appendChild(el);
+  }
+  el.textContent = '⚠ ' + text;
+  setTimeout(function () { if (el && el.parentNode) el.parentNode.removeChild(el); }, 4000);
+}
+
 function openNightMode() {
   const card = document.getElementById('modalCard');
   if (!card) return;
@@ -1243,6 +1289,7 @@ function openNightMode() {
   const defChancePct = selDefLvl * (Number(INVASION_CFG.repelDefensePerLevel) || 0.10) * 100;
   const fleetChancePct = (typeof fleetRepelChance === 'function') ? fleetRepelChance() * 100 : 0;
   const expPenalty = (nc.expeditionPercent / 100) * (NIGHT_CFG.expeditionDefensePenaltyMax || 0.30) * 100;
+  const nightCosts = nightConfigCosts(nc);
   const shieldActive = !!(S.shieldUntil && S.shieldUntil > Date.now());
   // ★ Флот даёт вклад в отбитие всегда, без уровня Автобороны.
   const previewFleetPct = fleetChancePct;
@@ -1361,7 +1408,7 @@ function openNightMode() {
         oninput="setNightExpedition(this.value)" style="width:100%;accent-color:#2eaa77;">
       <div class="row-stat" style="font-size:10px;color:#ffb347;">
         <span>Штраф к обороне: −${expPenalty.toFixed(1)}%</span>
-        <span>Списывает ⚡, ⚙ и 🧬</span>
+        <span>${nightCosts.expPct > 0 ? 'Цена: ' + fmt(nightCosts.eCostExp) + '⚡ · ' + fmt(nightCosts.mCostExp) + '⚙ · ' + fmt(nightCosts.cCostExp) + '🧬' : 'Ресурсы не списываются'}</span>
       </div>
     </div>
 
@@ -1398,42 +1445,40 @@ function openNightMode() {
 function saveNightConfig() {
   if (!_tempNightConfig) return;
 
+  const nc = _tempNightConfig;
+  const selDefLvl = Math.max(0, Math.min(5, Number(nc.defenseLevel) || 0));
+  let costs = nightConfigCosts(nc);
+
   // ★ Оборона: металл списывается ТОЛЬКО здесь, по кнопке «Готово».
-  const systemsExtra = Math.max(0, (S.systems || 1) - 1);
-  const selDefLvl = Math.max(0, Math.min(5, Number(_tempNightConfig.defenseLevel) || 0));
-  let mCostDefense = 0;
-  if (selDefLvl > 0 && _tempNightConfig.defenseDirty) {
-    mCostDefense = (typeof defenseActivationCost === 'function')
-      ? defenseActivationCost(selDefLvl)
-      : Math.floor(INVASION_CFG.defenseCost[selDefLvl] * (1 + systemsExtra * INVASION_CFG.defenseCostMultiplierPerSystem));
-    if ((S.metalAmount || 0) < mCostDefense) {
-      toast('Не хватает металла', 'Нужно ' + mCostDefense + ' ⚙');
-      return;
-    }
+  if (selDefLvl > 0 && nc.defenseDirty && (S.metalAmount || 0) < costs.mCostDefense) {
+    nightConfigError('Не хватает металла на оборону: нужно ' + fmt(costs.mCostDefense) + ' ⚙');
+    return;
   }
 
-  // Проверка и списание ресурсов миссий
-  let mCostComet = _tempNightConfig.cometHours * 100;
-  let dCostComet = Math.floor(Math.max(500000, dustPerSec() * 600));
-  let eCostExp = Math.floor(S.energy * (_tempNightConfig.expeditionPercent / 100));
-  let mCostExp = Math.floor((S.metalAmount || 0) * (_tempNightConfig.expeditionPercent / 100));
-  let cCostExp = Math.floor(S.civLevel * (_tempNightConfig.expeditionPercent / 100));
-
-  if (_tempNightConfig.cometHours > 0 && (S.metalAmount < mCostComet || S.dust < dCostComet)) {
-    toast('Ошибка', 'Не хватает на комету');
-    _tempNightConfig.cometHours = 0;
-    mCostComet = 0; dCostComet = 0;
+  // Миссии: если на комету не хватает — выключаем её и пересчитываем
+  // экспедицию уже от освободившегося металла.
+  if (costs.cometHours > 0 && ((S.metalAmount || 0) < costs.mCostComet || (S.dust || 0) < costs.dCostComet)) {
+    nightConfigError('Не хватает на комету — она отключена');
+    nc.cometHours = 0;
+    costs = nightConfigCosts(nc);
   }
-  if (_tempNightConfig.expeditionPercent > 0 && (eCostExp <= 0 || mCostExp <= 0 || cCostExp <= 0)) {
-    toast('Ошибка', 'Не хватает на экспедицию');
-    _tempNightConfig.expeditionPercent = 0;
-    eCostExp = 0; mCostExp = 0; cCostExp = 0;
+  if (costs.expPct > 0 && (costs.eCostExp <= 0 || costs.mCostExp <= 0 || costs.cCostExp <= 0)) {
+    nightConfigError('Не хватает на экспедицию — она отключена');
+    nc.expeditionPercent = 0;
+    costs = nightConfigCosts(nc);
   }
 
-  // Сначала проверяем, что хватает металла на всё сразу
+  const mCostDefense = costs.mCostDefense;
+  const mCostComet = costs.mCostComet;
+  const dCostComet = costs.dCostComet;
+  const eCostExp = costs.eCostExp;
+  const mCostExp = costs.mCostExp;
+  const cCostExp = costs.cCostExp;
+
+  // Сначала проверяем, что хватает металла на всё сразу.
   const totalMetalCost = mCostDefense + mCostComet + mCostExp;
   if ((S.metalAmount || 0) < totalMetalCost) {
-    toast('Не хватает металла', 'Нужно ' + totalMetalCost + ' ⚙');
+    nightConfigError('Не хватает металла: нужно ' + fmt(totalMetalCost) + ' ⚙, есть ' + fmt(S.metalAmount || 0));
     return;
   }
 

@@ -284,6 +284,37 @@ function testDefenseCostDeferred() {
   const hours = g.INVASION_CFG.defenseHours;
   assert('Активация на 10 ч', S.nightDefenseExpiresAt > Date.now() + (hours * 3600 * 1000 - 5000));
 }
+
+// Регресс: «Готово» молча не срабатывало при 100% экспедиции — она съедала
+// весь металл, и проверка суммы не могла оплатить уже выбранную оборону.
+function testInsaneNightComboAffordable() {
+  const g = createGame();
+  const S = prepare(g);
+  S.metalAmount = 26e6;
+  S.energy = 500000;
+  S.civLevel = 500;
+  S.dust = 1e9;
+  S.nightConfig = { mode: 'insane', defenseEnabled: true, cometHours: 8, expeditionPercent: 100 };
+  g.openNightMode();
+  g.selectDefenseLevel(5);
+  g.saveNightConfig();
+  assert('Комбо 100%: «Готово» активирует оборону', S.nightDefenseLevel === 5);
+  assert('Комбо 100%: настройки сохранены', S.nightConfig.cometHours === 8 && S.nightConfig.expeditionPercent === 100);
+  assert('Комбо 100%: металл не ушёл в минус', S.metalAmount === 0);
+
+  const g2 = createGame();
+  const S2 = prepare(g2);
+  S2.metalAmount = 100000;
+  S2.energy = 10000;
+  S2.civLevel = 100;
+  S2.nightConfig = { mode: 'aggressive', defenseEnabled: true, cometHours: 3, expeditionPercent: 30 };
+  g2.openNightMode();
+  g2.selectDefenseLevel(2);
+  const def2 = g2.defenseActivationCost(2);
+  g2.saveNightConfig();
+  const exp2 = Math.floor((100000 - def2 - 300) * 0.3);
+  assert('Экспедиция 30%: цена от остатка после обороны и кометы', 100000 - S2.metalAmount === def2 + 300 + exp2);
+}
 function testDefenseSurvivesReturn() {
   const g = createGame();
   const S = prepare(g);
@@ -331,6 +362,7 @@ function testFleetShotVisuals() {
     testDefenseTenHours();
     testIncomeDebuffCap();
     testDefenseCostDeferred();
+    testInsaneNightComboAffordable();
     testDefenseSurvivesReturn();
   } catch (e) {
     console.error('❌ Исключение в тестах: ' + (e && e.stack || e));
