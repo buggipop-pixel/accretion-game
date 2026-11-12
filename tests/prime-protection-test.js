@@ -325,11 +325,14 @@ function testPrestigePreviewShowsChestPrimesSafe() {
   g.closeEvolutionModal = noop;
   g.activateSupernova();
 
-  const total = /Систем после:<\/span><span>(\d+)/.exec(html);
-  const lost = /Потеряется:<\/span><span>(\d+) обычных/.exec(html);
+  const total = /Систем после:<\/span><span>(\d+)[–-](\d+)/.exec(html);
+  const lost = /Потеряется:<\/span><span>(\d+)[–-](\d+) обычных/.exec(html);
   assert('Окно престижа: сундучная система показана среди сохраняемых', /1 прайм/.test(html));
   assert('Окно престижа: счётчик систем включает Прайм', !!total && Number(total[1]) >= 5);
-  assert('Окно престижа: теряются только обычные системы', !!lost && !!total && Number(total[1]) + Number(lost[1]) === 10);
+  assert('Окно престижа: теряются только обычные системы',
+    !!lost && !!total &&
+    Number(total[1]) + Number(lost[2]) === 10 &&
+    Number(total[2]) + Number(lost[1]) === 10);
 }
 
 function testPrestigePreviewMergesDuplicates() {
@@ -358,6 +361,54 @@ function testPrestigePreviewMergesDuplicates() {
 
   assert('Окно престижа: две ЧД показаны одной Прайм-системой', /1 прайм/.test(html));
   assert('Окно престижа: слияние дублей отражено в окне', /сливаются в более редкие/.test(html));
+}
+
+async function testPrestigeResultModalRandomBad() {
+  const g = createGame();
+  const S = g.S;
+  S.stage = 'galaxy';
+  S.prestigeLevel = 0; S.galaxies = 1; S.galaxyMultiplier = 1;
+  S.systems = 100; S.totalSystemsCreated = 100;
+  S.primeSystem = null; S.activeSystemIdx = 0;
+  S.planets = planets();
+  S.otherSystems = [null];
+  for (let i = 0; i < 99; i++) {
+    S.otherSystems.push({ name: 'Reg' + i, starType: 'G', systemType: 'single', planets: planets() });
+  }
+  let html = '';
+  g.buildModal = (title, sub) => '<div class="modal-title">' + title + '</div><div class="modal-sub">' + (sub || '') + '</div><div class="choices"></div>';
+  g.setModal = (h) => { html = String(h); };
+  g.closeEvolutionModal = noop;
+  vm.runInContext('Math.random = function(){ return 0; }', g);
+  g.performSupernova(1);
+  await wait(2300);
+  assert('Итог вспышки: неудачный бросок показывает потери',
+    /Вспышка уничтожила/.test(html) && /85/.test(html), html.slice(0, 160));
+  assert('Итог вспышки: из остатков сформировалось 15 систем',
+    /сформировалось <b>15<\/b> систем/.test(html), html.slice(-300));
+}
+
+async function testPrestigeResultModalRandomGood() {
+  const g = createGame();
+  const S = g.S;
+  S.stage = 'galaxy';
+  S.prestigeLevel = 0; S.galaxies = 1; S.galaxyMultiplier = 1;
+  S.systems = 100; S.totalSystemsCreated = 100;
+  S.primeSystem = null; S.activeSystemIdx = 0;
+  S.planets = planets();
+  S.otherSystems = [null];
+  for (let i = 0; i < 99; i++) {
+    S.otherSystems.push({ name: 'Reg' + i, starType: 'G', systemType: 'single', planets: planets() });
+  }
+  let html = '';
+  g.buildModal = (title, sub) => '<div class="modal-title">' + title + '</div><div class="modal-sub">' + (sub || '') + '</div><div class="choices"></div>';
+  g.setModal = (h) => { html = String(h); };
+  g.closeEvolutionModal = noop;
+  vm.runInContext('Math.random = function(){ return 0.999; }', g);
+  g.performSupernova(1);
+  await wait(2300);
+  assert('Итог вспышки: удачный бросок почти без потерь',
+    /Поздравляем/.test(html) && /сохранилось <b>100<\/b> систем/.test(html), html.slice(0, 200));
 }
 
 function testInvasionNeverTargetsPrime() {
@@ -455,6 +506,8 @@ function testInvasionCannotDamagePrime() {
     await testPrestigeKeepsActiveChestPrime();
     testPrestigePreviewShowsChestPrimesSafe();
     testPrestigePreviewMergesDuplicates();
+    await testPrestigeResultModalRandomBad();
+    await testPrestigeResultModalRandomGood();
     testInvasionNeverTargetsPrime();
     testInvasionCannotDamagePrime();
   } catch (e) {

@@ -113,24 +113,34 @@ window.rollStarForPrestige = rollStarForPrestige;
 
 // ─── Сколько ОБЫЧНЫХ систем сохранится после престижа ───────────
 // Прайм-системы сюда не входят, они сохраняются 100% всегда.
-// ★ ДЕТЕРМИНИРОВАННО: раньше количество кидалось случайно между
-//   ~1.5·√N и N, а окно показывало одно число, performSupernova — другое.
-//   Теперь формула фиксирована: ~2·√N обычных систем (норы повышают).
-function calculateKeepCount(regularCount) {
-  if (regularCount <= 0) return 0;
-
-  let keep = Math.max(1, Math.floor(Math.sqrt(regularCount) * 2));
-
-  // Кротовые норы увеличивают долю: 20% / 30% / 50% обычных систем.
-  // ★ Учитываем лучшую нору среди ВСЕХ прайм-систем, а не только активной.
+// ★ Старый рандом: от 1.5·√N до N обычных систем. Норы поднимают
+//   нижнюю границу (20/30/50%). Окно показывает диапазон, а точное
+//   число фиксируется броском при подтверждении — превью и результат
+//   больше не расходятся.
+function calculateKeepRange(regularCount) {
+  const n = Math.max(0, Math.floor(Number(regularCount) || 0));
+  if (n <= 0) return { min: 0, max: 0 };
+  let min = Math.max(1, Math.floor(Math.sqrt(n) * 1.5));
   const wormPct = (typeof bestPrimeWormholePct === 'function') ? bestPrimeWormholePct() : 0;
-  if (wormPct > 0) {
-    const wormMin = Math.ceil(regularCount * wormPct);
-    if (wormMin > keep) keep = wormMin;
-  }
-
-  return Math.min(keep, regularCount);
+  if (wormPct > 0) min = Math.max(min, Math.ceil(n * wormPct));
+  min = Math.min(min, n);
+  return { min: min, max: n };
 }
+
+function rollKeepCount(regularCount) {
+  const range = calculateKeepRange(regularCount);
+  if (range.max <= 0) return 0;
+  return range.min + Math.floor(Math.random() * (range.max - range.min + 1));
+}
+
+// Совместимость для внешних вызовов: детерминированная «середина».
+function calculateKeepCount(regularCount) {
+  const n = Math.max(0, Math.floor(Number(regularCount) || 0));
+  if (n <= 0) return 0;
+  return Math.min(n, Math.max(1, Math.floor(Math.sqrt(n) * 2)));
+}
+window.calculateKeepRange = calculateKeepRange;
+window.rollKeepCount = rollKeepCount;
 window.calculateKeepCount = calculateKeepCount;
 
 // ─── Оценка дохода системы (для сортировки лучших) ──────────────
@@ -252,9 +262,13 @@ function activateSupernova() {
   const primeCount = mergedPreview.length;
   // Сколько пар дублей сложилось в объект выше рангом (для честного окна).
   const mergedUpdates = Math.max(0, previewPrimes.length - primeCount);
-  const keepPreview = calculateKeepCount(regularSystemsCount);
-  const survivingPreview = 1 + primeCount + keepPreview;
-  const lostPreview = Math.max(0, regularSystemsCount - keepPreview);
+  const keepRange = (typeof calculateKeepRange === 'function')
+    ? calculateKeepRange(regularSystemsCount)
+    : { min: regularSystemsCount, max: regularSystemsCount };
+  const survivingMin = 1 + primeCount + keepRange.min;
+  const survivingMax = 1 + primeCount + keepRange.max;
+  const lostMin = Math.max(0, regularSystemsCount - keepRange.max);
+  const lostMax = Math.max(0, regularSystemsCount - keepRange.min);
   const wormholePct = (typeof bestPrimeWormholePct === 'function')
     ? Math.round(bestPrimeWormholePct() * 100)
     : 0;
@@ -282,8 +296,8 @@ function activateSupernova() {
       <div class="row-stat"><span>Множитель дохода:</span><span>×${curMult.toFixed(1)} ➔ ×${nextMult.toFixed(1)}</span></div>
       <div class="row-stat"><span>Следующая Вспышка:</span><span>${nextReq} систем${nextReqPhase ? ' · ' + nextReqPhase.title : ''}</span></div>
       <div class="row-stat"><span>Форма галактики:</span><span>${formNames[curForm]} ➔ ${formNames[nextForm]}</span></div>
-      <div class="row-stat"><span>Систем после:</span><span>${survivingPreview} (родная + ${primeCount} прайм + ${keepPreview} обычных)</span></div>
-      <div class="row-stat"><span>Потеряется:</span><span>${lostPreview} обычных</span></div>
+      <div class="row-stat"><span>Систем после:</span><span>${survivingMin}–${survivingMax} (родная + ${primeCount} прайм + ${keepRange.min}–${keepRange.max} обычных)</span></div>
+      <div class="row-stat"><span>Потеряется:</span><span>${lostMin}–${lostMax} обычных</span></div>
       ${wormholeNote}
       ${mergeNote}
       ${bestPrimeNote}
@@ -294,7 +308,8 @@ function activateSupernova() {
       <div class="row-stat" style="color:#ff5e5e;"><span>Сборка планет:</span><span>отключится</span></div>
     </div>
     <div class="modal-sub" style="color:#ff5e5e;font-weight:bold;">
-      Вы потеряете ${macroName}! Но получите ${gainSing} Сингулярностей и сохраните лучшую Прайм-систему.<br>
+      Вы можете потерять ${macroName}! Но получите ${gainSing} Сингулярностей и сохраните лучшую Прайм-систему.<br>
+      Точное число систем после вспышки определит бросок.<br>
       Сбрасываются: пыль, энергия, цивилизация, родная система.<br>
       Внимание: после престижа ручная сборка планет недоступна!
     </div>
@@ -404,7 +419,9 @@ function performSupernova(level) {
     return _primeRarityOfSystem(b) - _primeRarityOfSystem(a);
   });
   // 3. Считаем лимит ТОЛЬКО для обычных систем
-  const keepRegularCount = calculateKeepCount(regularSystems.length);
+  const keepRegularCount = (typeof rollKeepCount === 'function')
+    ? rollKeepCount(regularSystems.length)
+    : calculateKeepCount(regularSystems.length);
 
   // 4. Сортируем и отбираем лучшие обычные системы
   regularSystems.sort(function(a, b) { return b.rate - a.rate; });
@@ -412,6 +429,11 @@ function performSupernova(level) {
 
   // 5. Итоговый список сохраненных: ВСЕ Праймы + лучшие Обычные
   const kept = [...primeSystems, ...keptRegulars];
+  const totalSystemsAfter = 1 + kept.length;
+  const destroyedCount = Math.max(0, regularSystems.length - keepRegularCount);
+  const savedPct = regularSystems.length > 0
+    ? Math.round((keepRegularCount / regularSystems.length) * 100)
+    : 100;
   const systemsBefore = S.systems;
   const gainedSingularities = Math.floor(Math.max(0, Number(systemsBefore) || 0) / 10);
   const oldPanX = Number(S.panX) || 0;
@@ -525,20 +547,84 @@ function performSupernova(level) {
     if (typeof logPrestige === 'function') logPrestige(S.galaxies, S.galaxyMultiplier);
     if (typeof playSFX === 'function') playSFX('prestige');
     saveGame();
+    // Даём вспышке погаснуть и показываем итог броска.
+    setTimeout(showPrestigeResult, 650);
   }, 1500);
+  let pushStarted = false;
 
-  setTimeout(() => {
-    if (S.vis && S.vis.prestigeAnim) S.vis.prestigeAnim.phase = 'push';
-  }, 2000);
+  function showPrestigeResult() {
+    if (typeof buildModal !== 'function' || typeof setModal !== 'function') {
+      startPrestigePush();
+      return;
+    }
+    const modal = document.getElementById('modal');
+    if (!modal) { startPrestigePush(); return; }
 
-  setTimeout(() => {
-    if (S.vis) S.vis.prestigeAnim = null;
-    toast('🌟 Вспышка Сверхновой!',
-      'Галактика ' + S.galaxies + ' · ×' + S.galaxyMultiplier.toFixed(1) +
-      ' · сохранено ' + kept.length + ' систем · +' + gainedSingularities + ' ✨');
-    if (typeof updateUI === 'function') updateUI();
-    if (typeof updateSystemSwitcher === 'function') updateSystemSwitcher();
-  }, 3500);
+    const good = savedPct >= 70;
+    const title = good
+      ? '🎉 Поздравляем! Вспышка почти не нанесла ущерба'
+      : '💥 Вспышка уничтожила ' + destroyedCount + ' систем';
+    const sub = 'Сохранено ' + keepRegularCount + ' из ' + regularSystems.length +
+      ' обычных (' + savedPct + '%)';
+    const text = good
+      ? '<div class="modal-sub" style="color:#7ee0a8;font-weight:bold;line-height:1.6;">Поздравляем! Вспышка сверхновой почти не нанесла ущерба — сохранилось <b>' + totalSystemsAfter + '</b> систем.</div>'
+      : '<div class="modal-sub" style="color:#ff8a8a;font-weight:bold;line-height:1.6;">Вспышка уничтожила <b>' + destroyedCount + '</b> систем. Из остатков звёзд и пыли сформировалось <b>' + totalSystemsAfter + '</b> систем.</div>';
+    const oldMultiplier = (typeof prestigeMultiplierFor === 'function')
+      ? prestigeMultiplierFor(Math.max(0, level - 1))
+      : (S.galaxyMultiplier || 1);
+    const info = `
+      <div class="info-box">
+        <div class="row-stat"><span>Обычных сохранено:</span><span>${keepRegularCount} из ${regularSystems.length} (${savedPct}%)</span></div>
+        <div class="row-stat"><span>Уничтожено:</span><span>${destroyedCount}</span></div>
+        <div class="row-stat"><span>Всего систем после:</span><span>${totalSystemsAfter} (родная + ${primeSystems.length} прайм + ${keepRegularCount} обычных)</span></div>
+        <div class="row-stat"><span>Сингулярности:</span><span>+${gainedSingularities} (всего ${Number(S.singularities) || 0})</span></div>
+        <div class="row-stat"><span>Множитель дохода:</span><span>×${oldMultiplier.toFixed(1)} ➔ ×${(S.galaxyMultiplier || 1).toFixed(1)}</span></div>
+      </div>
+      ${text}
+    `;
+    const choices = [{
+      id: 'continue',
+      name: 'Продолжить',
+      desc: 'Формирование новой галактики',
+      color: good ? '#2eaa77' : '#ff7500',
+      icon: good ? '🎉' : '💥'
+    }];
+    let html = buildModal(title, sub, choices);
+    html = html.replace('<div class="choices">', info + '<div class="choices">');
+
+    let finished = false;
+    function finish() {
+      if (finished) return;
+      finished = true;
+      modal.removeEventListener('click', onBackdrop);
+      document.removeEventListener('keydown', onKey);
+      if (modal.classList && modal.classList.contains('show') && typeof closeEvolutionModal === 'function') closeEvolutionModal();
+      startPrestigePush();
+    }
+    function onBackdrop(e) { if (e.target === modal) setTimeout(finish, 0); }
+    function onKey(e) { if (e.key === 'Escape') setTimeout(finish, 0); }
+    setModal(html, { continue: finish });
+    modal.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onKey);
+  }
+
+  function startPrestigePush() {
+    if (pushStarted) return;
+    pushStarted = true;
+    if (S.vis) S.vis.prestigeAnim = { start: performance.now() - 2000, phase: 'push' };
+    setTimeout(function () {
+      if (S.vis) S.vis.prestigeAnim = null;
+      const good = savedPct >= 70;
+      const sub = good
+        ? 'Почти без потерь: ' + totalSystemsAfter + ' систем · +' + gainedSingularities + ' ✨ · ×' + (S.galaxyMultiplier || 1).toFixed(1)
+        : 'Уничтожено ' + destroyedCount + ' · осталось ' + totalSystemsAfter + ' систем · +' + gainedSingularities + ' ✨';
+      toast(good ? '🎉 Удача! Вспышка почти не нанесла ущерба'
+                 : '💥 Вспышка уничтожила ' + destroyedCount + ' систем', sub);
+      if (typeof updateUI === 'function') updateUI();
+      if (typeof updateSystemSwitcher === 'function') updateSystemSwitcher();
+      saveGame();
+    }, 1500);
+  }
 }
 // ─── Обновление кнопки престижа в UI ───────────────────────────
 function updatePrestigeButton() {
