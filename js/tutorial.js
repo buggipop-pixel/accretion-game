@@ -287,30 +287,30 @@
     },
     {
       id: 'gal_phase6', ch: 'galaxy', mode: 'info', autoNext: 11000,
-      when: function (s) { return s.stage === 'galaxy' && (s.systems || 1) >= 10; },
+      when: function (s) { return s.stage === 'galaxy'; },
       title: '✨ ФАЗА VI · Созвездие',
       sub: 'Цель фазы — 10 систем: они объединяются в созвездие. Кольцо фазы и квесты показывают прогресс.',
       target: '#phaseOrb'
     },
     {
       id: 'gal_phase7', ch: 'nebula', mode: 'info', autoNext: 11000,
-      when: function (s) { return s.stage === 'galaxy' && (s.systems || 1) >= 50; },
+      when: function (s) { return s.stage === 'galaxy' && (s.systems || 1) >= 10; },
       title: '🌫 ФАЗА VII · Туманность',
-      sub: '50 систем складываются в туманность. Двойной тап по туманности — войти, одиночный — выбрать.',
+      sub: 'Цель фазы — туманность из 5 созвездий (50 систем). Двойной тап по туманности — войти, одиночный — выбрать.',
       target: '#galaxyCaption'
     },
     {
       id: 'gal_phase8', ch: 'cluster', mode: 'info', autoNext: 11000,
-      when: function (s) { return s.stage === 'galaxy' && (s.systems || 1) >= 150; },
+      when: function (s) { return s.stage === 'galaxy' && (s.systems || 1) >= 50; },
       title: '✨ ФАЗА VIII · Скопление',
-      sub: '150 систем — это скопление туманностей. Следи за квестом фазы и не забывай про Сверхновую.',
+      sub: 'Цель фазы — скопление из 3 туманностей (150 систем). Следи за квестом фазы и не забывай про Сверхновую.',
       target: '#phaseOrb'
     },
     {
       id: 'gal_phase9', ch: 'supercluster', mode: 'info', autoNext: 12000,
-      when: function (s) { return s.stage === 'galaxy' && (s.systems || 1) >= 450; },
+      when: function (s) { return s.stage === 'galaxy' && (s.systems || 1) >= 150; },
       title: '🌌 ФАЗА IX · Сверхскопление',
-      sub: '450 систем — сверхскопление. Дальше циклы: каждые 450 систем открывают новое сверхскопление.',
+      sub: 'Цель фазы — сверхскопление из 3 скоплений (450 систем). Дальше циклы: каждые 450 систем открывают новое сверхскопление.',
       target: '#galaxyCaption'
     },
     {
@@ -486,11 +486,11 @@
     if (!t) return;
     var sys = Number(S.systems) || 1;
     var marks = [
-      ['gal_lod', 50],
-      ['gal_phase6', 50],
-      ['gal_phase7', 150],
-      ['gal_phase8', 450],
-      ['gal_phase9', 900]
+      ['gal_lod', 10],
+      ['gal_phase6', 10],
+      ['gal_phase7', 50],
+      ['gal_phase8', 150],
+      ['gal_phase9', 450]
     ];
     var changed = false;
     for (var i = 0; i < marks.length; i++) {

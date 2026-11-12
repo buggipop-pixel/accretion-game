@@ -727,7 +727,7 @@ function getQuests() {
       list.push({ title: '💥 Сделать Вспышку (Доступна)', cur: 1, max: 1 });
     } else if (prestigeNeed > 0) {
       list.push({
-        title: '💥 До следующей Вспышки (' + fmt(systems) + '/' + fmt(prestigeNeed) + ')',
+        title: '💥 До следующей Вспышки (' + fmt(systems) + '/' + fmt(prestigeNeed) + ') · ' + ((S.prestigeLevel || 0) + 1) + '-я',
         cur: systems, max: prestigeNeed
       });
     }

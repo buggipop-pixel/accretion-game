@@ -116,5 +116,28 @@ let monotonic = true;
 for (let i = 1; i < 30; i++) if (!(req[i] > req[i - 1])) monotonic = false;
 assert('Вспышки: лестница строго растёт', monotonic);
 
+// ─── Миграция множителя старого сейва ───
+const target11 = context.prestigeMultiplierFor(11);
+const staleMultiplier = Math.pow(1.3, 11);
+context.localStorage.getItem = function () {
+  return JSON.stringify({
+    prestigeLevel: 11, galaxies: 12, galaxyMultiplier: staleMultiplier,
+    stage: 'galaxy', systems: 187, seenLore: [],
+  });
+};
+vm.runInContext('loadGame()', context);
+assert('Сейв ×1.3: множитель поднят до кривой ×1.6',
+  Math.abs(context.S.galaxyMultiplier - target11) < 1e-6, String(context.S.galaxyMultiplier));
+
+context.localStorage.getItem = function () {
+  return JSON.stringify({
+    prestigeLevel: 11, galaxies: 12, galaxyMultiplier: 2048,
+    stage: 'galaxy', systems: 187, seenLore: [],
+  });
+};
+vm.runInContext('loadGame()', context);
+assert('Сейв с завышенным ×: срезан до кривой',
+  Math.abs(context.S.galaxyMultiplier - target11) < 1e-6, String(context.S.galaxyMultiplier));
+
 console.log('\n' + (failed === 0 ? '✅ ВСЕ ТЕСТЫ ПРОЙДЕНЫ' : '❌ ЕСТЬ ОШИБКИ') + ': ' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed === 0 ? 0 : 1);

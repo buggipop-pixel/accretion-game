@@ -566,11 +566,13 @@ function loadGame() {
     if (typeof S.galaxies !== 'number') S.galaxies = 1;
     if (!S.galaxyForm) S.galaxyForm = 'spiral';
     if (typeof S.galaxyMultiplier !== 'number') S.galaxyMultiplier = 1;
-    // ★ Кривая множителя престижа изменилась (было ×2 за вспышку).
-    //   Приводим старый сейв к новой формуле — иначе ×2048 останется навсегда.
+    // ★ Кривая множителя престижа — единый источник истины.
+    //   Старые сейвы приводим к ней в обе стороны: поднимаем сейвы со
+    //   старой ×1.3 до актуальной ×1.6 и срезаем завышенные (старое ×2),
+    //   иначе доход не соответствует требованиям вспышек.
     if (typeof prestigeMultiplierFor === 'function') {
       const targetMult = prestigeMultiplierFor(S.prestigeLevel || 0);
-      if (!isFinite(S.galaxyMultiplier) || S.galaxyMultiplier > targetMult) {
+      if (!isFinite(S.galaxyMultiplier) || Math.abs(S.galaxyMultiplier - targetMult) > 1e-6) {
         S.galaxyMultiplier = targetMult;
       }
     }
