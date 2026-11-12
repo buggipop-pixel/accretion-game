@@ -72,17 +72,59 @@ const LORE = {
     anim: 'planet',
   },
   galaxy: {
-    tag: 'ФАЗА VI · ГАЛАКТИКА',
-    title: 'Межзвёздная экспансия',
-    text: 'Ты вышел за пределы родной системы. Покупай новые системы, развивай флот и готовься к Вспышке Сверхновой!',
-    goal: 'накопить системы и выполнить престиж',
+    tag: 'ФАЗА VI · СОЗВЕЗДИЕ',
+    title: 'Рождение созвездия',
+    text: 'Ты вышел за пределы родной системы. Первое созвездие — 10 звёзд, связанных общим тяготением.',
+    goal: 'собрать созвездие из 10 звёзд',
     steps: [
       'Покупай новые системы на галактической карте — они повышают общий доход.',
       'Строй флот на Верфи и защищай системы от вторжений.',
       'Запускай кометы и экспедиции ради наград и новых территорий.',
-      'Накопи нужное число систем и активируй «Вспышку Сверхновой» — престиж.',
+      'Собери 10 систем — созвездие замкнётся, и откроется первая Вспышка Сверхновой.',
     ],
-    hint: 'Первый престиж доступен при 5 системах. Он навсегда повышает множитель дохода.',
+    hint: 'Первая Вспышка доступна при 10 системах. Каждая вспышка навсегда повышает множитель дохода.',
+    anim: 'disk',
+  },
+  nebula: {
+    tag: 'ФАЗА VII · ТУМАННОСТЬ',
+    title: 'Туманность',
+    text: 'Созвездия сплетаются в туманность: пять созвездий — один газопылевой комплекс.',
+    goal: 'собрать туманность из 5 созвездий (50 систем)',
+    steps: [
+      'Каждые 10 систем — новое созвездие. Всего нужно пять.',
+      'Продолжай покупать системы: цена растёт, но и доход растёт.',
+      'Следи за панелью квестов — там видно и рубеж фазы, и следующую Вспышку.',
+      'Собери 50 систем и активируй Вспышку, чтобы забрать множитель.',
+    ],
+    hint: 'Внутри каждой фазы теперь три Вспышки, а не одна: следующий порог виден в квестах.',
+    anim: 'disk',
+  },
+  cluster: {
+    tag: 'ФАЗА VIII · СКОПЛЕНИЕ',
+    title: 'Скопление',
+    text: 'Туманности сходятся в скопление: три туманности образуют одно звёздное скопление.',
+    goal: 'собрать скопление из 3 туманностей (150 систем)',
+    steps: [
+      'Держи темп: каждые 50 систем закрывается одна туманность.',
+      'Вспышки внутри фазы приходят на 150, 225 и 337 системах.',
+      'Развивай Прайм-системы — они дают бонус ко всему доходу.',
+      'Собери три туманности, чтобы перейти к сверхскоплению.',
+    ],
+    hint: 'Макро-цель фазы — 150 систем, но Вспышки доступны чаще. Не жди конца фазы.',
+    anim: 'disk',
+  },
+  supercluster: {
+    tag: 'ФАЗА IX · СВЕРХСКОПЛЕНИЕ',
+    title: 'Сверхскопление',
+    text: 'Скопления собираются в сверхскопление — крупнейшую связанную структуру галактики.',
+    goal: 'собрать сверхскопление из 3 скоплений (450 систем)',
+    steps: [
+      'Каждые 150 систем закрывается одно скопление. Нужно три.',
+      'Следующие Вспышки: 450, 675 и 1010 систем.',
+      'После 450 сверхскопления продолжаются: каждые 450 систем — новое.',
+      'Следи за панелью квестов: она всегда показывает ближайшую Вспышку.',
+    ],
+    hint: 'Сверхскопления бесконечны. Вспышка сбрасывает системы, но навсегда усиливает доход.',
     anim: 'disk',
   },
 };
@@ -322,6 +364,33 @@ window.showLoreCard = showLoreCard;
 //  ОБЩИЙ ГИД ПО ИГРЕ И ФАЗАМ
 // ═══════════════════════════════════════════════════════════════
 const STAGE_ORDER = ['cloud', 'condense', 'protostar', 'firstPlanet', 'system', 'galaxy'];
+// Полный список фаз для гида: галактика делится на макро-фазы VI–IX.
+const PHASE_ORDER = ['cloud', 'condense', 'protostar', 'firstPlanet', 'system', 'galaxy', 'nebula', 'cluster', 'supercluster'];
+
+// Ключ лор-карточки для текущей подфазы галактики.
+function currentPhaseLoreKey() {
+  if (typeof S === 'undefined' || !S.stage) return 'cloud';
+  if (S.stage !== 'galaxy') return S.stage;
+  const n = Number(S.systems) || 0;
+  if (n >= 150) return 'supercluster';
+  if (n >= 50) return 'cluster';
+  if (n >= 10) return 'nebula';
+  return 'galaxy';
+}
+
+// Индекс текущей фазы в PHASE_ORDER (для гида).
+function currentPhaseOrderIndex() {
+  if (typeof S === 'undefined' || !S.stage) return 0;
+  if (S.stage !== 'galaxy') {
+    const i = STAGE_ORDER.indexOf(S.stage);
+    return i < 0 ? 0 : i;
+  }
+  const n = Number(S.systems) || 0;
+  if (n >= 150) return 8;
+  if (n >= 50) return 7;
+  if (n >= 10) return 6;
+  return 5;
+}
 
 function _loreStepsHtml(steps) {
   let html = '';
@@ -332,7 +401,7 @@ function _loreStepsHtml(steps) {
 function openCurrentPhaseHelp() {
   if (typeof S === 'undefined' || !S.stage) return;
   if (loreActive || guideActive) return;
-  showLoreCard(S.stage, null, true);
+  showLoreCard(currentPhaseLoreKey(), null, true);
 }
 window.openCurrentPhaseHelp = openCurrentPhaseHelp;
 
@@ -341,10 +410,10 @@ function showGameGuide() {
   guideActive = true;
   if (!S.seenLore) S.seenLore = [];
 
-  const curIdx = STAGE_ORDER.indexOf(S.stage);
+  const curIdx = currentPhaseOrderIndex();
   let phasesHtml = '';
-  for (let i = 0; i < STAGE_ORDER.length; i++) {
-    const id = STAGE_ORDER[i];
+  for (let i = 0; i < PHASE_ORDER.length; i++) {
+    const id = PHASE_ORDER[i];
     const d = LORE[id];
     if (!d) continue;
     const isNow = i === curIdx;
@@ -427,6 +496,25 @@ function showGameGuide() {
   });
 }
 window.showGameGuide = showGameGuide;
+window.openGameGuide = showGameGuide;
+
+// Показываем карточку новой макро-фазы галактики ровно один раз.
+let _phaseLoreCheckAt = 0;
+function maybeShowGalaxyPhaseLore() {
+  if (typeof S === 'undefined' || S.stage !== 'galaxy') return;
+  if (loreActive || guideActive) return;
+  const now = Date.now();
+  if (now - _phaseLoreCheckAt < 1200) return;
+  _phaseLoreCheckAt = now;
+  if (S.activeMinigame) return;
+  if (document.querySelector && document.querySelector('.modal.show')) return;
+  if (!S.seenLore) S.seenLore = [];
+  const key = currentPhaseLoreKey();
+  if (S.seenLore.indexOf(key) !== -1) return;
+  showLoreCard(key);
+}
+window.maybeShowGalaxyPhaseLore = maybeShowGalaxyPhaseLore;
+window.currentPhaseLoreKey = currentPhaseLoreKey;
 window.openGameGuide = showGameGuide;
 
 let _guideRetry = 0;

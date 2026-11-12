@@ -547,7 +547,7 @@ html, body {
   height: 26px;
   margin: 6px 0 2px;
   background: transparent;
-  touch-action: pan-y;
+  touch-action: none;
   cursor: pointer;
 }
 .shop-slider::-webkit-slider-runnable-track {
@@ -1215,6 +1215,8 @@ body.mg-active .toasts {
   border-radius: 3px;
   background: rgba(139, 127, 212, 0.3);
   outline: none;
+  touch-action: none;
+  cursor: pointer;
 }
 #settingsModal input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -2480,4 +2482,191 @@ body.tg-fullscreen #app { max-width: none; }
   .defense-chip,
   .neglect-chip { font-size: 8.5px; padding: 3px 8px; }
   .hud-left-stack { top: calc(var(--hud-safe-top) + var(--hud-top-extra) + 80px); gap: 4px; }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ПОЭТАПНОЕ ОБУЧЕНИЕ (js/tutorial.js)
+   ═══════════════════════════════════════════════════════════ */
+.tut-bubble {
+  cursor: default;
+  padding: 11px 14px 12px;
+}
+.tut-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.tut-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(139, 92, 246, 0.22);
+  border: 1px solid rgba(185, 168, 255, 0.45);
+  color: #d9ccff;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+}
+.tut-count {
+  color: #9d90d8;
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.tut-bar {
+  height: 3px;
+  border-radius: 3px;
+  background: rgba(139, 127, 212, 0.22);
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.tut-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #8b5cf6, #facc15);
+  transition: width 0.35s ease;
+}
+.tut-bar--big { height: 6px; margin: 8px 0 0; }
+.tut-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
+  flex-wrap: wrap;
+}
+.tut-wait {
+  flex: 1 1 auto;
+  color: #ffd166;
+  font-size: 10px;
+  font-weight: 700;
+}
+.tut-btn {
+  appearance: none;
+  border: 1px solid rgba(185, 168, 255, 0.55);
+  background: rgba(139, 127, 212, 0.22);
+  color: #efeaff;
+  border-radius: 9px;
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+  transition: transform 0.12s ease, background 0.2s ease;
+}
+.tut-btn:active { transform: scale(0.96); }
+.tut-btn.tut-ok {
+  margin-left: auto;
+  border-color: rgba(250, 204, 21, 0.6);
+  background: rgba(250, 204, 21, 0.16);
+  color: #ffe9a8;
+}
+
+/* Панель «Обучение» */
+.tut-panel-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  background: rgba(4, 2, 12, 0.72);
+  backdrop-filter: blur(4px);
+}
+.tut-panel {
+  width: min(460px, 100%);
+  max-height: min(86vh, 760px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 18px;
+  border: 1px solid rgba(139, 92, 246, 0.55);
+  background: linear-gradient(180deg, rgba(24, 15, 48, 0.98), rgba(12, 7, 26, 0.98));
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.65), 0 0 26px rgba(107, 77, 230, 0.25);
+  overflow: hidden;
+}
+.tut-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px 16px 10px;
+}
+.tut-panel-title { font-size: 17px; font-weight: 800; color: #fff; }
+.tut-panel-sub { font-size: 11px; color: #a99adf; margin-top: 3px; }
+.tut-panel-x {
+  border: none;
+  background: rgba(139, 127, 212, 0.16);
+  color: #d9ccff;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.tut-panel-progress { padding: 0 16px 10px; }
+.tut-panel-progress-text { font-size: 11px; color: #b9a8ff; }
+.tut-panel-progress-text b { color: #ffe9a8; }
+.tut-panel-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 4px 12px 10px;
+  -webkit-overflow-scrolling: touch;
+}
+.tut-chapter { margin-bottom: 12px; }
+.tut-chapter-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 6px 5px;
+  border-bottom: 1px solid rgba(139, 127, 212, 0.18);
+  margin-bottom: 5px;
+}
+.tut-chapter-title { flex: 1 1 auto; font-size: 12px; font-weight: 800; color: #e8e2ff; }
+.tut-chapter-count { font-size: 10px; font-weight: 700; color: #9d90d8; }
+.tut-step {
+  border-radius: 9px;
+  margin: 3px 0;
+  background: rgba(139, 127, 212, 0.07);
+}
+.tut-step--now { background: rgba(250, 204, 21, 0.1); border: 1px solid rgba(250, 204, 21, 0.35); }
+.tut-step--done { opacity: 0.62; }
+.tut-step > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #ddd5ff;
+}
+.tut-step > summary::-webkit-details-marker { display: none; }
+.tut-step-ico { width: 15px; text-align: center; flex: 0 0 auto; font-size: 10px; }
+.tut-step-title { flex: 1 1 auto; }
+.tut-step-body { padding: 0 10px 9px 31px; font-size: 10.5px; line-height: 1.45; color: #b9a8ff; }
+.tut-step-where { margin-top: 4px; color: #8b7fd4; font-size: 9.5px; font-family: ui-monospace, monospace; }
+.tut-panel-foot {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid rgba(139, 127, 212, 0.2);
+  background: rgba(9, 5, 20, 0.6);
+}
+.tut-panel-foot .tut-btn { flex: 1 1 auto; font-size: 10.5px; }
+.tut-panel-reset { border-color: rgba(255, 94, 94, 0.45); background: rgba(255, 94, 94, 0.12); color: #ffb3b3; }
+
+@media (max-width: 420px) {
+  .tut-bubble { max-width: calc(100vw - 20px); }
+  .tut-panel { max-height: 92vh; border-radius: 16px; }
+  .tut-panel-foot .tut-btn { flex: 1 1 40%; }
 }

@@ -153,10 +153,11 @@ function _systemRate(sys) {
 window._systemRate = _systemRate;
 
 // ─── Требования по системам для каждой сверхновой ───────────────
-// 1-я на 5 систем, каждая следующая ×2: 5, 10, 20, 40, 80
+// Лестница вспышек синхронизирована с макро-фазами: 10, 22, 35, 50…
 function prestigeRequirements() {
   // ★ явный массив требований: каждый следующий престиж должен быть быстрее,
-  // поэтому шаг ~1.4, а не x2 (иначе 2-я галактика недостижима)
+  // ★ явный массив требований: внутри каждой фазы три вспышки,
+  //   рубежи 10/50/150/450 — всегда вспышки, шаг ~1.5.
   const step = PRESTIGE_CFG.stepMultiplier || 1.4;
   let list;
   if (Array.isArray(PRESTIGE_CFG.requirements) && PRESTIGE_CFG.requirements.length) {
@@ -271,10 +272,15 @@ function activateSupernova() {
     ? '<div class="row-stat"><span>👑 Лучшая Прайм:</span><span>' + bestPrime.name +
       ' · ' + ((bestPrime.data && bestPrime.data.objectName) || bestPrime.data.objectKey || 'реликвия') + '</span></div>'
     : '';
+  const nextReq = (typeof prestigeRequirementFor === 'function')
+    ? prestigeRequirementFor(availableLevel) : 0;
+  const nextReqPhase = (nextReq && typeof galaxyPhaseFor === 'function')
+    ? galaxyPhaseFor(nextReq) : null;
   const info = `
     <div class="info-box">
       <div class="row-stat"><span>Галактик:</span><span>${S.galaxies || 1} ➔ ${(S.galaxies || 1) + 1}</span></div>
       <div class="row-stat"><span>Множитель дохода:</span><span>×${curMult.toFixed(1)} ➔ ×${nextMult.toFixed(1)}</span></div>
+      <div class="row-stat"><span>Следующая Вспышка:</span><span>${nextReq} систем${nextReqPhase ? ' · ' + nextReqPhase.title : ''}</span></div>
       <div class="row-stat"><span>Форма галактики:</span><span>${formNames[curForm]} ➔ ${formNames[nextForm]}</span></div>
       <div class="row-stat"><span>Систем после:</span><span>${survivingPreview} (родная + ${primeCount} прайм + ${keepPreview} обычных)</span></div>
       <div class="row-stat"><span>Потеряется:</span><span>${lostPreview} обычных</span></div>

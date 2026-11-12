@@ -344,8 +344,8 @@ try {
   const S = context.S;
   const reqs = context.prestigeRequirements();
   assert(
-    'Престиж: лестница продолжается и растёт шагом 1.6',
-    reqs.length > 5 && reqs[0] === 10 && reqs[1] === 16 &&
+    'Престиж: лестница продолжается и растёт шагом 1.5',
+    reqs.length > 5 && reqs[0] === 10 && reqs[1] === 22 &&
     reqs[5] > reqs[4] && reqs[6] > reqs[5]
   );
   S.prestigeLevel = 5;

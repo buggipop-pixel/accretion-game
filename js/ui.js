@@ -75,6 +75,12 @@ function _tutorialPulse(id) {
 }
 
 function renderTutorial() {
+  // ★ Новый движок обучения (js/tutorial.js) полностью заменяет старую
+  //   линейную обучалку. Старый код оставлен как безопасный fallback.
+  if (window.Tutorial && window.Tutorial.render) {
+    window.Tutorial.render();
+    return;
+  }
   const el = document.getElementById('tutorialOverlay');
   let hintText = '';
   let hintSub = '';
@@ -232,6 +238,10 @@ function _hideTutorialBubble() {
 
 // Обновить подсказку вручную (вызывается из таймера/кода)
 function updateTutorialUI() {
+  if (window.Tutorial && window.Tutorial.render) {
+    window.Tutorial.render();
+    return;
+  }
   renderTutorial();
 }
 
@@ -348,13 +358,19 @@ function updateUI() {
   const orbProgress = document.getElementById('orbProgress');
   const stages = ['cloud', 'condense', 'protostar', 'firstPlanet', 'system', 'galaxy'];
   const stageIdx = stages.indexOf(S.stage);
-  const roman = ['I', 'II', 'III', 'IV', 'V', 'VI'][stageIdx] || 'I';
+  const galaxyPhase = (S.stage === 'galaxy' && typeof galaxyPhaseFor === 'function')
+    ? galaxyPhaseFor(S.systems)
+    : null;
+  const roman = galaxyPhase
+    ? galaxyPhase.roman
+    : (['I', 'II', 'III', 'IV', 'V', 'VI'][stageIdx] || 'I');
   if (orbLabel) orbLabel.textContent = roman;
 
   if (orbProgress) {
     const goal = currentGoal();
     let prog = 0;
-    if (goal && isFinite(goal)) prog = Math.min(1, S.dust / goal);
+    if (galaxyPhase) prog = galaxyPhase.progress;
+    else if (goal && isFinite(goal)) prog = Math.min(1, S.dust / goal);
     else if (S.stage === 'system' && S.planets) prog = S.planets.length / 8;
     else prog = 1;
     
@@ -367,9 +383,11 @@ function updateUI() {
   // Стадия фазы в левом нижнем углу
   const phaseTagEl = document.getElementById('phaseTag');
   const phaseNameEl = document.getElementById('phaseName');
-  const stageInfo = (typeof STAGES !== 'undefined' && STAGES[S.stage])
-    ? STAGES[S.stage]
-    : { tag: 'ФАЗА VI', name: 'Галактика' };
+  const stageInfo = galaxyPhase
+    ? { tag: galaxyPhase.tag, name: galaxyPhase.title }
+    : ((typeof STAGES !== 'undefined' && STAGES[S.stage])
+      ? STAGES[S.stage]
+      : { tag: 'ФАЗА VI', name: 'Галактика' });
   if (phaseTagEl) phaseTagEl.textContent = stageInfo.tag;
   if (phaseNameEl) phaseNameEl.textContent = stageInfo.name;
 
@@ -431,6 +449,8 @@ function updateUI() {
   updateActiveMissionsUI();
   // Обучалка (подсказки для новичков)
   renderTutorial();
+  // Карточка новой макро-фазы галактики (VI–IX) — один раз на переходе.
+  if (typeof maybeShowGalaxyPhaseLore === 'function') maybeShowGalaxyPhaseLore();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -694,44 +714,29 @@ function getQuests() {
   else if (st === 'galaxy') {
     const systems = S.systems;
     const nextCost = nextSystemDustCost();
+    const phase = (typeof galaxyPhaseFor === 'function')
+      ? galaxyPhaseFor(systems)
+      : { questTitle: 'Собери созвездие', count: systems, countMax: 10, countUnit: 'звёзд' };
 
-    // ★ Двойная цель: макро-рубеж ИЛИ доступная Вспышка.
-    const macroTargets = [
-      { need: 10,  label: 'Созвездия' },
-      { need: 50,  label: 'Туманности' },
-      { need: 150, label: 'Скопления' },
-      { need: 450, label: 'Сверхскопления' },
-    ];
-    const nextMacro = macroTargets.find(function(t) { return systems < t.need; }) || null;
+    // ★ Вспышка всегда первой: это главная цель и самый частый апгрейд.
     const prestigeReady = (typeof checkPrestigeAvailability === 'function')
       ? checkPrestigeAvailability() > 0 : false;
     const prestigeNeed = (typeof prestigeRequirementFor === 'function')
       ? (prestigeRequirementFor(S.prestigeLevel || 0) || 0) : 0;
-
-    if (systems < 10) {
-      list.push({
-        title: 'Сформируйте Созвездие (' + fmt(systems) + '/10)',
-        cur: systems, max: 10
-      });
-    } else if (nextMacro) {
-      const expandTitle = 'Расширьтесь до ' + nextMacro.label +
-        ' (' + fmt(systems) + '/' + fmt(nextMacro.need) + ')';
-      list.push({
-        title: prestigeReady
-          ? '💥 Сделать Вспышку (Доступна) ИЛИ ' + expandTitle
-          : expandTitle,
-        cur: systems, max: nextMacro.need
-      });
-    } else if (prestigeReady) {
+    if (prestigeReady) {
       list.push({ title: '💥 Сделать Вспышку (Доступна)', cur: 1, max: 1 });
-    } else if (prestigeNeed > systems) {
+    } else if (prestigeNeed > 0) {
       list.push({
         title: '💥 До следующей Вспышки (' + fmt(systems) + '/' + fmt(prestigeNeed) + ')',
         cur: systems, max: prestigeNeed
       });
-    } else {
-      list.push({ title: 'Расширяйтесь — следующий рубеж не задан', cur: 1, max: 1 });
     }
+
+    // ★ Квест макро-фазы в «штуках»: звёзды → созвездия → туманности → скопления.
+    list.push({
+      title: '🌌 ' + phase.questTitle + ' · ' + fmt(phase.count) + '/' + fmt(phase.countMax) + ' ' + phase.countUnit,
+      cur: phase.count, max: phase.countMax
+    });
 
     if (systems < 2) {
       list.push({ title: 'Основай 2-ю систему · ' + fmt(nextCost) + ' ✦', cur: S.dust, max: nextCost });

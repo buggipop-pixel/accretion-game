@@ -334,17 +334,18 @@ const SYSTEM_SHOP_CFG = {
   batchMax: 50, // максимум систем за одну покупку (ползунок)
   primeChance: 0,
 };
-// ★ Кривая престижа: требования и множитель растут одним шагом 1.6.
-//   Раньше требования были [10,50,150,450,1350,4050] (×3), а множитель ×1.3 —
-//   каждый следующий забег становился в ~3 раза дольше. Теперь время
-//   до следующей вспышки примерно постоянно, а доход растёт.
+// ★ Кривая престижа синхронизирована с макро-фазами галактики:
+//   каждая фаза (Созвездие → Туманность → Скопление → Сверхскопление)
+//   содержит три вспышки, а её рубежи 10/50/150/450 — всегда вспышки.
+//   Шаг ~1.5, поэтому время до следующей вспышки примерно постоянно,
+//   а доход растёт. Множитель за вспышку оставлен ×1.6 (щедрее шага).
 //   Потолок множителя оставлен, чтобы длинная игра не улетала в космос.
 const PRESTIGE_CFG = {
   firstRequirement: 10,
-  stepMultiplier: 1.6,
+  stepMultiplier: 1.5,
   multiplierPerGalaxy: 1.6,
   multiplierCap: 1e6,
-  requirements: []
+  requirements: [10, 22, 35, 50, 75, 112, 150, 225, 337, 450, 675, 1010, 1350]
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -366,6 +367,63 @@ const GALAXY_LOD_CFG = {
     { level: 0, minSystems: 450, groupSize: 450, kind: 'supercluster',  label: 'Сверхскопление' },
   ],
 };
+
+// ─── Фазы галактики (VI–IX) ────────────────────────────────────
+// Фаза = LOD-группа. Порог входа — сколько систем уже собрано,
+// а квест фазы считает макро-объекты, из которых она состоит.
+const GALAXY_PHASES = [
+  { key: 'constellation', level: 3, num: 6, roman: 'VI',   start: 0,   need: 10,  title: 'Созвездие',      unit: 'звёзд',       macroOne: 'созвездие',      macroMany: 'созвездий' },
+  { key: 'nebula',        level: 2, num: 7, roman: 'VII',  start: 10,  need: 50,  title: 'Туманность',     unit: 'созвездий',   macroOne: 'туманность',     macroMany: 'туманностей' },
+  { key: 'cluster',       level: 1, num: 8, roman: 'VIII', start: 50,  need: 150, title: 'Скопление',      unit: 'туманностей', macroOne: 'скопление',      macroMany: 'скоплений' },
+  { key: 'supercluster',  level: 0, num: 9, roman: 'IX',   start: 150, need: 450, title: 'Сверхскопление', unit: 'скоплений',   macroOne: 'сверхскопление', macroMany: 'сверхскоплений' },
+];
+
+// Текущая фаза галактики для конкретного числа систем.
+function galaxyPhaseFor(systems) {
+  const n = Math.max(0, Math.floor(Number(systems) || 0));
+
+  if (n < 50) {
+    const p = GALAXY_PHASES[n < 10 ? 0 : 1];
+    const first = n < 10;
+    return {
+      key: p.key, num: p.num, roman: p.roman,
+      tag: 'ФАЗА ' + p.roman, title: p.title,
+      start: p.start, need: p.need,
+      progress: first ? n / 10 : (n - 10) / 40,
+      count: first ? n : Math.floor(n / 10),
+      countMax: first ? 10 : 5,
+      countUnit: p.unit,
+      questTitle: first ? 'Собери созвездие' : 'Собери туманность',
+      round: 1
+    };
+  }
+
+  if (n < 150) {
+    const p = GALAXY_PHASES[2];
+    return {
+      key: p.key, num: p.num, roman: p.roman,
+      tag: 'ФАЗА ' + p.roman, title: p.title,
+      start: p.start, need: p.need,
+      progress: (n - 50) / 100,
+      count: Math.floor(n / 50), countMax: 3, countUnit: p.unit,
+      questTitle: 'Собери скопление',
+      round: 1
+    };
+  }
+
+  const p = GALAXY_PHASES[3];
+  const round = Math.floor(n / 450) + 1;
+  const inRound = n % 450;
+  return {
+    key: p.key, num: p.num, roman: p.roman,
+    tag: 'ФАЗА ' + p.roman, title: p.title,
+    start: p.start, need: p.need,
+    progress: inRound / 450,
+    count: Math.floor(inRound / 150), countMax: 3, countUnit: p.unit,
+    questTitle: round > 1 ? 'Соберите ' + round + '-е сверхскопление' : 'Собери сверхскопление',
+    round: round
+  };
+}
 
 // ─── Уникальные имена макро-объектов ───────────────────────────
 // Имена не нумеруются как «Туманность 1», а берутся из астрономических
@@ -877,6 +935,8 @@ window.galaxyMacroName = galaxyMacroName;
 window.galaxyMacroGroupCount = galaxyMacroGroupCount;
 window.galaxyMaxLodForTotal = galaxyMaxLodForTotal;
 window.clampGalaxyLodForTotal = clampGalaxyLodForTotal;
+window.GALAXY_PHASES = GALAXY_PHASES;
+window.galaxyPhaseFor = galaxyPhaseFor;
 window.prestigeMultiplierFor = prestigeMultiplierFor;
 window.METALS_CFG = METALS_CFG;
 window.ECONOMY_CFG = ECONOMY_CFG;

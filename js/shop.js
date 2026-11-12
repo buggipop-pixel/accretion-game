@@ -399,6 +399,9 @@ function openSystemShop() {
     <button class="pour-btn" style="width:100%;margin-top:10px;background:rgba(255,94,94,0.2);border-color:rgba(255,94,94,0.5);color:#ff8a8a;" onclick="cancelSystemCreation()">✕ Отмена</button>
   `;
   document.getElementById('modal').classList.add('show');
+  if (typeof bindRangeDrag === 'function') {
+    bindRangeDrag(document.getElementById('shopBatchSlider'));
+  }
 }
 
 window.systemShopCosts = systemShopCosts;

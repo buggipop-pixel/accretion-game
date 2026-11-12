@@ -178,7 +178,7 @@ function toggleFullscreen() {
 // ─── Защита от жестов (скролл страницы и т.д.) ───────────────────
 document.addEventListener('touchmove', function(e) {
   const target = e.target;
-  if (target && target.closest && target.closest('.modal-card, .lore-content, .guide-panel, .quests-panel')) return;
+  if (target && target.closest && target.closest('input[type="range"], .modal-card, .lore-content, .guide-panel, .quests-panel')) return;
   if (e.touches.length > 1) { e.preventDefault(); return; }
   e.preventDefault();
 }, { passive: false });

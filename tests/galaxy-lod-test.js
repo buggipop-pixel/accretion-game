@@ -60,9 +60,9 @@ function assert(name, cond, extra) {
 const lod = context.galaxyLodForTotal;
 assert('LOD: 1 система → уровень 4 (звёзды)', lod(1) === 4);
 assert('LOD: 9 систем → уровень 4', lod(9) === 4);
-assert('LOD: 10 систем → уровень 3 (туманность)', lod(10) === 3);
+assert('LOD: 10 систем → уровень 3 (созвездие)', lod(10) === 3);
 assert('LOD: 49 систем → уровень 3', lod(49) === 3);
-assert('LOD: 50 систем → уровень 2 (созвездие)', lod(50) === 2);
+assert('LOD: 50 систем → уровень 2 (туманность)', lod(50) === 2);
 assert('LOD: 150 систем → уровень 1 (скопление)', lod(150) === 1);
 assert('LOD: 450 систем → уровень 0 (сверхскопление)', lod(450) === 0);
 assert('LOD: 1000 систем → уровень 0', lod(1000) === 0);
@@ -81,11 +81,11 @@ assert('LOD: 1000 систем на ур.3 = 100 макро-объектов', c
 
 // ─── Престиж ───
 const req = context.prestigeRequirements();
-assert('Престиж: ступени 10, 16, 26… (шаг 1.6)',
-  req[0] === 10 && req[1] === 16 && req[2] === 26);
+assert('Престиж: ступени 10, 22, 35, 50… (шаг 1.5)',
+  req[0] === 10 && req[1] === 22 && req[2] === 35 && req[3] === 50);
 assert('Престиж: 1-я вспышка с 10 систем', context.prestigeRequirementFor(0) === 10);
-assert('Престиж: 2-я вспышка с 16 систем', context.prestigeRequirementFor(1) === 16);
-assert('Престиж: 3-я вспышка с 26 систем', context.prestigeRequirementFor(2) === 26);
+assert('Престиж: 2-я вспышка с 22 систем', context.prestigeRequirementFor(1) === 22);
+assert('Престиж: 3-я вспышка с 35 систем', context.prestigeRequirementFor(2) === 35);
 assert('Престиж: лестница растёт дальше', req[5] > req[4] && req[6] > req[5]);
 assert('Престиж: 6-я вспышка по ступени', context.prestigeRequirementFor(5) === req[5]);
 

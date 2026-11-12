@@ -7,6 +7,9 @@ const S = {
   stage: 'cloud',
   tutorialStep: 0, // Обучалка: 0 — выключена, 1-5 — шаги
   tutorialDone: false, // Прошёл ли игрок обучение (не показываем повторно)
+  // ★ Новое поэтапное обучение (js/tutorial.js): прогресс по шагам.
+  //   done — карта пройденных шагов, off — пауза, isNew — первый запуск.
+  tut: { v: 2, done: {}, off: false, isNew: false, migrated: 0 },
   activeEvent: null, // legacy: старые глобальные события (мигрируют при загрузке)
   lastEventAt: 0, // legacy
   lastRandomEvent: 0, // legacy
@@ -378,6 +381,7 @@ function saveGame() {
       // Фаза и прогресс
       stage: S.stage, phaseProgress: S.phaseProgress, playerName: S.playerName || '',
       tutorialStep: S.tutorialStep, tutorialDone: !!S.tutorialDone,
+      tut: S.tut,
       lastIgnitionQuality: S.lastIgnitionQuality, assemblyCooldownUntil: S.assemblyCooldownUntil,
       evolutionPopupSuspended: S.evolutionPopupSuspended || false,
       // Ресурсы
@@ -482,6 +486,14 @@ function loadGame() {
     if (typeof S.tutorialStep !== 'number' || !isFinite(S.tutorialStep) || S.tutorialStep < 0 || S.tutorialStep > 5) S.tutorialStep = 0;
     S.tutorialStep = Math.floor(S.tutorialStep);
     if (typeof S.tutorialDone !== 'boolean') S.tutorialDone = false;
+    if (!S.tut || typeof S.tut !== 'object' || Array.isArray(S.tut)) {
+      S.tut = { v: 2, done: {}, off: false, isNew: false, migrated: 0 };
+    }
+    if (!S.tut.done || typeof S.tut.done !== 'object' || Array.isArray(S.tut.done)) S.tut.done = {};
+    if (typeof S.tut.off !== 'boolean') S.tut.off = false;
+    if (typeof S.tut.isNew !== 'boolean') S.tut.isNew = false;
+    if (typeof S.tut.migrated !== 'number') S.tut.migrated = 0;
+    if (typeof S.tut.v !== 'number') S.tut.v = 0;
     S.activeMinigame = null;
     if (typeof S.phaseProgress.cloud !== 'number') S.phaseProgress.cloud = 0;
     if (typeof S.phaseProgress.condense !== 'number') S.phaseProgress.condense = 0;
