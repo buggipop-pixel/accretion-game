@@ -123,32 +123,43 @@ function registerTelegramWebhook() {
   let attempt = 0;
   function tryRegister() {
     attempt++;
-    bot.setWebhook(url, options)
-      .then(() => {
-        console.log('[OK] Вебхук Telegram зарегистрирован: ' + url);
-        webhookState.configured = true;
-        webhookState.url = url;
-        return bot.getWebhookInfo();
-      })
-      .then((info) => {
-        if (!info) return;
-        const pending = Number(info.pending_update_count) || 0;
-        webhookState.pendingUpdates = pending;
-        webhookState.lastError = info.last_error_message || '';
-        if (info.last_error_message) {
-          console.warn('[webhook] Telegram сообщает об ошибке: ' + info.last_error_message);
-        } else {
-          console.log('[OK] Вебхук активен, в очереди обновлений: ' + pending);
-        }
-      })
-      .catch((err) => {
-        console.error('[ERROR] Не удалось зарегистрировать вебхук (попытка ' + attempt + '):', err.message);
-        if (attempt < 2) setTimeout(tryRegister, 15000);
-      });
+    try {
+      // ★ В node-telegram-bot-api методы пишутся как setWebHook/getWebHookInfo
+      //   (большая H). Опечатка раньше роняла весь сервер на старте.
+      bot.setWebHook(url, options)
+        .then(() => {
+          console.log('[OK] Вебхук Telegram зарегистрирован: ' + url);
+          webhookState.configured = true;
+          webhookState.url = url;
+          return bot.getWebHookInfo();
+        })
+        .then((info) => {
+          if (!info) return;
+          const pending = Number(info.pending_update_count) || 0;
+          webhookState.pendingUpdates = pending;
+          webhookState.lastError = info.last_error_message || '';
+          if (info.last_error_message) {
+            console.warn('[webhook] Telegram сообщает об ошибке: ' + info.last_error_message);
+          } else {
+            console.log('[OK] Вебхук активен, в очереди обновлений: ' + pending);
+          }
+        })
+        .catch((err) => {
+          console.error('[ERROR] Не удалось зарегистрировать вебхук (попытка ' + attempt + '):', err && err.message);
+          if (attempt < 2) setTimeout(tryRegister, 15000);
+        });
+    } catch (err) {
+      // Вебхук важнее всего, но падать из-за него сервер не должен.
+      console.error('[ERROR] setWebHook недоступен:', err && err.message);
+    }
   }
   tryRegister();
 }
-registerTelegramWebhook();
+try {
+  registerTelegramWebhook();
+} catch (e) {
+  console.error('[ERROR] Инициализация вебхука:', e && e.message);
+}
 // ─── Разбор команд Telegram ────────────────────────────────────
 // Меню команд, клавиатура и deep-link присылают текст по-разному:
 // "/start", "/Start", "/start@AccretionBot", "/start ref123".

@@ -16,6 +16,7 @@
 - `cloudflare-worker/worker.js` + `wrangler.toml` — Cron Trigger `*/5 * * * *` будит Render и запускает сканер; прокси пробрасывает `X-Telegram-Bot-Api-Secret-Token` и `X-Push-Secret`.
 - `js/notifications.js` — при сбое отправки сообщение возвращается в очередь (до 2 повторов), а не теряется; `js/cloudsave.js` — `sendPushNotification` возвращает true/false/null, `invasion_end` не гасится в активной игре (троттл 10 мин).
 - `DEPLOY.md`, `.env.example`, `cloudflare-worker/README.md` — настройка `PUSH_CRON_SECRET`, Cron Trigger и проверка.
+- **Hotfix после деплоя:** в `node-telegram-bot-api` методы называются `setWebHook`/`getWebHookInfo` (большая `H`), а не `setWebhook`. Опечатка роняла сервер на старте (`TypeError`, Render 502). Исправлено, регистрация обёрнута в try/catch, добавлен тест `tests/webhook-api-test.js` (6 проверок), который ловит такие опечатки.
 
 **Проверка:** `npm run test:all` — все наборы зелёные; новые `tests/push-notices-test.js` (36), `tests/worker-cron-test.js` (8), `tests/notify-lifecycle-test.js` расширен до 15.
 
