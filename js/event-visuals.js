@@ -125,6 +125,20 @@ function evvCurrent() {
   return { ar: ar, cfg: cfg, kind: cfg.kind };
 }
 
+// ─── Блокировка камеры в тап-фазе ──────────────────────────────
+// Пока идёт событие, где нужно тапать по цели (босс, «сбей осколки»),
+// зум и разворот групп галактики отключены: иначе второе касание
+// подряд уводит камеру вместе с целью прямо из-под пальца.
+function eventTapLockActive() {
+  if (typeof S === 'undefined' || !S) return false;
+  const ar = S.activeRandomEvent;
+  if (!ar || !ar.id) return false;
+  const cfg = evvEventCfg(ar.id);
+  const kind = (cfg && cfg.kind) || ar.kind;
+  return kind === 'boss' || kind === 'tap';
+}
+window.eventTapLockActive = eventTapLockActive;
+
 // ─── Геометрия сцены ───────────────────────────────────────────
 // Событие привязано к звезде (или к активной системе в галактике),
 // поэтому оно панорамируется и зумится вместе с миром, но всегда

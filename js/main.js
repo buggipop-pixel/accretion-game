@@ -315,6 +315,8 @@ window.rotateCamera = rotateCamera;
 // ─── Wheel (зум колесиком) ──────────────────────────────────────
 canvas.addEventListener('wheel', function(e) {
   e.preventDefault();
+  // ★ Тап-событие: цель должна оставаться под пальцем — колесо не зумит.
+  if (typeof eventTapLockActive === 'function' && eventTapLockActive()) return;
   const isMouseWheel = e.ctrlKey || e.deltaMode !== 0 ||
     (Math.abs(e.deltaY) >= 90 && Math.abs(e.deltaX) < 1);
 
@@ -406,6 +408,19 @@ canvas.addEventListener('pointerdown', function(e) {
     }
 
     if (S.stage === 'galaxy') {
+      // ★ Тап-событие: тап — это урон по цели, а не навигация по галактике.
+      // Двойной тап не «разворачивает» группу, одиночный не выделяет её.
+      if (typeof eventTapLockActive === 'function' && eventTapLockActive()) {
+        galaxyTap.idx = -1;
+        galaxyTap.macro = -1;
+        galaxyTap.at = 0;
+        isPanning = true;
+        panStartX = pos.x;
+        panStartY = pos.y;
+        panStartPanX = S.panX || 0;
+        panStartPanY = S.panY || 0;
+        return;
+      }
       const lod = galaxyLodLevel();
       const nowTap = performance.now();
       if (lod < 4) {
@@ -503,6 +518,9 @@ canvas.addEventListener('pointermove', function(e) {
 
   if (pointers.size === 2 && pinchStartDist > 0) {
     e.preventDefault();
+    // ★ Тап-событие: камера заморожена — второй палец тапает цель,
+    // а не зумит/крутит галактику.
+    if (typeof eventTapLockActive === 'function' && eventTapLockActive()) return;
     const pts = Array.from(pointers.values());
     const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
     S.zoom = clampZoom(pinchStartZoom * (d / pinchStartDist));
@@ -542,7 +560,8 @@ function onPointerRelease(e) {
   }
   pointers.delete(e.pointerId);
   if (pointers.size < 2) {
-    if (pinchZoomOutDetected && S.stage === 'galaxy' && (S.zoom || 1) < 0.3) {
+    const tapLock = (typeof eventTapLockActive === 'function' && eventTapLockActive());
+    if (!tapLock && pinchZoomOutDetected && S.stage === 'galaxy' && (S.zoom || 1) < 0.3) {
       const nextLevel = Math.max(0, galaxyLodLevel() - 1);
       if (nextLevel !== galaxyLodLevel()) {
         S.galaxyZoomLevel = nextLevel;
