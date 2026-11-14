@@ -82,6 +82,26 @@
 | `MAX_CLICKS_PER_SEC` | 30 | античит по кликам |
 | `CAPABILITY_ENFORCE` | выкл | блокировка необоснованных планет/систем |
 | `ENERGY_TO_DUST` / `CIV_TO_DUST` | 1e6 / 1e9 | пересчёт трат энергии/цив в пыль |
+| `PUSH_CRON_SECRET` | — | секрет для `POST /internal/push-scan`; без него внешний cron отключён (503) |
+| `PUBLIC_BASE_URL` | `RENDER_EXTERNAL_URL` | публичный адрес сервера для авторегистрации Telegram-вебхука |
+
+## 6.1. Оповещения в простое (Render free tier)
+
+★ Render засыпает без трафика, поэтому `node-cron` внутри процесса не
+тикает. Без внешнего триггера пуши приходят только после входа в игру.
+
+- [ ] Задать `WEBHOOK_SECRET` **и** `PUSH_CRON_SECRET` в Render → Environment.
+- [ ] В Cloudflare Worker (`cloudflare-worker/README.md`) задать тот же
+      `PUSH_CRON_SECRET` и включить Cron Trigger `*/5 * * * *`.
+- [ ] Убедиться, что в логе старта Render есть
+      `[OK] Вебхук Telegram зарегистрирован: …` (иначе `/start` не дошёт).
+- [ ] Проверить вручную:
+      `curl -X POST https://accretion-game.onrender.com/internal/push-scan -H "X-Push-Secret: …"`
+      → `202 {"ok":true,"started":true}`, в логах — `[push-scan] …`.
+
+Что теперь отправляется сервером без входа в игру: старт офлайн-волн
+вторжений, предупреждение о запустении, переполнение хранилища, конец
+щита/автобороны и «давно не виделись» (одно сообщение за отлучку).
 
 ## 7. Вебхук оплаты (обязательно перед прод-оплатой)
 

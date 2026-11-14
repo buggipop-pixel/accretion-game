@@ -126,6 +126,29 @@ function makeGame() {
     g.runTimers();
     assert('6. pushEnabled=false: пуш не отправлен', g.sent.length === 0);
   }
+  // 7. ★ Сбой доставки не теряет сообщение: оно возвращается в очередь
+  //    и уходит со следующей попытки.
+  {
+    const g = makeGame();
+    const original = g.context.sendPushNotification;
+    g.context.sendPushNotification = function () { return false; };
+    g.context.notifyEvent('fleet', 'Флот', ['x'], { key: 'f7' });
+    g.runTimers();
+    assert('7. Провал отправки — сообщение не потеряно', g.sent.length === 0);
+    assert('7. Повтор запланирован', g.timers.length === 1);
+    g.context.sendPushNotification = original;
+    g.runTimers();
+    assert('7. Со второй попытки сообщение ушло', g.sent.length === 1);
+  }
+
+  // 8. ★ Две подряд неудачи — после лимита попыток сообщение не копится вечно.
+  {
+    const g = makeGame();
+    g.context.sendPushNotification = function () { return false; };
+    g.context.notifyEvent('fleet', 'Флот', ['x'], { key: 'f8' });
+    for (let i = 0; i < 6; i++) g.runTimers();
+    assert('8. Очередь не растёт бесконечно при сбоях', g.timers.length === 0);
+  }
 
   console.log('========================================');
   console.log('ИТОГО: Пройдено ' + passed + ', Провалено ' + failed);

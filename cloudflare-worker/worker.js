@@ -51,8 +51,14 @@ export default {
     const headers = new Headers();
     const contentType = request.headers.get('Content-Type');
     if (contentType) headers.set('Content-Type', contentType);
-    const adminToken = request.headers.get('X-Admin-Token');
-    if (adminToken) headers.set('X-Admin-Token', adminToken);
+    // ★ Пробрасываем только нужные заголовки-секреты: иначе вебхук
+    //   Telegram (X-Telegram-Bot-Api-Secret-Token) и внешний cron
+    //   (X-Push-Secret) получают 403, если их направить через воркер.
+    const FORWARD_HEADERS = ['X-Admin-Token', 'X-Telegram-Bot-Api-Secret-Token', 'X-Push-Secret'];
+    for (const name of FORWARD_HEADERS) {
+      const value = request.headers.get(name);
+      if (value) headers.set(name, value);
+    }
     headers.set('Accept-Encoding', 'identity');
 
     const init = { method: request.method, headers, redirect: 'manual' };
@@ -86,5 +92,31 @@ export default {
       status: upstream.status,
       headers: outboundHeaders(upstream.headers)
     });
+  },
+
+  // ─── Cron Trigger: будим Render и запускаем серверный сканер ────
+  // ★ Render free tier засыпает → node-cron внутри сервера не тикает,
+  //   и пуши (вторжения, хранилище, щит, «давно не виделись») не уходят,
+  //   пока игрок не зайдёт в игру. Cloudflare Cron шлёт запрос каждые
+  //   5 минут: он будит Render и запускает проход по сейвам.
+  //   Настройка: Worker → Settings → Triggers → Cron `*/5 * * * *` и
+  //   переменная окружения PUSH_CRON_SECRET (та же, что на Render).
+  async scheduled(event, env, ctx) {
+    const secret = env && env.PUSH_CRON_SECRET;
+    if (!secret) {
+      console.warn('[cron] PUSH_CRON_SECRET не задан в Worker — проход пропущен');
+      return;
+    }
+    try {
+      const res = await fetch(UPSTREAM + '/internal/push-scan', {
+        method: 'POST',
+        headers: { 'X-Push-Secret': secret },
+        // Cold start Render может занять секунды: не держим воркер вечно.
+        signal: AbortSignal.timeout(25000),
+      });
+      console.log('[cron] push-scan → HTTP ' + res.status);
+    } catch (e) {
+      console.warn('[cron] push-scan error:', String(e));
+    }
   }
 };

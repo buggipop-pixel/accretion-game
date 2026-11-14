@@ -10,6 +10,7 @@ import {
 } from './lib/save-validation.js';
 import { createGameCore } from './lib/game-core.js';
 import { waveSchedule, buildWaveNotice } from './lib/attack-notices.js';
+import { collectNotices, sleepNotice, buildDigest } from './lib/push-notices.js';
 import {
   nextShieldEntitlement, overlayShieldEntitlement, isShieldSuspicious,
   clampShield,
@@ -28,6 +29,7 @@ import { clampReward, hasReward, maxExtraReward } from './lib/reward.js';
 import { capabilityAudit, remainingCapabilityBudget, chestCapabilityValue } from './lib/capability.js';
 import { applyAdminWallet, adminCapabilityBonus, adminEntitlementPlan } from './lib/admin-trust.js';
 import { summarizeSave } from './lib/admin-summary.js';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import TelegramBot from 'node-telegram-bot-api';
 import cron from 'node-cron';
@@ -39,6 +41,9 @@ const {
   UPSTASH_REDIS_REST_URL,
   UPSTASH_REDIS_REST_TOKEN,
   WEBHOOK_SECRET,
+  PUSH_CRON_SECRET,
+  PUBLIC_BASE_URL,
+  RENDER_EXTERNAL_URL,
   PORT = 10000,
 } = process.env;
 
@@ -94,6 +99,56 @@ bot.setChatMenuButton({
 }).then(() => console.log('[OK] Кнопка Play зарегистрирована'))
   .catch((err) => console.error('[ERROR] Ошибка регистрации кнопки Play:', err.message));
 
+// ─── Автоматическая регистрация вебхука ─────────────────────────
+// ★ Без setWebhook Telegram НЕ присылает /start на сервер: подписка
+//   tg_chat:<id> не создаётся, и все пуши молча отбрасываются как
+//   «нет подписки». Раньше вебхук регистрировали руками — забывали.
+//   Регистрируем сами (Render отдаёт RENDER_EXTERNAL_URL автоматически).
+//   Вебхук включаем только вместе с WEBHOOK_SECRET: /webhook fail-closed.
+const WEBHOOK_BASE = String(PUBLIC_BASE_URL || RENDER_EXTERNAL_URL || '').trim().replace(/\/+$/, '');
+// Диагностика для GET /: видно, настроен ли вебхук и нет ли ошибок.
+const webhookState = { configured: false, url: '', pendingUpdates: 0, lastError: '' };
+function registerTelegramWebhook() {
+  if (!WEBHOOK_BASE) {
+    console.warn('[webhook] PUBLIC_BASE_URL/RENDER_EXTERNAL_URL не задан — автоматическая регистрация вебхука пропущена');
+    return;
+  }
+  if (!WEBHOOK_SECRET) {
+    console.warn('[webhook] WEBHOOK_SECRET не задан — вебхук не регистрируем (иначе /start и оплата будут отклонены 403)');
+    return;
+  }
+  const url = WEBHOOK_BASE + '/webhook';
+  const options = { allowed_updates: ['message', 'pre_checkout_query'], secret_token: WEBHOOK_SECRET };
+  // Один повтор: сеть до Telegram иногда сбоит на старте.
+  let attempt = 0;
+  function tryRegister() {
+    attempt++;
+    bot.setWebhook(url, options)
+      .then(() => {
+        console.log('[OK] Вебхук Telegram зарегистрирован: ' + url);
+        webhookState.configured = true;
+        webhookState.url = url;
+        return bot.getWebhookInfo();
+      })
+      .then((info) => {
+        if (!info) return;
+        const pending = Number(info.pending_update_count) || 0;
+        webhookState.pendingUpdates = pending;
+        webhookState.lastError = info.last_error_message || '';
+        if (info.last_error_message) {
+          console.warn('[webhook] Telegram сообщает об ошибке: ' + info.last_error_message);
+        } else {
+          console.log('[OK] Вебхук активен, в очереди обновлений: ' + pending);
+        }
+      })
+      .catch((err) => {
+        console.error('[ERROR] Не удалось зарегистрировать вебхук (попытка ' + attempt + '):', err.message);
+        if (attempt < 2) setTimeout(tryRegister, 15000);
+      });
+  }
+  tryRegister();
+}
+registerTelegramWebhook();
 // ─── Разбор команд Telegram ────────────────────────────────────
 // Меню команд, клавиатура и deep-link присылают текст по-разному:
 // "/start", "/Start", "/start@AccretionBot", "/start ref123".
@@ -261,24 +316,37 @@ async function sendNotification(userId, text) {
     return false;
   }
 
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // ★ Доставка должна переживать временные сбои. Раньше был один повтор
+  //   только на 429, а сетевая ошибка/5xx/таймаут теряли уведомление навсегда.
+  //   Теперь — до 3 попыток с нарастающей паузой; 403 снимает подписку.
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
       await bot.sendMessage(String(userId), text, { parse_mode: 'HTML' });
       return true;
     } catch (e) {
       const status = e && e.response && e.response.statusCode;
-      console.warn(`[notify] Не удалось отправить ${userId}:`, e.message);
-      if (status === 403) {
-        try { await redisSet(`tg_chat:${userId}`, ''); } catch (e2) { /* ignore */ }
-        return false; // игрок заблокировал бота — повторять бессмысленно
+      console.warn(`[notify] Не удалось отправить ${userId} (попытка ${attempt + 1}/${MAX_ATTEMPTS}):`, e.message);
+      if (status === 403 || status === 400) {
+        // 403 — игрок заблокировал бота. 400 — Telegram не принял разметку
+        // (повтор не поможет). Снимаем подписку только на 403.
+        if (status === 403) {
+          try { await redisSet(`tg_chat:${userId}`, ''); } catch (e2) { /* ignore */ }
+        }
+        return false;
       }
-      if (status === 429 && attempt === 0) {
-        // Telegram: parameters.retry_after в секундах.
-        const retry = Number(e.response.body && e.response.body.parameters && e.response.body.parameters.retry_after) || 2;
-        await new Promise((r) => setTimeout(r, Math.min(10, Math.max(1, retry)) * 1000));
-        continue;
+
+      const lastAttempt = attempt === MAX_ATTEMPTS - 1;
+      if (lastAttempt) return false;
+
+      let waitMs = 1500 * (attempt + 1);
+      if (status === 429) {
+        const retry = Number(e.response && e.response.body && e.response.body.parameters && e.response.body.parameters.retry_after) || 2;
+        waitMs = Math.min(15, Math.max(1, retry)) * 1000;
+      } else if (typeof status === 'number' && status >= 400 && status < 500 && status !== 429) {
+        return false; // прочие 4xx повторять бессмысленно
       }
-      return false;
+      await new Promise((r) => setTimeout(r, waitMs));
     }
   }
   return false;
@@ -402,16 +470,24 @@ async function redisCommand(...args) {
 }
 
 async function redisScanAll(match, maxKeys = 500) {
-  const keys = [];
+  // ★ Set вместо includes: на большом количестве ключей O(n²) заметно
+  //   замедлял проход, а дубликаты SCAN всё равно отсекаются.
+  const seen = new Set();
   let cursor = '0';
   do {
     const [next, batch] = await redisCommand('SCAN', cursor, 'MATCH', match, 'COUNT', '200');
     cursor = String(next);
     if (Array.isArray(batch)) {
-      for (const k of batch) if (!keys.includes(k)) keys.push(k);
+      for (const k of batch) {
+        if (typeof k !== 'string') continue;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        if (seen.size >= maxKeys) break;
+      }
     }
-  } while (cursor !== '0' && keys.length < maxKeys);
-  return keys.slice(0, maxKeys);
+    if (seen.size >= maxKeys) break;
+  } while (cursor !== '0');
+  return Array.from(seen).slice(0, maxKeys);
 }
 
 // ─── Валидация initData ─────────────────────────────────────────
@@ -1366,15 +1442,36 @@ app.post('/api/buy-booster', async (req, res) => {
 });
 
 // ─── 4. Webhook от Telegram ────────────────────────────────────
+// Сравнение секретов постоянным временем (=== утекает по таймингам).
+function secretEquals(provided, expected) {
+  const a = Buffer.from(String(provided || ''), 'utf8');
+  const b = Buffer.from(String(expected || ''), 'utf8');
+  if (!a.length || a.length !== b.length) return false;
+  try { return crypto.timingSafeEqual(a, b); } catch (e) { return false; }
+}
+
 app.post('/webhook', async (req, res) => {
   try {
     const secret = req.headers['x-telegram-bot-api-secret-token'];
-    if (!WEBHOOK_SECRET || secret !== WEBHOOK_SECRET) {
+    if (!WEBHOOK_SECRET || !secretEquals(secret, WEBHOOK_SECRET)) {
       console.warn('[webhook] отклонён: WEBHOOK_SECRET не задан или не совпал');
       return res.sendStatus(403);
     }
 
     const update = req.body;
+
+    // ★ Идемпотентность: Telegram повторяет доставку при таймауте
+    //   (а Render free tier на холодном старте легко превышает его).
+    //   Без этого игрок получал повторные приветствия, а оплата
+    //   могла обрабатываться дважды.
+    if (update && update.update_id != null) {
+      const updateKey = `tg_update:${update.update_id}`;
+      try {
+        const first = await redisCommand('SET', updateKey, '1', 'NX', 'EX', 24 * 3600);
+        if (first !== 'OK') return res.sendStatus(200);
+      } catch (e) { /* Redis недоступен — обрабатываем как раньше */ }
+    }
+
 
     if (update.pre_checkout_query) {
       await bot.answerPreCheckoutQuery(update.pre_checkout_query.id, true);
@@ -1459,6 +1556,15 @@ app.get('/', (req, res) => res.json({
   ok: true,
   service: 'accretion-server',
   commit: process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || null,
+  // ★ Диагностика доставки: без вебхука /start не доходит и
+  //   tg_chat не создаётся — пуши молча теряются.
+  pushCronConfigured: !!PUSH_CRON_SECRET,
+  webhook: {
+    configured: webhookState.configured,
+    url: webhookState.url,
+    pendingUpdates: webhookState.pendingUpdates,
+    lastError: webhookState.lastError,
+  },
 }));
 
 // ─── 6. Админ-панель ───────────────────────────────────────────
@@ -2215,9 +2321,34 @@ app.post('/api/presence', async (req, res) => {
       reason: typeof reason === 'string' && reason ? reason.slice(0, 32) : (online ? 'active' : 'unknown'),
       idleSec: Math.max(0, Math.round(Number(idleSec) || 0)),
       // ★ Момент смены статуса: с него считаем реальное отсутствие.
-      changedAt: Math.max(0, Number(req.body && req.body.changedAt) || 0),
+      //   Клампим клиентские часы: «из будущего» или из прошлого века
+      //   значение иначе ломает окно отсутствия (и глушит все пуши).
+      changedAt: (function (v) {
+        const ts = Number(v) || 0;
+        if (!ts) return 0;
+        const nowMs = Date.now();
+        return Math.min(nowMs, Math.max(nowMs - 30 * 24 * 3600 * 1000, ts));
+      })(req.body && req.body.changedAt),
       at: Date.now(),
     };
+
+
+    // ★ Окно отсутствия храним отдельно от presence: если сервер проспит
+    //   всю отлучку, после возвращения lastActive уже другой — без якоря
+    //   волны этой отлучки терялись бы навсегда.
+    if (!online) {
+      try {
+        const from = payload.changedAt || Date.now();
+        const absenceKey = `absence:${user.id}`;
+        const prevAbsence = parseRedisJson(await redisGet(absenceKey));
+        const sameWindow = prevAbsence && Number(prevAbsence.from) === from;
+        await redisSet(absenceKey, JSON.stringify({
+          from: sameWindow ? Number(prevAbsence.from) : from,
+          at: Date.now(),
+        }));
+        await redisCommand('EXPIRE', absenceKey, 7 * 24 * 3600);
+      } catch (e) { /* некритично */ }
+    }
 
     const key = `presence:${user.id}`;
     await redisSet(key, JSON.stringify(payload));
@@ -2345,120 +2476,245 @@ async function warnNeglectSoon(userId, payload, preview, lastActive) {
   }
 }
 
-// ─── Cron: пуш об офлайн-вторжениях ─────────────────────────────
-// Игрок закрыл игру — клиент не может оповестить. Раз в 10 минут
-// смотрим сейвы: кто отсутствует > 2 ч и по кому набегают волны
-// вторжений, шлём одно предупреждение (не чаще раза в 3 часа).
-// ★ Не допускаем наложение проходов (долгий проход или второй инстанс):
-//   иначе возможны дубли пушев.
-let _waveCronBusy = false;
-cron.schedule('*/10 * * * *', async () => {
-  if (!gameCore || _waveCronBusy) return;
-  _waveCronBusy = true;
+// ─── Сканер серверных оповещений ─────────────────────────────────
+// ★ Игрок закрыл игру — клиентский rAF-цикл не тикает, поэтому
+//   переполнение хранилища, конец щита/автобороны и волны вторжений
+//   раньше генерировались только после входа в игру. Теперь сервер
+//   сам считает их по сейву и пишет в Telegram.
+//
+// Проход запускают три источника:
+//   1) внутренний cron */10 (пока инстанс жив);
+//   2) внешний Cloudflare Worker каждые 5 минут — на Render free tier
+//      инстанс засыпает, и без внешнего пинга cron не работает;
+//   3) один раз при старте (после пробуждения запросом).
+//
+// ★ Распределённая блокировка: проходы из cron и Worker не должны
+//   накладываться и дублировать пуши.
+
+const PUSH_SCAN_LOCK_KEY = 'push_scan:lock';
+const PUSH_SCAN_LOCK_TTL_SEC = 240;
+const PUSH_STATE_PREFIX = 'push_state:';
+const PUSH_STATE_TTL_SEC = 60 * 24 * 3600;
+let _pushScanBusy = false;
+
+async function acquirePushScanLock() {
+  try {
+    const r = await redisCommand('SET', PUSH_SCAN_LOCK_KEY, String(Date.now()), 'NX', 'EX', PUSH_SCAN_LOCK_TTL_SEC);
+    return r === 'OK';
+  } catch (e) {
+    // Без Redis не блокируем доставку: лучше редкий дубль, чем тишина.
+    console.warn('[push-scan] Redis-блокировка недоступна:', e.message);
+    return true;
+  }
+}
+
+async function releasePushScanLock() {
+  try { await redisCommand('DEL', PUSH_SCAN_LOCK_KEY); } catch (e) { /* ignore */ }
+}
+
+async function readPushState(userId) {
+  try {
+    const raw = await redisGet(PUSH_STATE_PREFIX + userId);
+    const parsed = parseRedisJson(raw);
+    return (parsed && typeof parsed === 'object') ? parsed : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+async function writePushState(userId, state) {
+  try {
+    await redisSet(PUSH_STATE_PREFIX + userId, JSON.stringify(state || {}));
+    await redisCommand('EXPIRE', PUSH_STATE_PREFIX + userId, PUSH_STATE_TTL_SEC);
+  } catch (e) { /* некритично */ }
+}
+
+// Лимиты хранилищ по тем же формулам, что и клиент.
+function computeStorageCaps(data) {
+  if (!gameCore) return null;
+  return withCoreState(data, () => ({
+    dust: gameCore.resourceCap('dust'),
+    energy: gameCore.resourceCap('energy'),
+    civ: gameCore.resourceCap('civ'),
+    metals: gameCore.resourceCap('metals'),
+  }));
+}
+
+/**
+ * Один проход по сейвам. Возвращает статистику (для /internal/push-scan).
+ * Никогда не бросает наружу: сбой одного игрока не рвёт весь проход.
+ */
+async function runPushScan(source) {
+  const startedAt = Date.now();
+  if (!gameCore) return { ok: false, skipped: 'no-game-core' };
+  if (_pushScanBusy) return { ok: false, skipped: 'busy' };
+  _pushScanBusy = true;
+  const locked = await acquirePushScanLock();
+  if (!locked) {
+    _pushScanBusy = false;
+    return { ok: false, skipped: 'locked' };
+  }
+
+  const stats = {
+    ok: true, source: source || 'cron',
+    scanned: 0, delivered: 0, failed: 0, skippedOnline: 0, errors: 0,
+  };
+
   try {
     const keys = await redisScanAll('cloudsave:*', 5000);
     const now = Date.now();
+
     for (const key of keys) {
       const userId = key.split(':')[1];
       if (!userId) continue;
-      const payload = parseRedisJson(await redisGet(key));
-      if (!payload || !payload.data || !payload.saved_at) continue;
-      const data = payload.data;
-      if (!(data.stage === 'system' || data.stage === 'galaxy')) continue;
-      const psettings = data.settings;
-      if (psettings && psettings.pushEnabled === false) continue;
 
-      // ★ Главный источник «когда игрок реально ушёл» — presence, а НЕ lastSeen.
-      //   Открытая в фоне вкладка продолжает автосейв и /api/load каждые 30 с,
-      //   поэтому lastSeen всегда свежий — и волны не пушились вообще.
-      const presence = await readUserPresence(userId);
-      const presAt = presence ? Number(presence.at) || 0 : 0;
-      const presChanged = presence ? Number(presence.changedAt) || presAt : 0;
-      const presFresh = presAt > 0 && now - presAt < 5 * 60 * 1000;
-      let lastActive;
-      if (presence && presAt > 0) {
-        if (presence.status === 'online' && presFresh) continue; // точно в игре
-        // Офлайн — с момента смены статуса; «онлайн, но молчит» — с последнего отчёта.
-        lastActive = presence.status === 'offline' ? (presChanged || presAt) : presAt;
-      } else {
-        const lastSeen = await lastSeenAt(userId);
-        if (lastSeen && now - lastSeen < 15 * 60 * 1000) continue; // старый клиент
-        lastActive = Math.max(Number(payload.saved_at) || 0, lastSeen);
+      try {
+        const payload = parseRedisJson(await redisGet(key));
+        if (!payload || !payload.data || !payload.saved_at) continue;
+        const data = payload.data;
+        if (!(data.stage === 'system' || data.stage === 'galaxy')) continue;
+        const psettings = data.settings;
+        if (psettings && psettings.pushEnabled === false) continue;
+        stats.scanned++;
+
+        // ★ «Когда игрок реально ушёл» — presence, а НЕ lastSeen: открытая
+        //   в фоне вкладка продолжает автосейв и /api/load, lastSeen свежий.
+        const presence = await readUserPresence(userId);
+        const presAt = presence ? Number(presence.at) || 0 : 0;
+        const presChanged = presence ? Number(presence.changedAt) || presAt : 0;
+        const presFresh = presAt > 0 && now - presAt < PRESENCE_ONLINE_STALE_SEC * 1000;
+        const onlineNow = !!(presence && presence.status === 'online' && presFresh);
+
+        // ★ Якорь последней отлучки пишет /api/presence. Он не даёт
+        //   «съехать» окну отсутствия после возвращения игрока.
+        const absence = parseRedisJson(await redisGet(`absence:${userId}`));
+        const absenceFrom = absence ? Number(absence.from) || 0 : 0;
+
+        let lastActive;
+        if (presence && presAt > 0) {
+          lastActive = presence.status === 'offline'
+            ? (absenceFrom || presChanged || presAt)
+            : (absenceFrom || presAt);
+        } else {
+          const lastSeen = await lastSeenAt(userId);
+          lastActive = Math.max(Number(payload.saved_at) || 0, lastSeen, absenceFrom);
+        }
+        const elapsedSec = Math.max(0, (now - lastActive) / 1000);
+
+        // 1. Хранилище / щит / автоборона. Считаем всегда, но если игрок
+        //    сейчас в игре — клиент показывает это сам; тихо фиксируем
+        //    состояние, чтобы при уходе не было дубля.
+        let noticeState = await readPushState(userId);
+        const caps = computeStorageCaps(data);
+        if (caps) {
+          const collected = collectNotices(data, caps, now, noticeState);
+          noticeState = collected.next;
+          if (!onlineNow && collected.notices.length) {
+            const text = buildDigest(collected.notices);
+            const ok = await sendNotification(userId, text);
+            if (ok) { stats.delivered++; await writePushState(userId, noticeState); }
+            else { stats.failed++; }
+          } else if (collected.changed) {
+            // ★ Состояние пишем и для игрока в игре: иначе, выйдя, он получит
+            //   запоздалый дубль о том, что уже видел в интерфейсе.
+            await writePushState(userId, noticeState);
+          }
+        }
+
+        if (onlineNow) { stats.skippedOnline++; continue; }
+
+        // 2. «Давно не виделись» — один раз за отлучку, по серверному времени.
+        const sleep = sleepNotice(data, lastActive, now, noticeState);
+        if (sleep) {
+          const ok = await sendNotification(userId, sleep.line);
+          if (ok) {
+            stats.delivered++;
+            noticeState.sleep = sleep.anchor;
+            await writePushState(userId, noticeState);
+          } else {
+            stats.failed++;
+          }
+        }
+
+        // 3. Офлайн-волны вторжений — не раньше 2 ч отсутствия.
+        if (elapsedSec < 2 * 3600) continue;
+        const preview = gameCore.previewOfflineInvasions(data, Math.min(elapsedSec, 30 * 24 * 3600));
+        if (!preview || preview.skipped) continue;
+
+        // Предупреждение за пару часов до запустения галактики.
+        await warnNeglectSoon(userId, payload, preview, lastActive);
+
+        const schedule = waveSchedule(preview);
+        if (!schedule) continue;
+        const waveKey = `tg_wave:${userId}`;
+        const anchor = String(lastActive);
+        const waveState = parseRedisJson(await redisGet(waveKey));
+        const notified = (waveState && waveState.anchor === anchor)
+          ? Math.max(0, Number(waveState.notified) || 0)
+          : 0;
+        if (schedule.attacks <= notified) continue;
+
+        // Одна свежая волна вместо пачки опоздавших.
+        const waveDelivered = await sendNotification(userId, buildWaveNotice(preview, schedule.attacks - 1));
+        if (!waveDelivered) { stats.failed++; continue; }
+        stats.delivered++;
+        await redisSet(waveKey, JSON.stringify({ anchor: anchor, notified: schedule.attacks }));
+        try { await redisCommand('EXPIRE', waveKey, 3 * 24 * 3600); } catch (e) { /* некритично */ }
+      } catch (e) {
+        stats.errors++;
+        console.error('[push-scan] игрок ' + userId + ':', e.message);
       }
-      const elapsedSec = Math.max(0, (now - lastActive) / 1000);
-      if (elapsedSec < 2 * 3600) continue;
-
-      const preview = gameCore.previewOfflineInvasions(data, Math.min(elapsedSec, 30 * 24 * 3600));
-      if (!preview || preview.skipped) continue;
-
-      // Предупреждение за пару часов до запустения галактики.
-      await warnNeglectSoon(userId, payload, preview, lastActive);
-
-      // ★ Пуш о СТАРТЕ каждой офлайн-волны. Раньше был один агрегат
-      //   «Галактика под атакой» не чаще раза в 3 часа — игрок узнавал
-      //   об атаке только из итогового отчёта при возвращении.
-      const schedule = waveSchedule(preview);
-      if (!schedule) continue;
-      const waveKey = `tg_wave:${userId}`;
-      // Одна и та же отлучка = один и тот же lastActive (якорь).
-      const anchor = String(lastActive);
-      const waveState = parseRedisJson(await redisGet(waveKey));
-      const notified = (waveState && waveState.anchor === anchor)
-        ? Math.max(0, Number(waveState.notified) || 0)
-        : 0;
-      if (schedule.attacks <= notified) continue;
-
-      // Если за один тик набежало несколько волн — пишем о самой свежей:
-      // лучше одно актуальное сообщение, чем пачка опоздавших.
-      // ★ Сначала доставка, потом отметка: сбой сети/Telegram не теряет волну.
-      const waveDelivered = await sendNotification(userId, buildWaveNotice(preview, schedule.attacks - 1));
-      if (!waveDelivered) continue;
-      await redisSet(waveKey, JSON.stringify({ anchor: anchor, notified: schedule.attacks }));
-      try { await redisCommand('EXPIRE', waveKey, 3 * 24 * 3600); } catch (e) { /* некритично */ }
     }
+
+    stats.ms = Date.now() - startedAt;
+    console.log('[push-scan] ' + stats.source + ': проверено ' + stats.scanned +
+      ', доставлено ' + stats.delivered +
+      ', ошибок ' + (stats.failed + stats.errors) +
+      ', в игре ' + stats.skippedOnline +
+      ', ' + stats.ms + ' мс');
+    return stats;
   } catch (e) {
-    console.error('[cron] офлайн-вторжения:', e.message);
+    console.error('[push-scan] проход:', e.message);
+    return { ok: false, error: e.message };
   } finally {
-    _waveCronBusy = false;
+    _pushScanBusy = false;
+    await releasePushScanLock();
   }
+}
+
+// Внутренний cron (работает, пока инстанс не уснул).
+cron.schedule('*/10 * * * *', () => { runPushScan('cron').catch(function () { /* ignore */ }); });
+
+// ─── Внешний триггер прохода (Cloudflare Worker Cron) ────────────
+// ★ Это главный фикс «оповещения только после входа в игру»:
+//   на Render free tier инстанс засыпает и node-cron не тикает.
+//   Worker присылает запрос каждые 5 минут — он будит инстанс и
+//   запускает проход. Секрет обязателен (fail-closed).
+function pushSecretMatches(provided) {
+  if (!PUSH_CRON_SECRET) return false;
+  const a = Buffer.from(String(provided || ''), 'utf8');
+  const b = Buffer.from(String(PUSH_CRON_SECRET), 'utf8');
+  if (a.length !== b.length) return false;
+  try { return crypto.timingSafeEqual(a, b); } catch (e) { return false; }
+}
+
+app.post('/internal/push-scan', (req, res) => {
+  if (!PUSH_CRON_SECRET) {
+    return res.status(503).json({ ok: false, error: 'push_cron_disabled' });
+  }
+  if (!pushSecretMatches(req.headers['x-push-secret'])) {
+    return res.status(403).json({ ok: false, error: 'forbidden' });
+  }
+  // Отвечаем сразу: холодный старт Render не должен держать Worker
+  // в ожидании, а проход продолжается в фоне.
+  res.status(202).json({ ok: true, started: true });
+  runPushScan('worker').catch((e) => console.error('[push-scan] worker:', e.message));
 });
 
-// ─── Cron: напоминание «спящим» игрокам (раз в день в 12:00) ────
-cron.schedule('0 12 * * *', async () => {
-  console.log('[cron] Проверка спящих игроков...');
-  try {
-    const keys = await redisScanAll('cloudsave:*', 5000);
-    for (const key of keys) {
-      const userId = key.split(':')[1];
-      const raw = await redisGet(key);
-      const payload = parseRedisJson(raw);
-      if (!payload || !payload.data) continue;
-
-      // Уважаем переключатель уведомлений в настройках игры.
-      const psettings = payload.data.settings;
-      if (psettings && psettings.pushEnabled === false) continue;
-
-      // ★ Считаем по СЕРВЕРНОМУ времени: клиентские часы могут врать на сутки
-      //   и вызывать ложный «давно не виделись» у активного игрока.
-      const lastSeen = await lastSeenAt(userId);
-      const lastActive = Math.max(
-        Number(payload.saved_at) || 0,
-        Number(payload.data.lastTick) || 0,
-        lastSeen
-      );
-      if (lastActive > 0 && Date.now() - lastActive <= 24 * 3600 * 1000) continue;
-
-      // ★ Один раз за отлучку (а не ежедневно).
-      const sleepKey = `sleep_notice:${userId}`;
-      const anchor = String(lastActive);
-      if (await redisGet(sleepKey) === anchor) continue;
-      const delivered = await sendNotification(userId, '💤 Давно не виделись! Ваша галактика ждет вас. Заберите ежедневную награду и проверьте хранилища.');
-      if (!delivered) continue;
-      await redisSet(sleepKey, anchor);
-      try { await redisCommand('EXPIRE', sleepKey, 45 * 24 * 3600); } catch (e) { /* некритично */ }
-    }
-  } catch (e) { console.error('[cron] Ошибка:', e.message); }
-}, { timezone: 'Europe/Moscow' });
+// ─── Стартовый проход ──────────────────────────────────────────
+// ★ Render free tier засыпает, и первый запрос будит инстанс. Догоняем
+//   уведомления, накопившиеся за время сна, сразу после старта.
+setTimeout(() => { runPushScan('startup').catch(function () { /* ignore */ }); }, 15 * 1000);
 
 const server = app.listen(PORT, () => {
   console.log(`[OK] Сервер успешно запущен на порту ${PORT}`);

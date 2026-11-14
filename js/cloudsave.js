@@ -1479,9 +1479,10 @@ window.__markPushActivity = presenceMarkActivity; // старое имя для 
 // Смена статуса — сразу сообщаем серверу, не ждём тика.
 onPresenceChange(function () { reportPresence(true); });
 
-// Не чаще одного пуша о вторжении, пока игрок в игре.
+// Не чаще одного пуша о вторжении/итогах, пока игрок в игре.
 const ONLINE_INVASION_PUSH_MIN_MS = 10 * 60 * 1000;
 let _lastOnlineInvasionPushAt = 0;
+let _lastOnlineReportPushAt = 0;
 let _noSubscriptionWarned = false;
 
 // Один раз за сессию: без /start у бота пуши уйти не могут.
@@ -1494,20 +1495,29 @@ function _notifyWarnNoSubscription() {
     }
   } catch (e) { /* ignore */ }
 }
+// Возвращает:
+//   true  — сервер принял пуш (даже если подписки нет — повторять нечего);
+//   false — сеть/сервер подвели, вызов стоит повторить;
+//   null  — отправлять не нужно (нет initData, пуши выключены, игрок в игре).
 async function sendPushNotification(message, type) {
   const initData = getTgInitData();
-  if (!initData) return; // Вне Telegram пуши недоступны
-  if (typeof S !== 'undefined' && S && S.settings && S.settings.pushEnabled === false) return;
+  if (!initData) return null; // Вне Telegram пуши недоступны
+  if (typeof S !== 'undefined' && S && S.settings && S.settings.pushEnabled === false) return null;
   // ★ Атака — критичное событие: её пушим даже в активной игре, но не чаще
   //   раза в 10 минут. Иначе игрок, увлечённый кликами, не узнаёт о вторжении,
   //   которое случилось в другой системе (жалоба «о нападении не приходит»).
   if (isPlayerOnlineForPush()) {
-    if (type !== 'invasion') return;
+    // ★ Атака и итоговый отчёт об офлайн-вторжениях — критичные события:
+    //   их пушим даже в активной игре (отчёт генерируется ровно в момент
+    //   возвращения, когда игрок online — раньше он терялся).
+    if (type !== 'invasion' && type !== 'invasion_end') return null;
     const now = Date.now();
-    if (now - _lastOnlineInvasionPushAt < ONLINE_INVASION_PUSH_MIN_MS) return;
-    _lastOnlineInvasionPushAt = now;
+    const lastAt = (type === 'invasion') ? _lastOnlineInvasionPushAt : _lastOnlineReportPushAt;
+    if (now - lastAt < ONLINE_INVASION_PUSH_MIN_MS) return null;
+    if (type === 'invasion') _lastOnlineInvasionPushAt = now;
+    else _lastOnlineReportPushAt = now;
   }
-  if (typeof message !== 'string' || !message.trim()) return;
+  if (typeof message !== 'string' || !message.trim()) return null;
 
   // ★ Тело пуша маленькое — шлём с keepalive: запрос доживёт, даже если
   //   игрок закрывает мини-апп или уходит в чат сразу после события.
@@ -1529,18 +1539,23 @@ async function sendPushNotification(message, type) {
         headers: { 'Content-Type': 'application/json' },
         body: body,
       });
-    } catch (e2) { /* silent */ }
+    } catch (e2) {
+      return false; // сеть недоступна — пусть очередь повторит
+    }
   }
 
+  if (!res) return false;
+  if (!res.ok) return false; // 401/429/5xx — повторяемо
+
   // ★ Сервер сказал, что подписки бота нет — предупредим игрока один раз.
+  //   Повторять бессмысленно: сначала нужно /start у бота.
   try {
-    if (res && res.ok) {
-      const data = (typeof res.clone === 'function')
-        ? await res.clone().json()
-        : await res.json();
-      if (data && data.subscribed === false) _notifyWarnNoSubscription();
-    }
+    const data = (typeof res.clone === 'function')
+      ? await res.clone().json()
+      : await res.json();
+    if (data && data.subscribed === false) _notifyWarnNoSubscription();
   } catch (e) { /* не JSON — ignore */ }
+  return true;
 }
 window.sendPushNotification = sendPushNotification;
 

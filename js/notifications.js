@@ -121,11 +121,13 @@ function notifyEnqueue(category, message) {
   if (!type) { notifyFlush(); return; }
   NOTIFY_STATE.timer = type(function () {
     NOTIFY_STATE.timer = null;
-    notifyFlush();
+    // notifyFlush теперь async: не оставляем unhandled rejection.
+    var _p = notifyFlush();
+    if (_p && typeof _p.catch === 'function') _p.catch(function () { /* ignore */ });
   }, NOTIFY_CFG.flushMs);
 }
 
-function notifyFlush() {
+async function notifyFlush() {
   // ★ Проверки — ДО очистки очереди: если sendPushNotification ещё не
   //   загружен (или облако инициализируется), сообщения не теряются,
   //   а уходят следующим flush-ом. Раньше очередь очищалась впустую.
@@ -139,27 +141,44 @@ function notifyFlush() {
   NOTIFY_STATE.queue = [];
 
   // Группируем по категории: несколько событий одной категории — одним сообщением.
+  // ★ Храним объекты, а не строки: при сбое отправки сообщение возвращается
+  //   в очередь с счётчиком попыток (раньше оно терялось после одного flush'а).
   const groups = Object.create(null);
   const order = [];
   for (let i = 0; i < queue.length; i++) {
     const item = queue[i];
     if (!groups[item.category]) { groups[item.category] = []; order.push(item.category); }
-    groups[item.category].push(item.message);
+    groups[item.category].push(item);
   }
+
   for (let i = 0; i < order.length; i++) {
     const category = order[i];
-    const messages = groups[category];
+    const items = groups[category];
     // Не больше 4 строк на категорию за один flush, остальное — следующей волной.
-    const chunk = messages.splice(0, 4);
-    try { sendPushNotification(chunk.join('\n\n'), category); } catch (e) { /* silent */ }
-    if (messages.length) {
-      for (let j = 0; j < messages.length; j++) NOTIFY_STATE.queue.push({ category: category, message: messages[j] });
+    const chunk = items.splice(0, 4);
+    let result = true;
+    try {
+      const out = sendPushNotification(chunk.map(function (x) { return x.message; }).join('\n\n'), category);
+      result = (out && typeof out.then === 'function') ? await out : out;
+    } catch (e) {
+      result = false;
     }
+
+    if (result === false) {
+      // Сеть/сервер подвели — повторим (максимум 2 доп. попытки).
+      for (let j = 0; j < chunk.length; j++) {
+        const item = chunk[j];
+        const attempts = (Number(item.attempts) || 0) + 1;
+        if (attempts <= 2) {
+          NOTIFY_STATE.queue.push({ category: item.category, message: item.message, attempts: attempts });
+        }
+      }
+    }
+
+    for (let j = 0; j < items.length; j++) NOTIFY_STATE.queue.push(items[j]);
   }
-  if (NOTIFY_STATE.queue.length && !NOTIFY_STATE.timer) {
-    const type = (typeof setTimeout === 'function') ? setTimeout : null;
-    if (type) NOTIFY_STATE.timer = type(function () { NOTIFY_STATE.timer = null; notifyFlush(); }, NOTIFY_CFG.flushMs);
-  }
+
+  if (NOTIFY_STATE.queue.length) _notifyScheduleFlush();
 }
 
 // Планирует отложенный flush (без дублей таймеров).
@@ -168,7 +187,8 @@ function _notifyScheduleFlush() {
   if (!type || NOTIFY_STATE.timer) return;
   NOTIFY_STATE.timer = type(function () {
     NOTIFY_STATE.timer = null;
-    notifyFlush();
+    var _p2 = notifyFlush();
+    if (_p2 && typeof _p2.catch === 'function') _p2.catch(function () { /* ignore */ });
   }, NOTIFY_CFG.flushMs);
 }
 
@@ -180,7 +200,8 @@ function notifyFlushNow() {
     try { clearTimeout(NOTIFY_STATE.timer); } catch (e) { /* ignore */ }
     NOTIFY_STATE.timer = null;
   }
-  notifyFlush();
+  var _p3 = notifyFlush();
+  if (_p3 && typeof _p3.catch === 'function') _p3.catch(function () { /* ignore */ });
 }
 window.notifyFlushNow = notifyFlushNow;
 

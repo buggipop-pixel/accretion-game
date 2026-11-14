@@ -1,0 +1,18 @@
+# ───────────────────────────────────────────────────────────────
+#  Cloudflare Worker конфигурация (деплой через `wrangler deploy`).
+#
+#  ВАЖНО: секрет PUSH_CRON_SECRET не хранится в файле — задайте его:
+#    npx wrangler secret put PUSH_CRON_SECRET
+#  (или Worker → Settings → Variables в Dashboard).
+#
+#  Cron Trigger будит Render каждые 5 минут и запускает серверный
+#  сканер оповещений — без этого на Render free tier пуши не уходят,
+#  пока игрок не войдёт в игру.
+# ───────────────────────────────────────────────────────────────
+
+name = "accretion-api-proxy"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+[triggers]
+crons = ["*/5 * * * *"]
