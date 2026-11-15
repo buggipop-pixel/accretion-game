@@ -848,6 +848,11 @@ function applyCloudSaveToRuntime(cloudData) {
     if (typeof updateUI === 'function') updateUI();
     if (typeof updateSystemSwitcher === 'function') updateSystemSwitcher();
     if (typeof checkAchievements === 'function') checkAchievements();
+    // ★ Сервер мог запустить интерактивное событие, пока игрок отсутствовал:
+    //   показываем его заново (с актуальным таймером) уже после применения
+    //   серверного состояния — событие «ждёт на экране», а не появляется
+    //   только при следующем входе.
+    if (typeof restoreRandomEvent === 'function') restoreRandomEvent();
   } catch (e) {
     console.warn('[CloudSave] ошибка обновления UI после применения сейва:', e);
   }

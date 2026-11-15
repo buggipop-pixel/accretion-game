@@ -1417,11 +1417,11 @@ function openNightMode() {
       <div class="row-stat"><span>Шанс отбития:</span><span style="color:${chanceColor}">${Math.round(totalChancePct)}%</span></div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Оборона +${Math.round(defChancePct)}% · Флот +${Math.round(previewFleetPct)}%${expPenalty > 0 ? ' · Экспедиция −' + expPenalty.toFixed(1) + '%' : ''}</span></div>
       ${shieldActive ? `<div class="row-stat"><span>⭐ Премиум-щит:</span><span style="color:#7ee0a8">100% (вторжения + события)</span></div>` : ''}
-      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Офлайн-атаки:</span><span>раз в ${offlineIntervalH} ч, до ${offlineMax} при запустении</span></div>
+      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Атаки мира:</span><span>раз в ${offlineIntervalH} ч — и без вас, до ${offlineMax} при запустении</span></div>
       <div class="row-stat" style="font-size:10px;color:#ff8a8a;"><span>☠️ Запустение:</span><span>с ${neglectFromLabel} отсутствия — больше атак</span></div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Кража за атаку:</span><span>до ${maxTheftMin} мин каждого ресурса</span></div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Штраф к доходу:</span><span>до −${debuffCapPct}% (все ресурсы)</span></div>
-      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Кап потерь за офлайн:</span><span>${offlineCapPct}% → до ${offlineMaxCapPct}% каждого ресурса</span></div>
+      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Кап потерь без присмотра:</span><span>${offlineCapPct}% → до ${offlineMaxCapPct}% каждого ресурса</span></div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Планеты:</span><span>до ${maxDisablePlanets} в простой на ${maxDisableHours} ч (дольше при запустении)</span></div>
       <div class="row-stat" style="font-size:10px;color:#ffb347;"><span>Системы:</span><span>при запустении выводятся из строя на часы</span></div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Длительность обороны:</span><span>${defenseHours} ч (щит 24 ч)</span></div>
@@ -1755,7 +1755,7 @@ function showNeglectReport(res) {
   const level = Math.max(0, Math.min(5, Number(res.neglectLevel) || 0));
   const rows = [];
 
-  rows.push('Вас не было <b>' + (totalHours >= 1 ? totalHours.toFixed(1) + ' ч' : Math.round(totalHours * 60) + ' мин') + '</b>. Галактика осталась без присмотра.');
+  rows.push('Мир жил без вас <b>' + (totalHours >= 1 ? totalHours.toFixed(1) + ' ч' : Math.round(totalHours * 60) + ' мин') + '</b>. Галактика осталась без присмотра, и атаки шли своим чередом.');
   rows.push('☠️ Уровень запустения: <b>' + level + ' / 5</b>');
   if (res.invasionAttacks > 0) {
     rows.push('⚔️ Атак: <b>' + res.invasionAttacks + '</b>' + (res.invasionDefended > 0 ? ' · отбито: ' + res.invasionDefended : ''));
@@ -1809,7 +1809,7 @@ window.galaxyNeglectChipText = galaxyNeglectChipText;
 //  ПЕРВЫЙ ЩИТ
 // ═══════════════════════════════════════════════════════════════
 function checkFirstNightShield(offlineSec) {
-  // Если офлайн > 2 часов и щит еще не выдавался
+  // Если отсутствие > 2 часов и щит еще не выдавался
   if (offlineSec > 2 * 3600 && !S.firstNightShieldUsed) {
     S.firstNightShieldUsed = true;
     S.shieldUntil = Math.max(S.shieldUntil || 0, Date.now() + 8 * 3600 * 1000);

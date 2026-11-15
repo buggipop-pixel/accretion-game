@@ -2256,7 +2256,10 @@ if (typeof tickInvasions === 'function') tickInvasions(dt);
 if (typeof checkEvolution === 'function') checkEvolution();
 if (typeof checkAchievements === 'function') checkAchievements();
 if (typeof tickProtostar === 'function') tickProtostar(dt);
-if (typeof checkRandomEvents === 'function') checkRandomEvents(dt);
+// ★ Пока облачная синхронизация при старте не завершилась, случайные
+//   события не разыгрываем: их ведёт сервер (живой мир). Иначе устаревший
+//   локальный lastDailyEventDay выдавал «событие при входе».
+if (typeof checkRandomEvents === 'function' && window.__cloudStartSettled !== false) checkRandomEvents(dt);
 if (typeof updateEventVisuals === 'function') updateEventVisuals(dt, time);
 checkStorageNotifications();
 checkTimedNotifications();
@@ -2439,14 +2442,23 @@ if (typeof initPrestige === 'function') initPrestige();
 if (typeof initEventLog === 'function') initEventLog();
 if (typeof checkDailyReset === 'function') checkDailyReset();
 if (typeof checkAchievements === 'function') checkAchievements();
-// ★ Сначала пробуем облако: если сервер применил сейв, офлайн уже посчитан
-// им по saved_at. Локальный расчёт — только fallback (облако недоступно или
-// пустое). Иначе второй девайс со старым lastTick присылал «Отсутствие: N ч»
-// и фейковые потери ещё до того, как облако перезапишет состояние.
-const deferLocalOffline = (typeof isCloudAvailable === 'function' && isCloudAvailable());
+// ★ Живой мир: если облако доступно, прогресс и события ведёт сервер в
+//   реальном времени. Локальную «офлайн-симуляцию» в этом режиме не запускаем
+//   и отчётов об отсутствии не показываем — актуальное состояние и активные
+//   события приходят с сервера (см. finishCloudStart). Локальный расчёт
+//   остаётся только для чистого офлайна (нет облака) как fallback.
+const cloudLive = (typeof isCloudAvailable === 'function' && isCloudAvailable());
+// ★ До завершения облачной синхронизации случайные события не разыгрываем:
+//   иначе устаревший локальный lastDailyEventDay выдавал «событие при входе».
+window.__cloudStartSettled = !cloudLive;
 let offline = null;
-if (deferLocalOffline) window.__deferOfflineNotify = true;
-if (typeof applyOfflineProgress === 'function') {
+if (cloudLive) {
+  // Отчёты об «отсутствии» в живом мире присылает сервер; локальные дубли
+  // не отправляем и не показываем.
+  window.__deferOfflineNotify = true;
+  window.__deferredOfflineResult = null;
+  window.__deferredOfflineReport = null;
+} else if (typeof applyOfflineProgress === 'function') {
   // ★ Офлайн-расчёт не должен мешать запуску игры: любая ошибка — просто
   //   пропускаем досчёт, но цикл и UI всё равно стартуют.
   try {
@@ -2456,35 +2468,32 @@ if (typeof applyOfflineProgress === 'function') {
     S.lastTick = Date.now();
   }
 }
-if (offline) {
-  if (deferLocalOffline) {
-    window.__deferredOfflineResult = offline;
-  } else if (typeof showOfflineReport === 'function') {
-    showOfflineReport(offline);
-  }
-}
+if (offline && typeof showOfflineReport === 'function') showOfflineReport(offline);
 
-// ★ Вызывается, когда syncCloudOnStart() завершился. Если облачный сейв
-// применился — выбрасываем локальный отчёт (сервер уже всё посчитал) и
-// закрепляем серверное начисление ближайшим сейвом. Если нет — показываем
-// локальный отчёт и досылаем отложенное уведомление в Telegram.
+// ★ Вызывается, когда syncCloudOnStart() завершился. В живом мире (облако
+// доступно) локальные отчёты об отсутствии не показываем вообще: мир шёл
+// дальше без игрока, а актуальное состояние и события уже на сервере.
+// Чистый локальный режим (нет облака) остаётся на прежнем пути.
 function finishCloudStart(applied) {
   // ★ applied === true значит, что синхронизация прошла: либо облако применено,
-  //   либо локальный сейв принят сервером. В обоих случаях офлайн уже посчитан
-  //   серверным временем, и локальный отчёт (по локальному lastTick) показывать
-  //   нельзя: замороженный WebView оставлял lastTick на дни назад, и игра писала
-  //   «Галактика в запустении» после часового отсутствия.
+  //   либо локальный сейв принят сервером. В живом мире прогресс и события
+  //   ведёт сервер, поэтому локальные отчёты «Отсутствие: N ч» / «Офлайн-прогресс»
+  //   не показываем и не отправляем — их присылает сервер.
   const cloudApplied = (window.__cloudSaveAppliedOnStart === true) || applied === true;
+  const cloudLive = (typeof isCloudAvailable === 'function' && isCloudAvailable());
   const hadDeferred = !!window.__deferredOfflineResult || window.__deferOfflineNotify === true;
-  window.__deferOfflineNotify = false;
-  if (cloudApplied) {
+  // ★ Синхронизация завершилась (успешно или нет) — разрешаем случайные события.
+  window.__cloudStartSettled = true;
+  if (cloudApplied || cloudLive) {
+    window.__deferOfflineNotify = cloudLive;
     window.__deferredOfflineResult = null;
     window.__deferredOfflineReport = null;
-    if (typeof autoSaveToCloud === 'function') {
+    if (cloudApplied && typeof autoSaveToCloud === 'function') {
       setTimeout(function () { autoSaveToCloud(true); }, 1500);
     }
     return;
   }
+  window.__deferOfflineNotify = false;
   if (!hadDeferred) return;
   if (window.__deferredOfflineResult && typeof showOfflineReport === 'function') {
     showOfflineReport(window.__deferredOfflineResult);
@@ -2553,7 +2562,7 @@ function showOfflineReport(offline) {
       const msg = losses.join(' · ') + (gains.length ? '<br>' + gains.join(' · ') : '');
       toast('⚠️ Возвращение', msg);
     } else if (gains.length) {
-      toast('Офлайн за ' + ts, gains.join(' · '));
+      toast('🌍 Мир жил ' + ts, gains.join(' · '));
     }
   }, 500);
 
@@ -2569,6 +2578,9 @@ let _awayCatchUpBusy = false;
 //   и из событий visible/focus/pageshow.
 function catchUpAwayProgress() {
   if (!window.__gameStarted || _awayCatchUpBusy) return null;
+  // ★ Живой мир: при доступном облаке прогресс и события считает сервер.
+  //   Локальный досчёт «отсутствия» и отчёт об офлайн-прогрессе не нужны.
+  if (typeof isCloudAvailable === 'function' && isCloudAvailable()) return null;
   const now = Date.now();
   const last = Number(S.lastTick) || now;
   // ★ Тот же порог, что у applyOfflineProgress: не теряем 30–60 с.

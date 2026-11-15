@@ -116,7 +116,7 @@ const EVENT_TYPE_LABELS = {
   planet_merge: 'Слияние планет', planet_destroyed: 'Планета уничтожена',
   system_formed: 'Основана система', system_lost: 'Система потеряна',
   prestige_done: 'Вспышка сверхновой', prime_found: 'Прайм-объект',
-  offline_income: 'Офлайн-прогресс', milestone: 'Веха',
+  offline_income: 'Живой прогресс', milestone: 'Веха',
   random_event: 'Случайное событие', random_event_win: 'Событие пройдено',
   random_event_fail: 'Событие провалено', random_event_shield: 'Щит поглотил событие', weekly_event: 'Недельное событие',
   weekly_event_buff: 'Недельный бафф', weekly_event_debuff: 'Недельный дебафф',
@@ -196,7 +196,7 @@ function _eventMetaValue(key, value) {
     return String(value);
   }
   if (key === 'source') {
-    if (value === 'offline') return 'офлайн-вторжение';
+    if (value === 'offline') return 'вторжение мира';
     if (value === 'live') return 'живое вторжение';
     return String(value);
   }

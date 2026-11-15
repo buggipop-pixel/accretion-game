@@ -9,7 +9,7 @@ import {
   detectSaveAnomalies,
 } from './lib/save-validation.js';
 import { createGameCore } from './lib/game-core.js';
-import { buildInvasionNotice, offlineWaveTargetLabel } from './lib/attack-notices.js';
+import { buildInvasionNotice, offlineSystemName, offlineWaveTargetLabel } from './lib/attack-notices.js';
 import { collectNotices, sleepNotice, buildDigest, formatNumber } from './lib/push-notices.js';
 import {
   nextShieldEntitlement, overlayShieldEntitlement, isShieldSuspicious,
@@ -1002,7 +1002,26 @@ app.post('/api/save', async (req, res) => {
         data: existing.data, saved_at: existing.saved_at, version: curVersion,
       });
     }
-
+    // ★ Живой мир: если клиент «проснулся» после долгой заморозки,
+    //   его lastTick мог отстать на часы. Досчитываем реальное время
+    //   сами, прежде чем ставить новый серверный якорь. События не
+    //   трогаем: их разыгрывает cron/load, чтобы не плодить пуши.
+    if (gameCore && typeof gameCore.worldTick === 'function') {
+      const existingTick = (existing && existing.data) ? Number(existing.data.worldTickAt) || 0 : 0;
+      const fromMs = Math.max(existingTick, Number(safeSave.worldTickAt) || 0) ||
+        Number(safeSave.lastTick) || 0;
+      if (fromMs > 0) {
+        const tick = gameCore.worldTick(safeSave, {
+          now: Date.now(),
+          fromMs: fromMs,
+          skipEvents: true,
+        });
+        if (tick && tick.data) {
+          safeSave = tick.data;
+          appendOfflineWaveEvents(safeSave, tick.out, Date.now());
+        }
+      }
+    }
     // ★ СВЕРКА С СЕРВЕРНЫМ КОШЕЛЬКОМ (только при SERVER_AUTHORITATIVE=1).
     // Клиент мог нарисовать баланс — его прирост принимается только в пределах
     // серверного начисления. Траты принимаются как есть.
@@ -1068,6 +1087,12 @@ app.post('/api/save', async (req, res) => {
         console.warn('[save] сверка с кошельком не удалась:', e.message);
       }
     }
+
+    // ★ Живой мир: сейв пришёл от активного клиента — время прожито
+    //   до этого момента. Ставим серверный якорь, чтобы следующий
+    //   серверный тик (когда игрок уйдёт) не начислил то же время снова.
+    safeSave.worldTickAt = Date.now();
+    safeSave.lastTick = safeSave.worldTickAt;
 
     // ★ Метку времени и номер версии ставит только СЕРВЕР.
     // Клиентским часам (Date.now() на телефоне/ПК/планшете) доверять нельзя —
@@ -1141,38 +1166,50 @@ app.post('/api/load', async (req, res) => {
 
     const payload = parseRedisJson(raw);
     if (!payload || typeof payload !== 'object') return res.status(500).json({ error: 'Corrupted cloud save' });
-    // ★ ОФЛАЙН-ДОХОД СЧИТАЕТ СЕРВЕР — по серверному времени сохранения.
-    // Клиентские часы и lastTick больше не участвуют: перевести часы назад
-    // или откатить lastTick, чтобы «доначислить» 8 часов, больше не работает.
-    // Сейв в Redis не меняем: начисление живёт в ответе и закрепится
-    // ближайшим сохранением клиента.
+    // ★ ЖИВОЙ МИР: сейв не «догоняет» игрока при входе — его всё это
+    // время проживал сервер. Тик применяем и здесь (последний проход
+    // cron мог быть до 10 минут назад) и сразу закрепляем в Redis,
+    // иначе возвращение снова превращалось бы в «симуляцию офлайна».
+    const nowLoad = Date.now();
     let data = payload.data;
     let offline = null;
     let authoritative = false;
     let walletView = null;
+    let loadVersion = Number(payload.version) || 0;
 
     if (gameCore && data && typeof data === 'object' && typeof data.stage === 'string' && payload.saved_at) {
-      try {
-        const elapsedSec = Math.max(0, (Date.now() - Number(payload.saved_at)) / 1000);
-        if (elapsedSec >= 30) {
-          const acc = gameCore.accrueOffline(data, Math.min(elapsedSec, 30 * 24 * 3600));
-          data = acc.data;
-          data.lastTick = Date.now();
+      let tick = null;
+      if (typeof gameCore.worldTick === 'function') {
+        try {
+          tick = gameCore.worldTick(data, {
+            now: nowLoad,
+            fromMs: Number(data.worldTickAt) || Number(payload.saved_at) || 0,
+          });
+        } catch (e) {
+          console.warn('[load] живой тик не удался:', e.message);
+          tick = null;
+        }
+      }
+      if (tick && tick.data) {
+        data = tick.data;
+        appendOfflineWaveEvents(data, tick.out, nowLoad);
+        appendWorldTickEvents(data, tick, nowLoad);
+        payload.data = data;
+        payload.saved_at = nowLoad;
+        payload.version = loadVersion + 1;
+        loadVersion = payload.version;
+        await redisSet(`cloudsave:${user.id}`, JSON.stringify(payload));
+        if (tick.out && Number(tick.elapsedSec) >= 30) {
           offline = {
-            seconds: Math.floor(elapsedSec),
-            dustEarned: acc.earned.dust,
-            energyEarned: acc.earned.energy,
-            civEarned: acc.earned.civ,
-            metalsEarned: acc.earned.metals || 0,
+            seconds: Number(tick.elapsedSec) || 0,
+            dustEarned: Number(tick.out.dustEarned) || 0,
+            energyEarned: Number(tick.out.energyEarned) || 0,
+            civEarned: Number(tick.out.civEarned) || 0,
+            metalsEarned: Number(tick.out.metalsEarned) || 0,
           };
         }
-      } catch (e) {
-        console.warn('[load] офлайн-расчёт не удался:', e.message);
-        data = payload.data;
-        offline = null;
       }
     }
-
     // ★ СЕРВЕРНЫЙ КОШЕЛЁК (вариант C, за флагом SERVER_AUTHORITATIVE=1).
     // Баланс ресурсов хранится на сервере и начисляется им же. Из сейва
     // берём только не-валютное состояние, ресурсы подменяем на свои.
@@ -2570,7 +2607,51 @@ function appendOfflineWaveEvents(data, out, now) {
       }, '☠️', '#ff2a2a');
   }
 }
+// ─── Живой мир: журнал и текст пушей ──────────────────────────
+// ★ Событие живёт по реальному времени и пишется в журнал сейва
+//   в момент срабатывания, а не в момент входа игрока.
+function appendWorldEventLog(data, cfg, kind, now) {
+  if (!data || !cfg) return;
+  if (!Array.isArray(data.eventLog)) data.eventLog = [];
+  const at = Number(now) || Date.now();
+  const icon = cfg.icon || (kind === 'weekly' ? '📅' : '🎲');
+  const type = kind === 'weekly' ? 'weekly_event' : 'random_event';
+  const text = icon + ' ' + String(cfg.title || 'Событие') +
+    (cfg.desc ? ' — ' + String(cfg.desc) : '');
+  data.eventLog.unshift({
+    ts: at, type: type, text: text, icon: icon,
+    color: cfg.color || '#b9a8ff',
+    meta: { eventId: cfg.id || null, source: 'world', tier: kind },
+  });
+  if (data.eventLog.length > 100) data.eventLog.length = 100;
+  data.eventLogUnread = Math.max(0, Number(data.eventLogUnread) || 0) + 1;
+}
 
+function appendWorldTickEvents(data, tick, now) {
+  const world = (tick && tick.world) ? tick.world : {};
+  appendWorldEventLog(data, world.daily, 'daily', now);
+  appendWorldEventLog(data, world.weekly, 'weekly', now);
+}
+
+function worldEventNotice(cfg, kind) {
+  if (!cfg) return '';
+  const icon = cfg.icon ? cfg.icon + ' ' : (kind === 'weekly' ? '📅 ' : '🎲 ');
+  const head = kind === 'weekly' ? '📅 <b>Событие недели!</b>' : '🎲 <b>Событие дня!</b>';
+  const desc = String(cfg.desc || '').trim();
+  let tail = '';
+  const hours = Number(cfg.durationHours) || 0;
+  if (hours > 0) tail = ' · ' + hours + ' ч';
+  return head + '\n' + icon + '<b>' + String(cfg.title || 'Событие') + '</b>' +
+    (desc ? ' — ' + desc : '') + tail;
+}
+
+function interactiveEventNotice(cfg) {
+  if (!cfg) return '';
+  const icon = cfg.icon ? cfg.icon + ' ' : '⚡ ';
+  return '⚡ <b>Новое событие в игре!</b>\n' + icon + '<b>' + String(cfg.title || 'Событие') +
+    '</b>' + (cfg.desc ? ' — ' + String(cfg.desc) : '') +
+    '\nОно уже идёт — зайдите, пока таймер не вышел.';
+}
 // ─── Сканер серверных оповещений ─────────────────────────────────
 // ★ Игрок закрыл игру — клиентский rAF-цикл не тикает, поэтому
 //   переполнение хранилища, конец щита/автобороны и волны вторжений
@@ -2653,6 +2734,7 @@ async function runPushScan(source) {
   const stats = {
     ok: true, source: source || 'cron',
     scanned: 0, delivered: 0, failed: 0, skippedOnline: 0, errors: 0,
+    worldTicked: 0, worldEvents: 0,
   };
 
   try {
@@ -2666,7 +2748,7 @@ async function runPushScan(source) {
       try {
         const payload = parseRedisJson(await redisGet(key));
         if (!payload || !payload.data || !payload.saved_at) continue;
-        const data = payload.data;
+        let data = payload.data;
         if (!(data.stage === 'system' || data.stage === 'galaxy')) continue;
         const psettings = data.settings;
         // ★ Пуши выключены — не шлём, но офлайн-вторжения всё равно
@@ -2698,29 +2780,90 @@ async function runPushScan(source) {
         }
         const elapsedSec = Math.max(0, (now - lastActive) / 1000);
 
-        // 1. Хранилище / щит / автоборона. Считаем всегда, но если игрок
-        //    сейчас в игре — клиент показывает это сам; тихо фиксируем
-        //    состояние, чтобы при уходе не было дубля.
+        // ─── ЖИВОЙ МИР ──────────────────────────────────────────
+        // ★ Игрок в игре — клиент ведёт состояние сам (иначе серверный тик
+        //   перебивал бы живой прогресс и плодил 409-конфликты). Тихо
+        //   фиксируем состояние уведомлений, чтобы не было запоздалых дублей.
+        if (onlineNow) {
+          const capsOnline = computeStorageCaps(data);
+          if (capsOnline) {
+            const onlineNotices = collectNotices(data, capsOnline, now, await readPushState(userId));
+            if (onlineNotices.changed) await writePushState(userId, onlineNotices.next);
+          }
+          stats.skippedOnline++;
+          continue;
+        }
+
+        // ★ Игрок не в сети — галактика продолжает жить на сервере.
+        //   Один тик: доход, миссии, накопленные волны вторжений и
+        //   дневные/недельные события. Результат сразу в Redis, поэтому
+        //   возвращение в игру больше не запускает «симуляцию офлайна»:
+        //   к приходу игрока галактика уже жила всё это время.
+        let tick = null;
+        if (typeof gameCore.worldTick === 'function') {
+          try {
+            tick = gameCore.worldTick(data, {
+              now,
+              fromMs: Number(data.worldTickAt) || Number(payload.saved_at) || 0,
+            });
+          } catch (e) {
+            console.warn('[push-scan] worldTick ' + userId + ':', e.message);
+            tick = null;
+          }
+        }
+        if (tick && tick.data) {
+          data = tick.data;
+          appendOfflineWaveEvents(data, tick.out, now);
+          appendWorldTickEvents(data, tick, now);
+          // ★ Без этой строки в Redis уходили бы saved_at/version,
+          //   но НЕ прожитое время: каждый проход тикал бы заново от
+          //   старого worldTickAt и пуши о событиях повторялись бы.
+          payload.data = data;
+          payload.saved_at = now;
+          payload.version = (Number(payload.version) || 0) + 1;
+          const persisted = await redisSet(key, JSON.stringify(payload));
+          if (!persisted) {
+            // ★ Состояние не сохранилось — не шлём пуши об этом тике,
+            //   иначе на следующем проходе они повторятся.
+            stats.errors++;
+            continue;
+          }
+          stats.worldTicked++;
+        }
+
+        // 1. События, случившиеся в этом тике — пуш в момент события.
+        if (pushEnabled && tick && tick.world) {
+          const fired = [];
+          if (tick.world.daily) fired.push({ cfg: tick.world.daily, kind: 'daily' });
+          if (tick.world.weekly) fired.push({ cfg: tick.world.weekly, kind: 'weekly' });
+          for (let fi = 0; fi < fired.length; fi++) {
+            const cfg = fired[fi].cfg;
+            const interactive = cfg.kind === 'boss' || cfg.kind === 'tap' || cfg.kind === 'choice';
+            const text = interactive ? interactiveEventNotice(cfg) : worldEventNotice(cfg, fired[fi].kind);
+            const ok = await sendNotification(userId, text);
+            if (ok) stats.delivered++; else stats.failed++;
+            stats.worldEvents++;
+            if (fi < fired.length - 1) await new Promise((r) => setTimeout(r, 400));
+          }
+        }
+
+        // 2. Хранилище / щит / автоборона — уже по свежему сейву.
         let noticeState = await readPushState(userId);
         const caps = computeStorageCaps(data);
         if (caps) {
           const collected = collectNotices(data, caps, now, noticeState);
           noticeState = collected.next;
-          if (!onlineNow && pushEnabled && collected.notices.length) {
+          if (pushEnabled && collected.notices.length) {
             const text = buildDigest(collected.notices);
             const ok = await sendNotification(userId, text);
             if (ok) { stats.delivered++; await writePushState(userId, noticeState); }
             else { stats.failed++; }
           } else if (collected.changed) {
-            // ★ Состояние пишем и для игрока в игре: иначе, выйдя, он получит
-            //   запоздалый дубль о том, что уже видел в интерфейсе.
             await writePushState(userId, noticeState);
           }
         }
 
-        if (onlineNow) { stats.skippedOnline++; continue; }
-
-        // 2. «Давно не виделись» — один раз за отлучку, по серверному времени.
+        // 3. «Давно не виделись» — один раз за отлучку, по серверному времени.
         const sleep = sleepNotice(data, lastActive, now, noticeState);
         if (sleep && pushEnabled) {
           const ok = await sendNotification(userId, sleep.line);
@@ -2733,69 +2876,32 @@ async function runPushScan(source) {
           }
         }
 
-        // 3. Офлайн-вторжения. ★ Сервер сам разыгрывает волну теми же
-        //    функциями, что и клиент (js/economy.js:simulateOfflineInvasions),
-        //    применяет её к сейву и шлёт ОБЫЧНОЕ уведомление о вторжении —
-        //    такое же, как при живом спавне. Никаких «Волна N из M ·
-        //    сложность до X/3 · Вас нет ~3 ч».
-        if (elapsedSec < 2 * 3600) continue;
-        const preview = gameCore.previewOfflineInvasions(data, Math.min(elapsedSec, 30 * 24 * 3600));
-        if (!preview || preview.skipped) continue;
-
-        // Предупреждение за пару часов до запустения галактики.
-        if (pushEnabled) await warnNeglectSoon(userId, payload, preview, lastActive);
-
-        if (typeof gameCore.applyOfflineInvasions !== 'function') continue;
-        const invasionCfg = gameCore.invasionConfig() || {};
-        const intervalMs = Math.max(60 * 1000,
-          Number(invasionCfg.offlineAttackInterval) || 3 * 3600 * 1000);
-
-        // ★ Якорь отлучки — lastActive, а «применено по» двигаем только на
-        //   целые интервалы атак: остаток (< 3 ч) не сгорает и даст волну
-        //   на следующем проходе.
-        const waveKey = `tg_wave:${userId}`;
-        const anchor = String(lastActive);
-        let waveState = parseRedisJson(await redisGet(waveKey));
-        if (!waveState || waveState.anchor !== anchor) {
-          waveState = { anchor: anchor, appliedAtMs: lastActive };
-        }
-        const appliedAtMs = Math.max(lastActive, Number(waveState.appliedAtMs) || lastActive);
-        const deltaMs = now - appliedAtMs;
-        if (deltaMs < intervalMs) continue;
-
-        const sim = gameCore.applyOfflineInvasions(data, Math.min(deltaMs / 1000, 30 * 24 * 3600));
-        if (!sim || !sim.data) continue;
-        const waves = (sim.out && Array.isArray(sim.out.invasionWaves)) ? sim.out.invasionWaves : [];
-
-        if (waves.length) {
-          // ★ Сначала фиксируем потери и журнал, потом уведомляем: сбой
-          //   отправки не должен привести к повторному списанию ресурсов.
-          appendOfflineWaveEvents(sim.data, sim.out, now);
-          await redisSet(key, JSON.stringify(Object.assign({}, payload, { data: sim.data })));
-        }
-
-        const nextApplied = now - (deltaMs % intervalMs);
-        await redisSet(waveKey, JSON.stringify({ anchor: anchor, appliedAtMs: nextApplied }));
-        try { await redisCommand('EXPIRE', waveKey, 30 * 24 * 3600); } catch (e) { /* некритично */ }
-
-        // Пуши выключены — потери уже применены, отправлять нечего.
-        if (!pushEnabled) continue;
-        // По обычному уведомлению на каждую волну — как будто игрок в игре.
-        for (let wi = 0; wi < waves.length; wi++) {
-          const wave = waves[wi] || {};
-          const tier = (invasionCfg.tiers && invasionCfg.tiers[wave.tierKey]) || {};
-          const rolled = gameCore.rollInvasionShips(wave.tierKey);
-          const text = buildInvasionNotice({
-            difficulty: Number(wave.difficulty) || Number(tier.difficulty) || 1,
-            tierLabel: wave.tierLabel || tier.label || '',
-            targetLabel: offlineWaveTargetLabel(sim.data, wave.systemIdx),
-            ships: (rolled && Array.isArray(rolled.ships)) ? rolled.ships : [],
-            robberyMin: Math.round((Number(invasionCfg.robberyDuration) || 45 * 60 * 1000) / 60000),
-            destructionMin: Math.round((Number(invasionCfg.destructionDuration) || 15 * 60 * 1000) / 60000),
-          });
-          const ok = await sendNotification(userId, text);
-          if (ok) stats.delivered++; else stats.failed++;
-          if (wi < waves.length - 1) await new Promise((r) => setTimeout(r, 400));
+        // 4. Вторжения из этого тика — обычное уведомление, как при живом спавне.
+        if (pushEnabled) {
+          const invasionCfg = gameCore.invasionConfig() || {};
+          const waves = (tick && tick.out && Array.isArray(tick.out.invasionWaves)) ? tick.out.invasionWaves : [];
+          for (let wi = 0; wi < waves.length; wi++) {
+            const wave = waves[wi] || {};
+            const tier = (invasionCfg.tiers && invasionCfg.tiers[wave.tierKey]) || {};
+            const rolled = gameCore.rollInvasionShips(wave.tierKey);
+            const text = buildInvasionNotice({
+              difficulty: Number(wave.difficulty) || Number(tier.difficulty) || 1,
+              tierLabel: wave.tierLabel || tier.label || '',
+              targetLabel: offlineWaveTargetLabel(data, wave.systemIdx),
+              ships: (rolled && Array.isArray(rolled.ships)) ? rolled.ships : [],
+              robberyMin: Math.round((Number(invasionCfg.robberyDuration) || 45 * 60 * 1000) / 60000),
+              destructionMin: Math.round((Number(invasionCfg.destructionDuration) || 15 * 60 * 1000) / 60000),
+            });
+            const ok = await sendNotification(userId, text);
+            if (ok) stats.delivered++; else stats.failed++;
+            if (wi < waves.length - 1) await new Promise((r) => setTimeout(r, 400));
+          }
+          if (tick && tick.out && Number(tick.out.awayHours) > 0) {
+            await warnNeglectSoon(userId, payload, {
+              awayHours: Number(tick.out.awayHours) || 0,
+              shieldProtected: !!tick.out.shieldProtected,
+            }, lastActive);
+          }
         }
       } catch (e) {
         stats.errors++;
@@ -2808,6 +2914,7 @@ async function runPushScan(source) {
       ', доставлено ' + stats.delivered +
       ', ошибок ' + (stats.failed + stats.errors) +
       ', в игре ' + stats.skippedOnline +
+      ', мир тикнут ' + stats.worldTicked + ' (' + stats.worldEvents + ' событий)' +
       ', ' + stats.ms + ' мс');
     return stats;
   } catch (e) {

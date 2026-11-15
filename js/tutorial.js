@@ -172,7 +172,7 @@
       id: 'sys_storage_up', ch: 'system', mode: 'action',
       when: function (s) { return s.stage === 'system'; },
       title: '📦 Улучши хранилище',
-      sub: 'Нажми «Улучшить» на карточке ✦ пыли — лимит вырастет, и офлайн-доход будет больше.',
+      sub: 'Нажми «Улучшить» на карточке ✦ пыли — лимит вырастет, и доход будет копиться дольше.',
       target: '.storage-cell[data-res="dust"] .storage-upgrade-btn',
       done: function (s) { return s.storageLevels && s.storageLevels.dust > 1; }
     },
@@ -367,7 +367,7 @@
       id: 'meta_save', ch: 'meta', mode: 'info', autoNext: 8000,
       when: function (s) { return (s.dustTotal || 0) > 1000; },
       title: '💾 Прогресс сохраняется',
-      sub: 'Игра сохраняется автоматически, в том числе в облако. Офлайн-доход начисляется при возвращении.',
+      sub: 'Игра сохраняется автоматически, в том числе в облако. Мир живёт и без вас: доход и события идут в реальном времени.',
       target: '#settingsBtn'
     }
   ];

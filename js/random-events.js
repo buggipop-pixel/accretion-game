@@ -815,6 +815,8 @@ function reCheckDaily(now) {
   if (!pool.length) return;
   const evt = rePickWeighted(pool, Math.random);
   if (evt) reFireDaily(evt);
+  // ★ Возвращаем сработавшее событие: серверный живой тик шлёт по нему пуш.
+  return evt || null;
 }
 
 function reGetDailyPool(now) {
@@ -925,6 +927,7 @@ function reCheckWeekly(now) {
   if (!evt) return;
   S.lastWeeklyEventWeek = week;
   reFireWeekly(evt, now);
+  return evt || null;
 }
 
 function reFireWeekly(evt, now) {
@@ -1041,6 +1044,29 @@ function reRestoreActiveEvent() {
   if (typeof toast === 'function') toast(cfg.icon + ' ' + cfg.title, 'Событие ждёт на экране · ' + reBriefingHint(cfg));
 }
 
+// ─── ЖИВОЙ МИР (СЕРВЕРНЫЙ ТИК) ────────────────────────────────
+// Один детерминированный тик без UI: чистит истёкшие мировые
+// эффекты, закрывает просроченное интерактивное событие без штрафа
+// (игрок был не в сети) и бросает дневное/недельное событие.
+// Возвращает сработавшие конфиги — сервер шлёт по ним уведомление.
+function reTickWorld(now) {
+  if (typeof S === 'undefined' || !S) return { daily: null, weekly: null, missed: null };
+  const t = Number(now) || reNow();
+  reEnsureState();
+  reSanitizeWorldEvents(t);
+
+  let missed = null;
+  if (S.activeRandomEvent && reEventRemainingSec(S.activeRandomEvent) <= 0) {
+    // ★ Мир живёт без игрока: событие истекает само и НЕ штрафует.
+    missed = reActiveEventCfg();
+    S.activeRandomEvent = null;
+  }
+
+  const daily = reCheckDaily(t);
+  const weekly = reCheckWeekly(t);
+  return { daily: daily || null, weekly: weekly || null, missed: missed || null };
+}
+
 // ─── ПУБЛИЧНЫЙ API ────────────────────────────────────────────
 
 window.RandomEvents = {
@@ -1066,6 +1092,7 @@ window.RandomEvents = {
   check: reCheckRandomEvents,
   checkDaily: reCheckDaily,
   checkWeekly: reCheckWeekly,
+  tickWorld: reTickWorld,
   restore: reRestoreActiveEvent,
   briefingHint: reBriefingHint,
   briefingReward: reBriefingReward,
@@ -1076,6 +1103,7 @@ window.RandomEvents = {
 
 window.checkRandomEvents = reCheckRandomEvents;
 window.tickRandomEvent = function(dt) { reTickInteractive(dt, reNow()); };
+window.tickWorldRandomEvents = reTickWorld;
 window.triggerRandomEvent = function(evtOrId) {
   const evt = (typeof evtOrId === 'string') ? reEventById(evtOrId) : evtOrId;
   if (!evt) return false;

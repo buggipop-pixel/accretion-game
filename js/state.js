@@ -18,6 +18,8 @@ const S = {
   lastDailyEventDay: 0, // индекс дня последнего ежедневного события
   lastWeeklyEventWeek: 0, // индекс недели последнего еженедельного события
   weeklyEventPlan: null, // { week, dayOffset, eventId }
+  worldTickAt: 0, // ★ серверный «живой мир»: до какого момента время уже прожито
+  worldAttackAccumSec: 0, // ★ накопленное время до следующей волны вторжений
   phaseProgress: { cloud: 0, condense: 0, protostar: 0 },
   lastIgnitionQuality: 0.5,
   protostarHeat: 0,
@@ -147,6 +149,8 @@ function resetStateValues() {
   S.lastDailyEventDay = 0;
   S.lastWeeklyEventWeek = 0;
   S.weeklyEventPlan = null;
+  S.worldTickAt = 0;
+  S.worldAttackAccumSec = 0;
   S.phaseProgress = { cloud: 0, condense: 0, protostar: 0 };
   S.lastIgnitionQuality = 0.5;
   S.protostarHeat = 0;
@@ -445,6 +449,7 @@ function saveGame() {
       // Античит и настройки
       anticheat: S.anticheat, sessionStart: S.sessionStart,
       settings: S.settings, lastTick: S.lastTick, gasDensity: S.gasDensity,
+      worldTickAt: S.worldTickAt || 0, worldAttackAccumSec: S.worldAttackAccumSec || 0,
 
       // MISS из missions.js
       missComets: (typeof MISS !== 'undefined') ? MISS.comets : [],
@@ -550,6 +555,8 @@ function loadGame() {
     if (typeof S.lastDailyEventDay !== 'number' || !isFinite(S.lastDailyEventDay)) S.lastDailyEventDay = 0;
     if (typeof S.lastWeeklyEventWeek !== 'number' || !isFinite(S.lastWeeklyEventWeek)) S.lastWeeklyEventWeek = 0;
     if (S.weeklyEventPlan && (typeof S.weeklyEventPlan !== 'object' || typeof S.weeklyEventPlan.week !== 'number')) S.weeklyEventPlan = null;
+    if (typeof S.worldTickAt !== 'number' || !isFinite(S.worldTickAt) || S.worldTickAt < 0) S.worldTickAt = 0;
+    if (typeof S.worldAttackAccumSec !== 'number' || !isFinite(S.worldAttackAccumSec) || S.worldAttackAccumSec < 0) S.worldAttackAccumSec = 0;
     // ★ Миграция старых глобальных событий в единую систему случайных событий.
     if (S.activeEvent && typeof S.activeEvent.endsAt === 'number' && S.activeEvent.endsAt > Date.now()) {
       const legacyMap = { comet_halley: 'lucky_star', solar_flare: 'energy_leak', space_storm: 'golden_hour', income: 'golden_hour' };

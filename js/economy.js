@@ -590,10 +590,11 @@ function tickCiv(dt) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  ОФЛАЙН-ПРОГРЕСС
+//  ЖИВОЙ ПРОГРЕСС
+//  (раньше назывался «офлайн»: мир идёт и без игрока, без отдельного режима)
 // ═══════════════════════════════════════════════════════════════
-function applyOfflineProgress(fromTick) {
-  const now = Date.now();
+function applyOfflineProgress(fromTick, nowOverride) {
+  const now = (typeof nowOverride === 'number' && isFinite(nowOverride)) ? nowOverride : Date.now();
   // ★ fromTick позволяет зафиксировать время отсутствия ДО ежедневного сброса
   //   и проверки достижений: они могут вызвать saveGame(), но lastTick уже снят.
   const baseTick = (typeof fromTick === 'number' && isFinite(fromTick)) ? fromTick : S.lastTick;
@@ -704,10 +705,22 @@ function applyOfflineProgress(fromTick) {
     }
   }
 
-  // Офлайн-атаки (только если офлайн > 1 часа или активен ночной режим)
-  const isNightActive = S.nightDefenseExpiresAt && S.nightDefenseExpiresAt > now;
-  if ((S.stage === 'system' || S.stage === 'galaxy') && (elapsedSec >= 3600 || isNightActive)) {
-    simulateOfflineInvasions(elapsedSec, out);
+  // ★ Живой мир: атаки копятся по реальному времени и срабатывают по
+  //   тому же интервалу (offlineAttackInterval = 3 ч), что и раньше.
+  //   Короткий серверный тик (5 мин) больше не «съедает» окно атаки:
+  //   остаток хранится в worldAttackAccumSec до следующего тика.
+  if (S.stage === 'system' || S.stage === 'galaxy') {
+    const attackIntervalSec = Math.max(60,
+      (Number(INVASION_CFG.offlineAttackInterval) || 3 * 3600 * 1000) / 1000);
+    const accum = Math.max(0, Number(S.worldAttackAccumSec) || 0) + elapsedSec;
+    if (accum >= attackIntervalSec) {
+      const windows = Math.floor(accum / attackIntervalSec);
+      const attackSec = windows * attackIntervalSec;
+      S.worldAttackAccumSec = accum - attackSec;
+      simulateOfflineInvasions(attackSec, out);
+    } else {
+      S.worldAttackAccumSec = accum;
+    }
   }
 
   // Ночные миссии завершились — сбрасываем их бюджет. Сама оборона
