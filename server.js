@@ -9,8 +9,8 @@ import {
   detectSaveAnomalies,
 } from './lib/save-validation.js';
 import { createGameCore } from './lib/game-core.js';
-import { waveSchedule, buildWaveNotice } from './lib/attack-notices.js';
-import { collectNotices, sleepNotice, buildDigest } from './lib/push-notices.js';
+import { buildInvasionNotice, offlineWaveTargetLabel } from './lib/attack-notices.js';
+import { collectNotices, sleepNotice, buildDigest, formatNumber } from './lib/push-notices.js';
 import {
   nextShieldEntitlement, overlayShieldEntitlement, isShieldSuspicious,
   clampShield,
@@ -2487,6 +2487,90 @@ async function warnNeglectSoon(userId, payload, preview, lastActive) {
   }
 }
 
+// ─── Офлайн-волна: потери и журнал ─────────────────────────────
+// ★ Уведомление и журнал должны говорить об одном и том же, поэтому
+//   и подпись цели (lib/attack-notices.js), и события строятся из
+//   результата gameCore.applyOfflineInvasions() — настоящей игровой логики.
+
+
+function offlineWaveLossParts(wave) {
+  const parts = [];
+  if ((Number(wave.dust) || 0) > 0) parts.push('✦ ' + formatNumber(wave.dust));
+  if ((Number(wave.energy) || 0) > 0) parts.push('⚡ ' + formatNumber(wave.energy));
+  if ((Number(wave.civ) || 0) > 0) parts.push('🧬 ' + (Math.round(Number(wave.civ) * 100) / 100));
+  if ((Number(wave.metals) || 0) > 0) parts.push('⚙ ' + formatNumber(wave.metals));
+  if ((Number(wave.disabled) || 0) > 0) parts.push('🪐 ' + Number(wave.disabled));
+  if ((Number(wave.fleetLost) || 0) > 0) parts.push('🚀 −' + Number(wave.fleetLost));
+  return parts;
+}
+
+/** Дописывает в сейв те же события журнала, что клиент пишет при возврате. */
+function appendOfflineWaveEvents(data, out, now) {
+  if (!data || !out) return;
+  const waves = Array.isArray(out.invasionWaves) ? out.invasionWaves : [];
+  if (!Array.isArray(data.eventLog)) data.eventLog = [];
+  const at = Number(now) || Date.now();
+
+  function pushEvent(type, text, meta, icon, color) {
+    data.eventLog.unshift({ ts: at, type: type, text: text, icon: icon, color: color, meta: meta || null });
+    if (data.eventLog.length > 100) data.eventLog.length = 100;
+    data.eventLogUnread = Math.max(0, Number(data.eventLogUnread) || 0) + 1;
+  }
+
+  for (let i = 0; i < waves.length; i++) {
+    const wave = waves[i] || {};
+    const meta = {
+      source: 'offline',
+      tierKey: wave.tierKey,
+      difficulty: Number(wave.difficulty) || 1,
+      outcome: wave.outcome,
+    };
+    if (Number(wave.systemIdx) >= 0) meta.systemIdx = Number(wave.systemIdx);
+    if ((Number(wave.dust) || 0) > 0) meta.lostDust = Math.floor(wave.dust);
+    if ((Number(wave.energy) || 0) > 0) meta.lostEnergy = Math.floor(wave.energy);
+    if ((Number(wave.civ) || 0) > 0) meta.lostCiv = Math.floor(Number(wave.civ) * 100) / 100;
+    if ((Number(wave.metals) || 0) > 0) meta.lostMetals = Math.floor(wave.metals);
+    if ((Number(wave.disabled) || 0) > 0) meta.planetsDisabled = Number(wave.disabled);
+    if ((Number(wave.fleetLost) || 0) > 0) meta.fleetLost = Number(wave.fleetLost);
+
+    const label = wave.tierLabel || wave.tierKey || '';
+    let text;
+    if (wave.outcome === 'repelled') {
+      text = 'вторжение «' + label + '» отбито до высадки · потерь нет';
+    } else {
+      const parts = offlineWaveLossParts(wave);
+      text = 'вторжение «' + label + '» прорвалось · ' +
+        (parts.length ? 'украдено: ' + parts.join(', ') : 'потерь ресурсов нет');
+    }
+    // Как в addEvent(): место атаки — префиксом к тексту.
+    if (meta.systemIdx !== undefined) {
+      text = 'В системе «' + offlineSystemName(data, meta.systemIdx) + '»: ' + text;
+    }
+    pushEvent('invasion_end', text, meta, '🏁', '#ff9944');
+  }
+
+  const disabled = Math.max(0, Number(out.invasionLost) || 0);
+  if (disabled > 0) {
+    pushEvent('invasion_destroy', 'Вторжения повредили ' + disabled + ' планет(ы)',
+      { count: disabled, source: 'offline' }, '💀', '#ff2a2a');
+  }
+  const level = Math.max(0, Number(out.neglectLevel) || 0);
+  const executed = Math.max(0, Number(out.invasionAttacks) || 0);
+  if (level > 0 && executed > 0) {
+    pushEvent('galaxy_neglect',
+      'Галактика в запустении ур.' + level + ': ' + executed + ' атак, повреждено систем: ' +
+      (Number(out.invasionSystemsDamaged) || 0) + ', планет: ' + disabled,
+      {
+        neglectLevel: level, awayHours: out.awayHours, attacks: executed,
+        defended: Number(out.invasionDefended) || 0, lostDust: Math.floor(out.invasionLostDust || 0),
+        lostEnergy: Math.floor(out.invasionDrainE || 0), lostCiv: Math.floor(out.invasionDrainC || 0),
+        lostMetals: Math.floor(out.invasionLostMetals || 0),
+        systemsDamaged: Number(out.invasionSystemsDamaged) || 0, planetsDisabled: disabled,
+        shieldProtected: !!out.shieldProtected,
+      }, '☠️', '#ff2a2a');
+  }
+}
+
 // ─── Сканер серверных оповещений ─────────────────────────────────
 // ★ Игрок закрыл игру — клиентский rAF-цикл не тикает, поэтому
 //   переполнение хранилища, конец щита/автобороны и волны вторжений
@@ -2585,7 +2669,9 @@ async function runPushScan(source) {
         const data = payload.data;
         if (!(data.stage === 'system' || data.stage === 'galaxy')) continue;
         const psettings = data.settings;
-        if (psettings && psettings.pushEnabled === false) continue;
+        // ★ Пуши выключены — не шлём, но офлайн-вторжения всё равно
+        //   применяем к сейву: это геймплей, а не уведомления.
+        const pushEnabled = !(psettings && psettings.pushEnabled === false);
         stats.scanned++;
 
         // ★ «Когда игрок реально ушёл» — presence, а НЕ lastSeen: открытая
@@ -2620,7 +2706,7 @@ async function runPushScan(source) {
         if (caps) {
           const collected = collectNotices(data, caps, now, noticeState);
           noticeState = collected.next;
-          if (!onlineNow && collected.notices.length) {
+          if (!onlineNow && pushEnabled && collected.notices.length) {
             const text = buildDigest(collected.notices);
             const ok = await sendNotification(userId, text);
             if (ok) { stats.delivered++; await writePushState(userId, noticeState); }
@@ -2636,7 +2722,7 @@ async function runPushScan(source) {
 
         // 2. «Давно не виделись» — один раз за отлучку, по серверному времени.
         const sleep = sleepNotice(data, lastActive, now, noticeState);
-        if (sleep) {
+        if (sleep && pushEnabled) {
           const ok = await sendNotification(userId, sleep.line);
           if (ok) {
             stats.delivered++;
@@ -2647,30 +2733,70 @@ async function runPushScan(source) {
           }
         }
 
-        // 3. Офлайн-волны вторжений — не раньше 2 ч отсутствия.
+        // 3. Офлайн-вторжения. ★ Сервер сам разыгрывает волну теми же
+        //    функциями, что и клиент (js/economy.js:simulateOfflineInvasions),
+        //    применяет её к сейву и шлёт ОБЫЧНОЕ уведомление о вторжении —
+        //    такое же, как при живом спавне. Никаких «Волна N из M ·
+        //    сложность до X/3 · Вас нет ~3 ч».
         if (elapsedSec < 2 * 3600) continue;
         const preview = gameCore.previewOfflineInvasions(data, Math.min(elapsedSec, 30 * 24 * 3600));
         if (!preview || preview.skipped) continue;
 
         // Предупреждение за пару часов до запустения галактики.
-        await warnNeglectSoon(userId, payload, preview, lastActive);
+        if (pushEnabled) await warnNeglectSoon(userId, payload, preview, lastActive);
 
-        const schedule = waveSchedule(preview);
-        if (!schedule) continue;
+        if (typeof gameCore.applyOfflineInvasions !== 'function') continue;
+        const invasionCfg = gameCore.invasionConfig() || {};
+        const intervalMs = Math.max(60 * 1000,
+          Number(invasionCfg.offlineAttackInterval) || 3 * 3600 * 1000);
+
+        // ★ Якорь отлучки — lastActive, а «применено по» двигаем только на
+        //   целые интервалы атак: остаток (< 3 ч) не сгорает и даст волну
+        //   на следующем проходе.
         const waveKey = `tg_wave:${userId}`;
         const anchor = String(lastActive);
-        const waveState = parseRedisJson(await redisGet(waveKey));
-        const notified = (waveState && waveState.anchor === anchor)
-          ? Math.max(0, Number(waveState.notified) || 0)
-          : 0;
-        if (schedule.attacks <= notified) continue;
+        let waveState = parseRedisJson(await redisGet(waveKey));
+        if (!waveState || waveState.anchor !== anchor) {
+          waveState = { anchor: anchor, appliedAtMs: lastActive };
+        }
+        const appliedAtMs = Math.max(lastActive, Number(waveState.appliedAtMs) || lastActive);
+        const deltaMs = now - appliedAtMs;
+        if (deltaMs < intervalMs) continue;
 
-        // Одна свежая волна вместо пачки опоздавших.
-        const waveDelivered = await sendNotification(userId, buildWaveNotice(preview, schedule.attacks - 1));
-        if (!waveDelivered) { stats.failed++; continue; }
-        stats.delivered++;
-        await redisSet(waveKey, JSON.stringify({ anchor: anchor, notified: schedule.attacks }));
-        try { await redisCommand('EXPIRE', waveKey, 3 * 24 * 3600); } catch (e) { /* некритично */ }
+        const sim = gameCore.applyOfflineInvasions(data, Math.min(deltaMs / 1000, 30 * 24 * 3600));
+        if (!sim || !sim.data) continue;
+        const waves = (sim.out && Array.isArray(sim.out.invasionWaves)) ? sim.out.invasionWaves : [];
+
+        if (waves.length) {
+          // ★ Сначала фиксируем потери и журнал, потом уведомляем: сбой
+          //   отправки не должен привести к повторному списанию ресурсов.
+          appendOfflineWaveEvents(sim.data, sim.out, now);
+          await redisSet(key, JSON.stringify(Object.assign({}, payload, { data: sim.data })));
+        }
+
+        const nextApplied = now - (deltaMs % intervalMs);
+        await redisSet(waveKey, JSON.stringify({ anchor: anchor, appliedAtMs: nextApplied }));
+        try { await redisCommand('EXPIRE', waveKey, 30 * 24 * 3600); } catch (e) { /* некритично */ }
+
+        // Пуши выключены — потери уже применены, отправлять нечего.
+        if (!pushEnabled) continue;
+        // По обычному уведомлению на каждую волну — как будто игрок в игре.
+        for (let wi = 0; wi < waves.length; wi++) {
+          const wave = waves[wi] || {};
+          const tier = (invasionCfg.tiers && invasionCfg.tiers[wave.tierKey]) || {};
+          const rolled = gameCore.rollInvasionShips(wave.tierKey);
+          const text = buildInvasionNotice({
+            difficulty: Number(wave.difficulty) || Number(tier.difficulty) || 1,
+            tierLabel: wave.tierLabel || tier.label || '',
+            targetLabel: offlineWaveTargetLabel(sim.data, wave.systemIdx),
+            ships: (rolled && Array.isArray(rolled.ships)) ? rolled.ships : [],
+            robberyMin: Math.round((Number(invasionCfg.robberyDuration) || 45 * 60 * 1000) / 60000),
+            destructionMin: Math.round((Number(invasionCfg.destructionDuration) || 15 * 60 * 1000) / 60000),
+          });
+          const ok = await sendNotification(userId, text);
+          if (ok) stats.delivered++; else stats.failed++;
+          if (wi < waves.length - 1) await new Promise((r) => setTimeout(r, 400));
+        }
       } catch (e) {
         stats.errors++;
         console.error('[push-scan] игрок ' + userId + ':', e.message);

@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
-//  ATTACK-NOTICES TEST — сервер должен знать, КОГДА начинается
-//  очередная офлайн-волна, чтобы прислать «⚔️ Вторжение!» ещё
-//  до возвращения игрока.
+//  ATTACK-NOTICES TEST — офлайн-волна идёт с ОБЫЧНЫМ уведомлением
+//  о вторжении (как живой спавн), а не с «Волна N из M · сложность
+//  до X/3 · Вас нет ~3 ч».
 //
 //  Запуск: node tests/attack-notices-test.js
 // ═══════════════════════════════════════════════════════════════
@@ -37,6 +37,7 @@ const MIN_SAVE = {
   shadow: 0,
   shieldUntil: 0,
   activeSystemIdx: 0,
+  systemName: 'Родная',
   planets: [
     { type: 'rocky', baseOrbitR: 1.1, orbitR: 110, mass: 1.4, radius: 8, forming: false },
     { type: 'gasGiant', baseOrbitR: 3.2, orbitR: 320, mass: 5.0, radius: 18, forming: false },
@@ -46,59 +47,102 @@ const MIN_SAVE = {
     { name: 'B', starType: 'K', planets: [{ type: 'rocky', baseOrbitR: 1, orbitR: 100, mass: 1, radius: 6, forming: false }] },
   ],
   fleet: { interceptor: 0, cruiser: 0, dreadnought: 0 },
+  invasionDebuff: { pct: 0, until: 0 },
+  nightDefenseLevel: 0,
+  settings: { pushEnabled: true },
 };
 
 (async () => {
-  console.log('🧪 ТЕСТЫ РАСПИСАНИЯ ОФЛАЙН-ВОЛН (attack-notices)');
+  console.log('🧪 ТЕСТЫ УВЕДОМЛЕНИЙ О ВТОРЖЕНИИ (attack-notices)');
 
-  const { waveSchedule, buildWaveNotice } = await import('../lib/attack-notices.js');
+  const {
+    buildInvasionNotice, shipsSummary, formatNoticeNumber, escapeNoticeText,
+    offlineSystemName, offlineWaveTargetLabel,
+  } = await import('../lib/attack-notices.js');
 
-  // 1. Защита от мусора.
-  assert('1. null → нет расписания', waveSchedule(null) === null);
-  assert('2. skipped → нет расписания', waveSchedule({ skipped: true, reason: 'shield' }) === null);
-  assert('3. attacks=0 → нет расписания', waveSchedule({ attacks: 0, attackWindowStartMs: 1, attackStepMs: 1 }) === null);
-  assert('4. без шага → нет расписания', waveSchedule({ attacks: 3, attackWindowStartMs: 1, attackStepMs: 0 }) === null);
+  // 1. Текст обычного уведомления — как notifyInvasionStart в клиенте.
+  const ships = [
+    { name: 'Корвет', hp: 100 },
+    { name: 'Корвет', hp: 120 },
+    { name: 'Истребитель', hp: 50 },
+  ];
+  const msg = buildInvasionNotice({
+    difficulty: 2,
+    tierLabel: 'Среднее (2)',
+    targetLabel: 'система «Родная»',
+    ships: ships,
+    robberyMin: 45,
+    destructionMin: 15,
+  });
+  assert('1. Заголовок — обычный «Вторжение! Сложность 2/3»',
+    msg.indexOf('⚔️ <b>Вторжение! Сложность 2/3</b>') === 0, msg);
+  assert('2. Цель вторжения указана', msg.indexOf('🎯 Цель: система «Родная»') !== -1, msg);
+  assert('3. Сложность и тип атаки', msg.indexOf('💀 Сложность: 2/3 · Среднее (2)') !== -1, msg);
+  assert('4. Состав эскадры с числом', msg.indexOf('Корвет ×2, Истребитель ×1 (3)') !== -1, msg);
+  assert('5. Суммарная прочность', msg.indexOf('❤️ Суммарная прочность: 270 HP') !== -1, msg);
+  assert('6. Таймеры ограбления/разрушения', msg.indexOf('⏱ Ограбление: 45 мин · Разрушение: 15 мин') !== -1, msg);
+  assert('7. Нет «волнового» шаблона', msg.indexOf('Волна') === -1 && msg.indexOf('Вас нет') === -1 && msg.indexOf('одна за другой') === -1, msg);
 
-  // 2. Расписание: середины интервалов.
-  const sched = waveSchedule({ attacks: 3, attackWindowStartMs: 1000, attackStepMs: 100 });
-  assert('5. Волн в расписании = attacks', sched && sched.attacks === 3);
-  assert('6. Времена волн = середины интервалов', sched && sched.times.join(',') === '1050,1150,1250',
-    sched && sched.times.join(','));
+  // 2. Зажим сложности и экранирование имён.
+  assert('8. Сложность не выходит за 1..3',
+    buildInvasionNotice({ difficulty: 99 }).indexOf('Сложность 3/3') !== -1 &&
+    buildInvasionNotice({ difficulty: 0 }).indexOf('Сложность 1/3') !== -1);
+  assert('9. HTML в имени системы экранируется',
+    buildInvasionNotice({ targetLabel: 'система «A<B>»' }).indexOf('&lt;B&gt;') !== -1);
+  assert('10. escapeNoticeText экранирует &, <, >',
+    escapeNoticeText('a&b<c>d') === 'a&amp;b&lt;c&gt;d');
 
-  // 3. Текст пуша.
-  const preview = {
-    attacks: 4,
-    awayHours: 9.5,
-    maxDifficulty: 3,
-    shieldProtected: false,
-  };
-  const msg = buildWaveNotice(preview, 2);
-  assert('7. Заголовок «Вторжение!»', msg.indexOf('⚔️ <b>Вторжение!</b>') === 0);
-  assert('8. Номер волны и всего', msg.indexOf('Волна <b>3</b> из <b>4</b>') !== -1, msg);
-  assert('9. Сложность «до 3/3»', msg.indexOf('3/3') !== -1);
-  assert('10. Часы отсутствия в тексте', msg.indexOf('9.5 ч') !== -1);
-  assert('11. Без щита нет строки про щит', msg.indexOf('🛡') === -1);
+  // 3. Вспомогательные функции.
+  assert('11. Без кораблей — (0)', shipsSummary([]).total === 0 && shipsSummary([]).text === '');
+  assert('12. Короткие числа', formatNoticeNumber(1500) === '1.5K' && formatNoticeNumber(2e6) === '2.00M');
+  assert('13. Имя активной системы', offlineSystemName(MIN_SAVE, 0) === 'Родная');
+  assert('14. Имя колонии по индексу', offlineSystemName(MIN_SAVE, 1) === 'B');
+  assert('15. Подпись цели «границы галактики» для -1',
+    offlineWaveTargetLabel(MIN_SAVE, -1) === 'границы галактики');
+  assert('16. Подпись цели-системы', offlineWaveTargetLabel(MIN_SAVE, 1) === 'система «B»');
 
-  const shielded = buildWaveNotice({ attacks: 2, awayHours: 0.5, maxDifficulty: 1, shieldProtected: true }, 0);
-  assert('12. Со щитом есть строка про щит', shielded.indexOf('🛡') !== -1);
-  assert('13. Минуты для короткого отсутствия', shielded.indexOf('30 мин') !== -1);
-  assert('14. Индекс волны зажимается в диапазон',
-    buildWaveNotice({ attacks: 2, awayHours: 1, maxDifficulty: 1 }, 99).indexOf('Волна <b>2</b> из <b>2</b>') !== -1);
-
-  // 4. Связка с серверным предпросмотром: после 22 ч отсутствия волны есть,
-  //    а расписание строится и лежит внутри окна отсутствия.
+  // 4. Серверный разыгрыш офлайн-волны настоящей игровой логикой.
   const { createGameCore } = await import('../lib/game-core.js');
   const core = createGameCore();
-  const awaySec = 22 * 3600;
-  const pv = core.previewOfflineInvasions(MIN_SAVE, awaySec);
-  assert('15. Предпросмотр за 22 ч не пуст', !!pv && !pv.skipped, pv && pv.reason);
-  assert('16. В предпросмотре есть окно волн', !!(pv && pv.attackWindowStartMs > 0));
-  assert('17. В предпросмотре есть шаг волн', !!(pv && pv.attackStepMs > 0));
-  const s2 = waveSchedule(pv);
-  assert('18. Расписание строится из предпросмотра', !!s2 && s2.attacks === pv.attacks);
-  const nowTs = Date.now();
-  assert('19. Все волны в прошлом (уже «начались»)', s2 && s2.times.every((t) => t <= nowTs + 1000));
-  assert('20. Волны идут по возрастанию', s2 && s2.times.every((t, i, a) => i === 0 || t > a[i - 1]));
+  assert('17. game-core отдаёт applyOfflineInvasions', typeof core.applyOfflineInvasions === 'function');
+  assert('18. game-core отдаёт rollInvasionShips', typeof core.rollInvasionShips === 'function');
+
+  const before = JSON.stringify(MIN_SAVE);
+  const sim = core.applyOfflineInvasions(MIN_SAVE, 3 * 3600);
+  assert('19. За 3 ч волна разыграна', !!sim && !!sim.data && !!sim.out, !!sim);
+  assert('20. Входной сейв не мутируется', JSON.stringify(MIN_SAVE) === before);
+
+  const waves = (sim && sim.out && Array.isArray(sim.out.invasionWaves)) ? sim.out.invasionWaves : [];
+  assert('21. Есть запись о волне', waves.length === 1, 'waves=' + waves.length);
+  const wave = waves[0] || {};
+  assert('22. У волны есть сложность 1..3', Number(wave.difficulty) >= 1 && Number(wave.difficulty) <= 3);
+  assert('23. У волны есть исход', wave.outcome === 'repelled' || wave.outcome === 'breached', wave.outcome);
+
+  // 5. Из этой самой волны строится обычное уведомление.
+  const rolled = core.rollInvasionShips(wave.tierKey || 'raid');
+  assert('24. rollInvasionShips вернул корабли', rolled.count > 0 && rolled.ships.length === rolled.count);
+  const cfg = core.invasionConfig();
+  const notice = buildInvasionNotice({
+    difficulty: wave.difficulty,
+    tierLabel: wave.tierLabel,
+    targetLabel: offlineWaveTargetLabel(sim.data, wave.systemIdx),
+    ships: rolled.ships,
+    robberyMin: Math.round(cfg.robberyDuration / 60000),
+    destructionMin: Math.round(cfg.destructionDuration / 60000),
+  });
+  assert('25. Пуш из волны — обычное «Вторжение!»', notice.indexOf('⚔️ <b>Вторжение! Сложность ' + wave.difficulty + '/3</b>') === 0, notice);
+  assert('26. В пуше есть цель', notice.indexOf('🎯 Цель: ') !== -1, notice);
+  assert('27. В пуше нет «сложность до»', notice.indexOf('сложность до') === -1, notice);
+  assert('28. В пуше нет номера волны', notice.indexOf('Волна') === -1, notice);
+
+  // 6. Короткое отсутствие — волн нет, ничего не списывается.
+  const short = core.applyOfflineInvasions(MIN_SAVE, 60);
+  assert('29. За минуту волн нет',
+    !!short && (!short.out.invasionWaves || short.out.invasionWaves.length === 0));
+  assert('30. Параметры конфига для расписания',
+    cfgnum(cfg.offlineAttackInterval) >= 60 * 1000 && cfgnum(cfg.offlineAttackMax) >= 1);
+
+  function cfgnum(v) { return Number(v) || 0; }
 
   console.log('========================================');
   console.log('ИТОГО: Пройдено ' + passed + ', Провалено ' + failed);
