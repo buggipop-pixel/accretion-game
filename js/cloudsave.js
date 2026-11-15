@@ -850,9 +850,14 @@ function applyCloudSaveToRuntime(cloudData) {
     if (typeof checkAchievements === 'function') checkAchievements();
     // ★ Сервер мог запустить интерактивное событие, пока игрок отсутствовал:
     //   показываем его заново (с актуальным таймером) уже после применения
-    //   серверного состояния — событие «ждёт на экране», а не появляется
-    //   только при следующем входе.
-    if (typeof restoreRandomEvent === 'function') restoreRandomEvent();
+    //   серверного состояния. Гейт по id: повторные применения того же сейва
+    //   (опрос версии, второе устройство) не должны спамить брифингом.
+    const nextEventId = (S && S.activeRandomEvent && S.activeRandomEvent.id)
+      ? String(S.activeRandomEvent.id) : null;
+    if (nextEventId !== window.__lastCloudEventId) {
+      window.__lastCloudEventId = nextEventId;
+      if (nextEventId && typeof restoreRandomEvent === 'function') restoreRandomEvent();
+    }
   } catch (e) {
     console.warn('[CloudSave] ошибка обновления UI после применения сейва:', e);
   }
@@ -1671,7 +1676,7 @@ async function pollCloudVersion() {
     const res = await cloudFetch('/api/load', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData })
+      body: JSON.stringify({ initData, peek: true })
     });
     const json = await res.json();
     if (!json || !json.ok || !isValidCloudSave(json.data)) return false;

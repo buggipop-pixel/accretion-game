@@ -1008,8 +1008,12 @@ app.post('/api/save', async (req, res) => {
     //   трогаем: их разыгрывает cron/load, чтобы не плодить пуши.
     if (gameCore && typeof gameCore.worldTick === 'function') {
       const existingTick = (existing && existing.data) ? Number(existing.data.worldTickAt) || 0 : 0;
-      const fromMs = Math.max(existingTick, Number(safeSave.worldTickAt) || 0) ||
-        Number(safeSave.lastTick) || 0;
+      // ★ Якорь — последний КЛИЕНТСКИЙ тик, а не прошлый серверный сейв:
+      //   живой клиент двигает lastTick каждый кадр, поэтому дельта ≈ 0
+      //   (доход уже начислен игровым циклом). worldTickAt тут не годится —
+      //   он отстаёт на интервал автосейва и давал двойное начисление.
+      const lastClientTick = Number(safeSave.lastTick) || 0;
+      const fromMs = Math.max(existingTick, lastClientTick);
       if (fromMs > 0) {
         const tick = gameCore.worldTick(safeSave, {
           now: Date.now(),
@@ -1019,6 +1023,11 @@ app.post('/api/save', async (req, res) => {
         if (tick && tick.data) {
           safeSave = tick.data;
           appendOfflineWaveEvents(safeSave, tick.out, Date.now());
+        } else {
+          // ★ Тик упал (баг в формулах) — не теряем сейв клиента, но
+          //   пишем в лог; якорь ниже сдвигается, т.к. состояние живого
+          //   клиента уже актуально.
+          console.warn('[save] живой досчёт не удался user=' + user.id);
         }
       }
     }
@@ -1133,7 +1142,7 @@ app.post('/api/save', async (req, res) => {
 
 app.post('/api/load', async (req, res) => {
   try {
-    const { initData } = req.body || {};
+    const { initData, peek } = req.body || {};
     const user = validateInitData(initData);
     if (!user) return res.status(401).json({ error: 'Invalid initData' });
     // ★ Игрок открыл игру — фиксируем присутствие. Именно на last_seen,
@@ -1164,8 +1173,18 @@ app.post('/api/load', async (req, res) => {
     const raw = await redisGet(`cloudsave:${user.id}`);
     if (!raw) return res.json({ ok: true, data: null, saved_at: 0 });
 
-    const payload = parseRedisJson(raw);
+    let payload = parseRedisJson(raw);
     if (!payload || typeof payload !== 'object') return res.status(500).json({ error: 'Corrupted cloud save' });
+    // ★ 30-секундный poll клиента — только чтение версии. Раньше он тоже
+    //   прогонял живой тик и бампал version, из-за чего живой игрок каждые
+    //   30 с откатывался к последнему автосейву. peek = без записи.
+    if (peek === true) {
+      return res.json({
+        ok: true, data: payload.data, saved_at: payload.saved_at,
+        version: Number(payload.version) || 0, offline: null,
+        authoritative: !!SERVER_AUTHORITATIVE, wallet: null,
+      });
+    }
     // ★ ЖИВОЙ МИР: сейв не «догоняет» игрока при входе — его всё это
     // время проживал сервер. Тик применяем и здесь (последний проход
     // cron мог быть до 10 минут назад) и сразу закрепляем в Redis,
@@ -1191,22 +1210,41 @@ app.post('/api/load', async (req, res) => {
         }
       }
       if (tick && tick.data) {
-        data = tick.data;
-        appendOfflineWaveEvents(data, tick.out, nowLoad);
-        appendWorldTickEvents(data, tick, nowLoad);
-        payload.data = data;
-        payload.saved_at = nowLoad;
-        payload.version = loadVersion + 1;
-        loadVersion = payload.version;
-        await redisSet(`cloudsave:${user.id}`, JSON.stringify(payload));
-        if (tick.out && Number(tick.elapsedSec) >= 30) {
-          offline = {
-            seconds: Number(tick.elapsedSec) || 0,
-            dustEarned: Number(tick.out.dustEarned) || 0,
-            energyEarned: Number(tick.out.energyEarned) || 0,
-            civEarned: Number(tick.out.civEarned) || 0,
-            metalsEarned: Number(tick.out.metalsEarned) || 0,
-          };
+        const world = tick.world || {};
+        const waveCount = (tick.out && Array.isArray(tick.out.invasionWaves))
+          ? tick.out.invasionWaves.length : 0;
+        // ★ Пишем в Redis только когда время реально прожито или случилось
+        //   событие. Иначе любой короткий load бампал бы version.
+        const meaningful = Number(tick.elapsedSec) >= 30 || !!world.daily ||
+          !!world.weekly || !!world.missed || waveCount > 0;
+        if (meaningful) {
+          data = tick.data;
+          appendOfflineWaveEvents(data, tick.out, nowLoad);
+          appendWorldTickEvents(data, tick, nowLoad);
+          payload.data = data;
+          payload.saved_at = nowLoad;
+          payload.version = loadVersion + 1;
+          const loadCas = await redisSetIfVersion(`cloudsave:${user.id}`,
+            JSON.stringify(payload), loadVersion);
+          loadVersion = payload.version;
+          if (!loadCas.ok) {
+            // ★ Пока читали/тикали, клиент успел сохраниться — его сейв новее.
+            const fresh = parseRedisJson(loadCas.currentRaw);
+            if (fresh && fresh.data) {
+              payload = fresh;
+              data = fresh.data;
+              loadVersion = Number(fresh.version) || 0;
+            }
+            offline = null;
+          } else if (tick.out && Number(tick.elapsedSec) >= 30) {
+            offline = {
+              seconds: Number(tick.elapsedSec) || 0,
+              dustEarned: Number(tick.out.dustEarned) || 0,
+              energyEarned: Number(tick.out.energyEarned) || 0,
+              civEarned: Number(tick.out.civEarned) || 0,
+              metalsEarned: Number(tick.out.metalsEarned) || 0,
+            };
+          }
         }
       }
     }
@@ -2668,7 +2706,7 @@ function interactiveEventNotice(cfg) {
 //   накладываться и дублировать пуши.
 
 const PUSH_SCAN_LOCK_KEY = 'push_scan:lock';
-const PUSH_SCAN_LOCK_TTL_SEC = 240;
+const PUSH_SCAN_LOCK_TTL_SEC = 600; // ★ проход может длиться >4 мин
 const PUSH_STATE_PREFIX = 'push_state:';
 const PUSH_STATE_TTL_SEC = 60 * 24 * 3600;
 let _pushScanBusy = false;
@@ -2686,6 +2724,14 @@ async function acquirePushScanLock() {
 
 async function releasePushScanLock() {
   try { await redisCommand('DEL', PUSH_SCAN_LOCK_KEY); } catch (e) { /* ignore */ }
+  try { await redisCommand('DEL', PUSH_SCAN_LOCK_KEY); } catch (e) { /* ignore */ }
+}
+
+// ★ Продление блокировки: длинный проход не должен «истечь» и запустить
+//   второй параллельный проход из 5-минутного Worker-cron.
+async function renewPushScanLock() {
+  try { await redisCommand('EXPIRE', PUSH_SCAN_LOCK_KEY, PUSH_SCAN_LOCK_TTL_SEC); }
+  catch (e) { /* некритично */ }
 }
 
 async function readPushState(userId) {
@@ -2739,6 +2785,9 @@ async function runPushScan(source) {
 
   try {
     const keys = await redisScanAll('cloudsave:*', 5000);
+    if (keys.length >= 5000) {
+      console.warn('[push-scan] лимит 5000 ключей: часть игроков не проверена');
+    }
     const now = Date.now();
 
     for (const key of keys) {
@@ -2748,6 +2797,7 @@ async function runPushScan(source) {
       try {
         const payload = parseRedisJson(await redisGet(key));
         if (!payload || !payload.data || !payload.saved_at) continue;
+        const readVersion = Number(payload.version) || 0;
         let data = payload.data;
         if (!(data.stage === 'system' || data.stage === 'galaxy')) continue;
         const psettings = data.settings;
@@ -2755,6 +2805,7 @@ async function runPushScan(source) {
         //   применяем к сейву: это геймплей, а не уведомления.
         const pushEnabled = !(psettings && psettings.pushEnabled === false);
         stats.scanned++;
+        if (stats.scanned % 50 === 0) await renewPushScanLock();
 
         // ★ «Когда игрок реально ушёл» — presence, а НЕ lastSeen: открытая
         //   в фоне вкладка продолжает автосейв и /api/load, lastSeen свежий.
@@ -2762,7 +2813,12 @@ async function runPushScan(source) {
         const presAt = presence ? Number(presence.at) || 0 : 0;
         const presChanged = presence ? Number(presence.changedAt) || presAt : 0;
         const presFresh = presAt > 0 && now - presAt < PRESENCE_ONLINE_STALE_SEC * 1000;
-        const onlineNow = !!(presence && presence.status === 'online' && presFresh);
+        // ★ Видимая, но «простаивающая» вкладка — игрок всё ещё в игре:
+        //   клиент продолжает тикать и автосохраняться. Не трогаем его сейв.
+        const idleButPlaying = !!(presence && presence.status === 'offline' &&
+          String(presence.reason || '') === 'idle' && presFresh);
+        const onlineNow = !!(presence && presFresh &&
+          (presence.status === 'online' || idleButPlaying));
 
         // ★ Якорь последней отлучки пишет /api/presence. Он не даёт
         //   «съехать» окну отсутствия после возвращения игрока.
@@ -2820,12 +2876,12 @@ async function runPushScan(source) {
           //   старого worldTickAt и пуши о событиях повторялись бы.
           payload.data = data;
           payload.saved_at = now;
-          payload.version = (Number(payload.version) || 0) + 1;
-          const persisted = await redisSet(key, JSON.stringify(payload));
-          if (!persisted) {
-            // ★ Состояние не сохранилось — не шлём пуши об этом тике,
-            //   иначе на следующем проходе они повторятся.
-            stats.errors++;
+          payload.version = readVersion + 1;
+          const scanCas = await redisSetIfVersion(key, JSON.stringify(payload), readVersion);
+          if (!scanCas.ok) {
+            // ★ Игрок сохранился, пока мы ждали Redis/присутствие — его
+            //   сейв новее: не перезаписываем и не шлём пуши об этом тике.
+            stats.conflicts = (stats.conflicts || 0) + 1;
             continue;
           }
           stats.worldTicked++;
