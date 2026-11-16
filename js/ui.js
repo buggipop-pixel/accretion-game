@@ -721,8 +721,9 @@ function getQuests() {
     // ★ Вспышка всегда первой: это главная цель и самый частый апгрейд.
     const prestigeReady = (typeof checkPrestigeAvailability === 'function')
       ? checkPrestigeAvailability() > 0 : false;
-    const prestigeNeed = (typeof prestigeRequirementFor === 'function')
-      ? (prestigeRequirementFor(S.prestigeLevel || 0) || 0) : 0;
+    const prestigeNeed = (typeof nextPrestigeRequirement === 'function')
+      ? (nextPrestigeRequirement() || 0)
+      : ((typeof prestigeRequirementFor === 'function') ? (prestigeRequirementFor(S.prestigeLevel || 0) || 0) : 0);
     if (prestigeReady) {
       list.push({ title: '💥 Сделать Вспышку (Доступна)', cur: 1, max: 1 });
     } else if (prestigeNeed > 0) {

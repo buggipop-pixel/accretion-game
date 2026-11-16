@@ -363,6 +363,115 @@ try {
   console.error('   prestige ladder: ' + e.message);
   assert('Престиж: лестница продолжается после 5-й вспышки', false);
 }
+// Тест 9б: кнопка Вспышки не пропадает — показывает оставшийся порог.
+// На 150 системах пересидевший игрок (уровень 7) получает догоняющую Вспышку.
+try {
+  const S = context.S;
+  const savedStage = S.stage;
+  const savedLevel = S.prestigeLevel;
+  const savedSystems = S.systems;
+  const savedCatchupCount = S.prestigeCatchupCount;
+  S.stage = 'galaxy';
+  S.prestigeLevel = 6;
+  S.systems = context.prestigeRequirementFor(6);
+  let st = context.prestigeButtonState();
+  assert(
+    'Кнопка Вспышки: на пороге активна',
+    st.visible === true && st.locked === false && st.text.indexOf('ВСПЫШКА') !== -1
+  );
+  S.prestigeLevel = 7;
+  S.prestigeCatchupMilestone = 0;
+  S.prestigeCatchupCount = 0;
+  S.systems = 150;
+  st = context.prestigeButtonState();
+  assert(
+    'Кнопка Вспышки: на 150 системах доступна догоняющая',
+    st.visible === true && st.locked === false && st.text.indexOf('ВСПЫШКА') !== -1,
+    JSON.stringify(st)
+  );
+  // После догоняющей на 150 следующий порог — 225: кнопка снова показывает прогресс.
+  S.prestigeLevel = 8;
+  S.prestigeCatchupMilestone = 150;
+  S.prestigeCatchupCount = 1;
+  S.systems = 200;
+  st = context.prestigeButtonState();
+  assert(
+    'Кнопка Вспышки: после догоняющей виден порог 225',
+    st.visible === true && st.locked === true &&
+    st.text.indexOf('200') !== -1 && st.text.indexOf('225') !== -1 &&
+    st.title.indexOf('225') !== -1,
+    JSON.stringify(st)
+  );
+  S.stage = 'cloud';
+  S.prestigeLevel = 0;
+  S.systems = 1;
+  st = context.prestigeButtonState();
+  assert('Кнопка Вспышки: до галактики скрыта', st.visible === false);
+  S.stage = savedStage;
+  S.prestigeLevel = savedLevel;
+  S.systems = savedSystems;
+  S.prestigeCatchupCount = savedCatchupCount;
+} catch (e) {
+  console.error('   prestige button: ' + e.message);
+  assert('Кнопка Вспышки: не пропадает вне порога', false);
+}
+// Тест 9в: догоняющая Вспышка на макро-рубеже (10/50/150/450…).
+try {
+  const S = context.S;
+  const saved = {
+    stage: S.stage, level: S.prestigeLevel, systems: S.systems,
+    catchup: S.prestigeCatchupMilestone,
+    catchupCount: S.prestigeCatchupCount,
+  };
+  S.stage = 'galaxy';
+  S.prestigeLevel = 7;
+  S.prestigeCatchupMilestone = 0;
+  S.systems = 150;
+  assert(
+    'Вспышка: на 150 системах догоняющая доступна',
+    context.checkPrestigeAvailability() === 8 &&
+    context.nextPrestigeRequirement() === 150 &&
+    context.prestigeCatchupNeed() === 150 &&
+    context.prestigeTierFor() === 7
+  );
+  // После догоняющей уровень вырос (8), но ступень лестницы осталась 7:
+  // следующая Вспышка всё ещё требует 225, а не прыгает через ступень.
+  S.prestigeLevel = 8;
+  S.prestigeCatchupCount = 1;
+  S.prestigeCatchupMilestone = 150;
+  S.systems = 200;
+  assert(
+    'Вспышка: использованный рубеж не даёт бесплатную',
+    context.prestigeTierFor() === 7 &&
+    context.checkPrestigeAvailability() === 0 &&
+    context.nextPrestigeRequirement() === 225
+  );
+  S.prestigeLevel = 7;
+  S.prestigeCatchupMilestone = 0;
+  S.prestigeCatchupCount = 0;
+  S.systems = 149;
+  assert(
+    'Вспышка: до рубежа 150 догоняющей нет',
+    context.checkPrestigeAvailability() === 0 &&
+    context.nextPrestigeRequirement() === 225
+  );
+  S.prestigeLevel = 10;
+  S.prestigeCatchupMilestone = 150;
+  S.systems = 450;
+  assert(
+    'Вспышка: следующий рубеж 450 даёт догоняющую',
+    context.checkPrestigeAvailability() === 11 &&
+    context.nextPrestigeRequirement() === 450
+  );
+  S.stage = saved.stage;
+  S.prestigeLevel = saved.level;
+  S.systems = saved.systems;
+  S.prestigeCatchupMilestone = saved.catchup;
+  S.prestigeCatchupCount = saved.catchupCount;
+} catch (e) {
+  console.error('   prestige catchup: ' + e.message);
+  assert('Вспышка: догоняющая на макро-рубеже', false);
+}
 // Тест 10: кривая множителя престижа шагом ×1.6.
 try {
   const fn = context.prestigeMultiplierFor;

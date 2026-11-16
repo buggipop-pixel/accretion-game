@@ -89,6 +89,8 @@ const S = {
   explosions: [],
   // ─── Престиж ───
   prestigeLevel: 0,
+  prestigeCatchupMilestone: 0,
+  prestigeCatchupCount: 0,
   galaxies: 1,
   galaxyForm: 'spiral',
   galaxyMultiplier: 1,
@@ -570,6 +572,19 @@ function loadGame() {
 
     // ─── 3. Престиж ───
     if (typeof S.prestigeLevel !== 'number') S.prestigeLevel = 0;
+    // ★ Макро-рубеж, на котором уже была догоняющая Вспышка (10/50/150/450…).
+    if (typeof S.prestigeCatchupMilestone !== 'number' || !isFinite(S.prestigeCatchupMilestone) || S.prestigeCatchupMilestone < 0) {
+      S.prestigeCatchupMilestone = 0;
+    } else {
+      S.prestigeCatchupMilestone = Math.floor(S.prestigeCatchupMilestone);
+    }
+    // ★ Сколько догоняющих Вспышек уже было: они дают уровень,
+    //   но не сдвигают требование лестницы (см. prestigeTierFor).
+    if (typeof S.prestigeCatchupCount !== 'number' || !isFinite(S.prestigeCatchupCount) || S.prestigeCatchupCount < 0) {
+      S.prestigeCatchupCount = 0;
+    } else {
+      S.prestigeCatchupCount = Math.floor(S.prestigeCatchupCount);
+    }
     if (typeof S.galaxies !== 'number') S.galaxies = 1;
     if (!S.galaxyForm) S.galaxyForm = 'spiral';
     if (typeof S.galaxyMultiplier !== 'number') S.galaxyMultiplier = 1;

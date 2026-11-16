@@ -195,9 +195,52 @@ function prestigeRequirementFor(level) {
   return list[idx] || list[list.length - 1] || (PRESTIGE_CFG.firstRequirement || 5);
 }
 
+// ★ Макро-рубеж, на котором стоит игрок: 10 / 50 / 150, затем каждые 450.
+//   На этих рубежах Вспышка должна быть доступна даже тем, кто «пересидел»
+//   лестницу требований (старые сейвы с высоким prestigeLevel).
+function prestigeMilestoneFor(systems) {
+  const n = Math.max(0, Math.floor(Number(systems) || 0));
+  if (n >= 450) return Math.floor(n / 450) * 450;
+  if (n >= 150) return 150;
+  if (n >= 50) return 50;
+  if (n >= 10) return 10;
+  return 0;
+}
+
+// Догоняющее требование: рубеж, если обычное требование лестницы
+// для текущего уровня выше, чем системы. 0 — догоняющая не нужна.
+// Рубеж срабатывает один раз: после вспышки он запоминается
+// в S.prestigeCatchupMilestone и больше бесплатных вспышек не даёт.
+
+// Ступень лестницы: уровень вспышек минус догоняющие вспышки.
+// Догоняющая даёт уровень/множитель, но не сдвигает требование вперёд —
+// иначе после неё следующий порог прыгал бы через ступень.
+function prestigeTierFor() {
+  const level = Math.max(0, Math.floor(Number(S.prestigeLevel) || 0));
+  const catchups = Math.min(level, Math.max(0, Math.floor(Number(S.prestigeCatchupCount) || 0)));
+  return Math.max(0, level - catchups);
+}
+function prestigeCatchupNeed() {
+  const systems = Math.max(0, Number(S.systems) || 0);
+  const milestone = prestigeMilestoneFor(systems);
+  // Догоняющая только у крупных рубежей и только рядом с ними.
+  if (!milestone || milestone < 50) return 0;
+  if (systems > milestone * 1.2) return 0;
+  const used = Math.max(0, Number(S.prestigeCatchupMilestone) || 0);
+  if (used >= milestone) return 0;
+  const base = prestigeRequirementFor(prestigeTierFor());
+  return base > systems ? milestone : 0;
+}
+
+// Требование, которое реально проверяет игра (с учётом догоняющей вспышки).
+function nextPrestigeRequirement() {
+  const catchup = prestigeCatchupNeed();
+  return catchup || prestigeRequirementFor(prestigeTierFor());
+}
+
 // ─── Проверка доступности престижа ───────────────────────────────
 function checkPrestigeAvailability() {
-  const need = prestigeRequirementFor(S.prestigeLevel || 0);
+  const need = nextPrestigeRequirement();
   if (need && S.systems >= need) return (S.prestigeLevel || 0) + 1;
   return 0;
 }
@@ -207,7 +250,11 @@ function checkPrestigeAvailability() {
 function activateSupernova() {
   const availableLevel = checkPrestigeAvailability();
   if (!availableLevel) {
-    toast('Вспышка Сверхновой', 'Недостаточно систем для престижа');
+    const need = nextPrestigeRequirement();
+    const systems = Math.max(0, Number(S.systems) || 0);
+    toast('Вспышка Сверхновой', need
+      ? ('Нужно ' + need + ' систем — сейчас ' + systems)
+      : 'Недостаточно систем для престижа');
     return;
   }
 
@@ -286,8 +333,14 @@ function activateSupernova() {
     ? '<div class="row-stat"><span>👑 Лучшая Прайм:</span><span>' + bestPrime.name +
       ' · ' + ((bestPrime.data && bestPrime.data.objectName) || bestPrime.data.objectKey || 'реликвия') + '</span></div>'
     : '';
+  const catchupNeed = (typeof prestigeCatchupNeed === 'function') ? prestigeCatchupNeed() : 0;
+  const catchupNote = catchupNeed
+    ? '<div class="row-stat"><span>⭐ Догоняющая:</span><span>на рубеже ' + catchupNeed + ' систем</span></div>'
+    : '';
+  const tierNow = (typeof prestigeTierFor === 'function') ? prestigeTierFor() : (S.prestigeLevel || 0);
+  const nextTier = catchupNeed ? tierNow : (tierNow + 1);
   const nextReq = (typeof prestigeRequirementFor === 'function')
-    ? prestigeRequirementFor(availableLevel) : 0;
+    ? prestigeRequirementFor(nextTier) : 0;
   const nextReqPhase = (nextReq && typeof galaxyPhaseFor === 'function')
     ? galaxyPhaseFor(nextReq) : null;
   const info = `
@@ -295,6 +348,7 @@ function activateSupernova() {
       <div class="row-stat"><span>Галактик:</span><span>${S.galaxies || 1} ➔ ${(S.galaxies || 1) + 1}</span></div>
       <div class="row-stat"><span>Множитель дохода:</span><span>×${curMult.toFixed(1)} ➔ ×${nextMult.toFixed(1)}</span></div>
       <div class="row-stat"><span>Следующая Вспышка:</span><span>${nextReq} систем${nextReqPhase ? ' · ' + nextReqPhase.title : ''}</span></div>
+      ${catchupNote}
       <div class="row-stat"><span>Форма галактики:</span><span>${formNames[curForm]} ➔ ${formNames[nextForm]}</span></div>
       <div class="row-stat"><span>Систем после:</span><span>${survivingMin}–${survivingMax} (родная + ${primeCount} прайм + ${keepRange.min}–${keepRange.max} обычных)</span></div>
       <div class="row-stat"><span>Потеряется:</span><span>${lostMin}–${lostMax} обычных</span></div>
@@ -442,6 +496,18 @@ function performSupernova(level) {
   const oldCenterX = -oldPanX / oldZoom;
   const oldCenterY = -oldPanY / oldZoom;
 
+  // ★ Догоняющая вспышка: запоминаем рубеж, на котором она случилась,
+  //   чтобы он не давал бесконечные вспышки (см. prestigeCatchupNeed).
+  const systemsNow = Math.max(0, Number(S.systems) || 0);
+  const milestoneNow = (typeof prestigeMilestoneFor === 'function') ? prestigeMilestoneFor(systemsNow) : 0;
+  const milestoneInReach = milestoneNow >= 50 && systemsNow <= milestoneNow * 1.2;
+  const catchupMilestone = (typeof prestigeCatchupNeed === 'function') ? prestigeCatchupNeed() : 0;
+  const catchupCountNext = Math.max(0, Math.floor(Number(S.prestigeCatchupCount) || 0)) +
+    (catchupMilestone ? 1 : 0);
+  // Любая вспышка у рубежа (даже обычная) помечает рубеж использованным:
+  // иначе обычная вспышка на 150 давала бы вторую бесплатную сразу же.
+  const markMilestone = Math.max(catchupMilestone || 0, milestoneInReach ? milestoneNow : 0);
+
   // 6. Что переносится между галактиками
   const keep = {
     galaxies: (S.galaxies || 1) + 1,
@@ -477,6 +543,8 @@ function performSupernova(level) {
     shieldUntil: Math.max(0, Number(S.shieldUntil) || 0),
     techLevels: S.techLevels || { astro: 0, quantum: 0, cyber: 0, eng: 0 },
     prestigeLevel: level,
+    prestigeCatchupCount: catchupCountNext,
+    prestigeCatchupMilestone: Math.max(Number(S.prestigeCatchupMilestone) || 0, markMilestone || 0),
     storageLevels: Object.assign({ dust: 1, energy: 1, civ: 1 }, S.storageLevels),
     storageProgress: Object.assign({ dust: 0, energy: 0, civ: 0 }, S.storageProgress),
     // ★ Цена систем после Вспышки считается от ВЫЖИВШИХ систем, а не от пика
@@ -626,24 +694,60 @@ function performSupernova(level) {
     }, 1500);
   }
 }
+// ─── Состояние кнопки престижа (без DOM — удобно для тестов) ───
+// ★ Кнопка больше не исчезает, когда Вспышка ещё недоступна: она показывает,
+//   сколько систем осталось до следующего порога. Иначе игрок на 150 системах
+//   с 7-й вспышкой (порог 225) видел пустой док и решал, что Вспышки пропали.
+function prestigeButtonState() {
+  const level = Math.max(0, Math.floor(Number(S.prestigeLevel) || 0));
+  const systems = Math.max(0, Math.floor(Number(S.systems) || 0));
+  const availableLevel = checkPrestigeAvailability();
+  const nextNeed = nextPrestigeRequirement();
+  const inGalaxy = S.stage === 'galaxy' || level > 0;
+  const f = (typeof fmt === 'function') ? fmt : function(n) { return String(n); };
+  const order = ['первая', 'вторая', 'третья', 'четвёртая', 'пятая'];
+
+  if (availableLevel) {
+    return {
+      visible: true,
+      locked: false,
+      text: '💥 ВСПЫШКА СВЕРХНОВОЙ',
+      title: 'Доступна ' + (order[availableLevel - 1] || availableLevel + '-я') +
+        ' вспышка (уровень ' + availableLevel + ')'
+    };
+  }
+
+  if (!inGalaxy || !nextNeed) {
+    return { visible: false, locked: false, text: '', title: '' };
+  }
+
+  return {
+    visible: true,
+    locked: true,
+    text: '💥 ДО ВСПЫШКИ ' + f(systems) + ' / ' + f(nextNeed),
+    title: 'Следующая Вспышка — ' + (level + 1) + '-я: нужно ' + nextNeed +
+      ' систем (сейчас ' + systems + '). Кнопка станет активной на пороге.'
+  };
+}
+
 // ─── Обновление кнопки престижа в UI ───────────────────────────
 function updatePrestigeButton() {
-  const availableLevel = checkPrestigeAvailability();
   const prestigeBtn = document.getElementById('prestigeBtn');
   if (!prestigeBtn) return;
 
-  const order = ['первая', 'вторая', 'третья', 'четвёртая', 'пятая'];
-  const nextNeed = prestigeRequirementFor(S.prestigeLevel || 0);
-  if (availableLevel) {
-    prestigeBtn.style.display = 'block';
-    prestigeBtn.textContent = '💥 ВСПЫШКА СВЕРХНОВОЙ';
-    prestigeBtn.title = 'Доступна ' + (order[availableLevel - 1] || availableLevel + '-я') +
-      ' вспышка (уровень ' + availableLevel + ')';
-  } else {
+  const state = prestigeButtonState();
+  if (!state.visible) {
     prestigeBtn.style.display = 'none';
-    if (nextNeed) {
-      prestigeBtn.title = 'Нужно ' + nextNeed + ' систем (сейчас ' + S.systems + ')';
-    }
+    prestigeBtn.title = '';
+    return;
+  }
+
+  prestigeBtn.style.display = 'block';
+  prestigeBtn.textContent = state.text;
+  prestigeBtn.title = state.title;
+  if (prestigeBtn.classList) {
+    if (state.locked) prestigeBtn.classList.add('is-locked');
+    else prestigeBtn.classList.remove('is-locked');
   }
 }
 
@@ -671,8 +775,13 @@ function initPrestige() {
 window.prestigeRequirements = prestigeRequirements;
 window.prestigeRequirementFor = prestigeRequirementFor;
 window.checkPrestigeAvailability = checkPrestigeAvailability;
+window.prestigeMilestoneFor = prestigeMilestoneFor;
+window.prestigeCatchupNeed = prestigeCatchupNeed;
+window.nextPrestigeRequirement = nextPrestigeRequirement;
+window.prestigeTierFor = prestigeTierFor;
 window.activateSupernova = activateSupernova;
 window.performSupernova = performSupernova;
 window.updatePrestigeButton = updatePrestigeButton;
+window.prestigeButtonState = prestigeButtonState;
 window.initPrestige = initPrestige;
 window.calculateKeepCount = calculateKeepCount;
