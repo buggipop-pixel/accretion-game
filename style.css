@@ -286,14 +286,6 @@ html, body {
   animation: prestigePulse 1.8s ease-in-out infinite;
 }
 .prestige-btn:active { transform: scale(0.96); }
-/* Кнопка ещё не готова к вспышке: показывает оставшийся порог, не пульсирует */
-.prestige-btn.is-locked {
-  background: linear-gradient(135deg, rgba(107, 90, 168, 0.92), rgba(74, 63, 117, 0.92));
-  color: #ded6ff;
-  box-shadow: 0 4px 14px rgba(70, 55, 130, 0.35);
-  animation: none;
-  cursor: default;
-}
 @keyframes prestigePulse {
   0%, 100% { box-shadow: 0 4px 18px rgba(255, 94, 94, 0.45); }
   50% { box-shadow: 0 4px 26px rgba(255, 179, 71, 0.8); }

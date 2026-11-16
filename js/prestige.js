@@ -695,39 +695,20 @@ function performSupernova(level) {
   }
 }
 // ─── Состояние кнопки престижа (без DOM — удобно для тестов) ───
-// ★ Кнопка больше не исчезает, когда Вспышка ещё недоступна: она показывает,
-//   сколько систем осталось до следующего порога. Иначе игрок на 150 системах
-//   с 7-й вспышкой (порог 225) видел пустой док и решал, что Вспышки пропали.
+// Кнопка видна только когда Вспышка доступна; в остальное время
+// прогресс до следующего порога показывают квесты (панель квестов).
 function prestigeButtonState() {
-  const level = Math.max(0, Math.floor(Number(S.prestigeLevel) || 0));
-  const systems = Math.max(0, Math.floor(Number(S.systems) || 0));
   const availableLevel = checkPrestigeAvailability();
-  const nextNeed = nextPrestigeRequirement();
-  const inGalaxy = S.stage === 'galaxy' || level > 0;
-  const f = (typeof fmt === 'function') ? fmt : function(n) { return String(n); };
   const order = ['первая', 'вторая', 'третья', 'четвёртая', 'пятая'];
-
   if (availableLevel) {
     return {
       visible: true,
-      locked: false,
       text: '💥 ВСПЫШКА СВЕРХНОВОЙ',
       title: 'Доступна ' + (order[availableLevel - 1] || availableLevel + '-я') +
         ' вспышка (уровень ' + availableLevel + ')'
     };
   }
-
-  if (!inGalaxy || !nextNeed) {
-    return { visible: false, locked: false, text: '', title: '' };
-  }
-
-  return {
-    visible: true,
-    locked: true,
-    text: '💥 ДО ВСПЫШКИ ' + f(systems) + ' / ' + f(nextNeed),
-    title: 'Следующая Вспышка — ' + (level + 1) + '-я: нужно ' + nextNeed +
-      ' систем (сейчас ' + systems + '). Кнопка станет активной на пороге.'
-  };
+  return { visible: false, text: '', title: '' };
 }
 
 // ─── Обновление кнопки престижа в UI ───────────────────────────
@@ -738,17 +719,12 @@ function updatePrestigeButton() {
   const state = prestigeButtonState();
   if (!state.visible) {
     prestigeBtn.style.display = 'none';
-    prestigeBtn.title = '';
     return;
   }
 
   prestigeBtn.style.display = 'block';
   prestigeBtn.textContent = state.text;
   prestigeBtn.title = state.title;
-  if (prestigeBtn.classList) {
-    if (state.locked) prestigeBtn.classList.add('is-locked');
-    else prestigeBtn.classList.remove('is-locked');
-  }
 }
 
 // ─── Инициализация престижа ─────────────────────────────────────

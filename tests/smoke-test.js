@@ -377,7 +377,7 @@ try {
   let st = context.prestigeButtonState();
   assert(
     'Кнопка Вспышки: на пороге активна',
-    st.visible === true && st.locked === false && st.text.indexOf('ВСПЫШКА') !== -1
+    st.visible === true && st.text.indexOf('ВСПЫШКА') !== -1
   );
   S.prestigeLevel = 7;
   S.prestigeCatchupMilestone = 0;
@@ -386,20 +386,18 @@ try {
   st = context.prestigeButtonState();
   assert(
     'Кнопка Вспышки: на 150 системах доступна догоняющая',
-    st.visible === true && st.locked === false && st.text.indexOf('ВСПЫШКА') !== -1,
+    st.visible === true && st.text.indexOf('ВСПЫШКА') !== -1,
     JSON.stringify(st)
   );
-  // После догоняющей на 150 следующий порог — 225: кнопка снова показывает прогресс.
+  // После догоняющей кнопка скрывается, а прогресс до 225 виден в квестах.
   S.prestigeLevel = 8;
   S.prestigeCatchupMilestone = 150;
   S.prestigeCatchupCount = 1;
   S.systems = 200;
   st = context.prestigeButtonState();
   assert(
-    'Кнопка Вспышки: после догоняющей виден порог 225',
-    st.visible === true && st.locked === true &&
-    st.text.indexOf('200') !== -1 && st.text.indexOf('225') !== -1 &&
-    st.title.indexOf('225') !== -1,
+    'Кнопка Вспышки: после догоняющей скрыта',
+    st.visible === false,
     JSON.stringify(st)
   );
   S.stage = 'cloud';
