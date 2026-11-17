@@ -138,7 +138,50 @@ async function testPrestigeRewards() {
     S.galaxyZoomLevel + '/' + expectedLod);
 }
 
-testPrestigeRewards().then(function() {
+// ─── Регрессия: вспышка на 225 не оставляет бесплатную догоняющую на 150 ───
+// Игроки жаловались: после вспышки на 225 систем следующая вспышка
+// приходит почти сразу — потому что рубеж 150 оставался неотмеченным
+// и после сброса выживало ≥150 систем.
+async function testNoDoubleFlareAfter225() {
+  const S = context.S;
+  S.stage = 'galaxy';
+  S.prestigeLevel = 7;
+  S.prestigeCatchupCount = 0;
+  S.prestigeCatchupMilestone = 0;
+  S.galaxies = 8;
+  S.galaxyMultiplier = context.prestigeMultiplierFor(7);
+  S.systems = 225; S.totalSystemsCreated = 225;
+  S.singularities = 0; S.primeSystem = null; S.activeSystemIdx = 0;
+  S.planets = []; S.systemName = 'Родная';
+  S.otherSystems = [null];
+  for (let i = 0; i < 225; i++) {
+    S.otherSystems.push({ name: 'R' + i, starType: 'G', systemType: 'single', planets: [] });
+  }
+
+  assert('Вспышка@225: доступна 8-я по лестнице',
+    context.checkPrestigeAvailability() === 8 && context.nextPrestigeRequirement() === 225);
+
+  const origRandom = Math.random;
+  Math.random = () => 0.65; // выживает 154 обычных → 155 систем с родной
+  try {
+    context.performSupernova(8);
+    await wait(1800);
+  } finally {
+    Math.random = origRandom;
+  }
+
+  assert('Вспышка@225: рубеж 150 закрыт обычной вспышкой',
+    S.prestigeCatchupMilestone === 150, String(S.prestigeCatchupMilestone));
+  assert('Вспышка@225: выжило 155 систем (≥ рубежа 150)',
+    S.systems === 155, String(S.systems));
+  assert('Вспышка@225: догоняющей на 150 больше нет',
+    context.prestigeCatchupNeed() === 0 && context.checkPrestigeAvailability() === 0,
+    'need=' + context.prestigeCatchupNeed() + ' avail=' + context.checkPrestigeAvailability());
+  assert('Вспышка@225: следующий порог — 337, а не 150',
+    context.nextPrestigeRequirement() === 337, String(context.nextPrestigeRequirement()));
+}
+
+testPrestigeRewards().then(testNoDoubleFlareAfter225).then(function() {
   console.log('\n' + (failed === 0 ? '✅ Все тесты пройдены' : '❌ Провалов: ' + failed) + ' (' + passed + ' проверок)');
   process.exit(failed === 0 ? 0 : 1);
 }).catch(function(err) {

@@ -500,13 +500,14 @@ function performSupernova(level) {
   //   чтобы он не давал бесконечные вспышки (см. prestigeCatchupNeed).
   const systemsNow = Math.max(0, Number(S.systems) || 0);
   const milestoneNow = (typeof prestigeMilestoneFor === 'function') ? prestigeMilestoneFor(systemsNow) : 0;
-  const milestoneInReach = milestoneNow >= 50 && systemsNow <= milestoneNow * 1.2;
   const catchupMilestone = (typeof prestigeCatchupNeed === 'function') ? prestigeCatchupNeed() : 0;
   const catchupCountNext = Math.max(0, Math.floor(Number(S.prestigeCatchupCount) || 0)) +
     (catchupMilestone ? 1 : 0);
-  // Любая вспышка у рубежа (даже обычная) помечает рубеж использованным:
-  // иначе обычная вспышка на 150 давала бы вторую бесплатную сразу же.
-  const markMilestone = Math.max(catchupMilestone || 0, milestoneInReach ? milestoneNow : 0);
+  // ★ Любая вспышка закрывает все пройденные макро-рубежи, а не только тот,
+  //   у которого игрок стоит. Иначе вспышка на 225 систем оставляла рубеж 150
+  //   неотмеченным: если после неё выживало ≥150 систем, догоняющая Вспышка
+  //   на 150 становилась доступна сразу же (две вспышки почти подряд).
+  const markMilestone = Math.max(catchupMilestone || 0, milestoneNow || 0);
 
   // 6. Что переносится между галактиками
   const keep = {
