@@ -13,7 +13,10 @@ function assert(name, cond, extra) {
 }
 
 (async () => {
-  const { clampReward, hasReward, maxExtraReward } = await import('../lib/reward.js');
+  const {
+    clampReward, hasReward, maxExtraReward,
+    rewardBankMax, ensureRewardBank, accrueRewardBank, rewardBudget, spendRewardBank,
+  } = await import('../lib/reward.js');
 
   console.log('========================================');
   console.log('🧪 ТЕСТЫ ОТЧЁТОВ О ДОХОДЕ (reward)');
@@ -62,7 +65,51 @@ function assert(name, cond, extra) {
   assert('Нулевой доход — false', hasReward({ dust: 0, energy: 0, civ: 0 }) === false);
   assert('null — false', hasReward(null) === false);
   assert('Отрицательный — false', hasReward({ dust: -1 }) === false);
+  // ── Копилка разовых наград ─────────────────────────────────
+  const caps = { dust: 100000, energy: 5000, civ: 100 };
+  const bankMax = rewardBankMax(caps, 0.5);
+  assert('Потолок копилки = доля лимита',
+    bankMax.dust === 50000 && bankMax.energy === 2500 && bankMax.civ === 50);
+  assert('Нулевая доля — нулевая копилка', rewardBankMax(caps, 0).dust === 0);
 
+  const w1 = { dust: 0 };
+  const bank1 = ensureRewardBank(w1, caps, 0.5);
+  assert('Новая копилка стартует полной', bank1.dust === 50000);
+
+  accrueRewardBank(w1, { dust: 100 }, caps, 0.5, Date.now() + 600 * 1000);
+  assert('Копилка не переполняется', w1.rewardBank.dust === 50000);
+
+  const w2 = { dust: 0, rewardBank: { dust: 0, energy: 0, civ: 0 }, rewardBankAt: 1700000000000 };
+  accrueRewardBank(w2, { dust: 100 }, caps, 0.5, 1700000000000 + 60 * 1000);
+  assert('Копилка пополняется со скоростью rate * share',
+    w2.rewardBank.dust === 3000, w2.rewardBank.dust);
+  assert('Время пополнения запоминается', w2.rewardBankAt === 1700000000000 + 60 * 1000);
+
+  const budget = rewardBudget({ dust: 100, energy: 0, civ: 0 }, { dust: 3000, energy: 0, civ: 0 });
+  assert('Бюджет = начисленное + копилка', budget.dust === 3100);
+
+  spendRewardBank(w2, { dust: 3000 }, { dust: 100 });
+  assert('Копилка списывает только излишек над начисленным',
+    w2.rewardBank.dust === 100, w2.rewardBank.dust);
+
+  // ★ Главный сценарий жалобы: босс «dustHours: 2» за отчёт в 60 с.
+  const perSec = 1000;
+  const bossReward = perSec * 7200;  // 2 часа дохода разом
+  const acc = maxExtraReward({ dust: perSec }, 60, 2);
+  const oldPolicy = clampReward({ dust: bossReward }, acc);
+  assert('Старая политика съедала награду босса', oldPolicy.dust < bossReward);
+
+  // Реальный лимит хранилища — не меньше 8 часов дохода (STORAGE_CFG).
+  const bossCaps = { dust: perSec * 3600 * 8, energy: 0, civ: 0 };
+  const w3 = { dust: 0 };
+  ensureRewardBank(w3, bossCaps, 0.5); // копилка успела накопиться (был простой)
+  const newPolicy = clampReward({ dust: bossReward }, rewardBudget(acc, w3.rewardBank));
+  assert('С копилкой награда босса проходит целиком',
+    newPolicy.dust === bossReward, newPolicy.dust);
+
+  // Награда выше потолка копилки всё равно режется — но потолок = доля хранилища.
+  const huge = clampReward({ dust: 1e12 }, rewardBudget(acc, w3.rewardBank));
+  assert('Копилка не отменяет потолок', huge.dust < 1e12 && huge.dust > bossReward);
   console.log('========================================');
   console.log(`ИТОГО: Пройдено ${passed}, Провалено ${failed}`);
   if (failed > 0) process.exitCode = 1;

@@ -25,7 +25,10 @@ import {
   rewardAllowance,
 } from './lib/wallet.js';
 import { rollChestReward } from './lib/chest.js';
-import { clampReward, hasReward, maxExtraReward } from './lib/reward.js';
+import {
+  clampReward, hasReward, maxExtraReward,
+  accrueRewardBank, rewardBudget, spendRewardBank,
+} from './lib/reward.js';
 import { capabilityAudit, remainingCapabilityBudget, chestCapabilityValue } from './lib/capability.js';
 import { applyAdminWallet, adminCapabilityBonus, adminEntitlementPlan } from './lib/admin-trust.js';
 import { summarizeSave } from './lib/admin-summary.js';
@@ -557,10 +560,24 @@ const REWARD_EXTRA_SHARE = Number.isFinite(Number(process.env.REWARD_EXTRA_SHARE
   ? Math.max(0, Number(process.env.REWARD_EXTRA_SHARE))
   : 2.0;
 const REWARD_MAX_SECONDS = 3600;
+// Потолок копилки разовых наград — доля лимита хранилища (см. lib/reward.js).
+// 0.5 покрывает награды боссов/миссий (2–3 часа дохода), не ломая баланс.
+const REWARD_BANK_SHARE = Number.isFinite(Number(process.env.REWARD_BANK_SHARE))
+  ? Math.max(0, Number(process.env.REWARD_BANK_SHARE))
+  : 0.5;
 
 // Проверка «оплаченных возможностей» (планеты/системы).
 // По умолчанию только флаг; при CAPABILITY_ENFORCE=1 сейв отклоняется.
 const CAPABILITY_ENFORCE = process.env.CAPABILITY_ENFORCE === '1';
+// Допуск аудита «оплаченных возможностей» (доля лимита пыли): доход,
+// который сервер ещё не успел зачислить (клики/награды в пути), не должен
+// выглядеть как подмена планет.
+const CAPABILITY_TOLERANCE_SHARE = Number.isFinite(Number(process.env.CAPABILITY_TOLERANCE_SHARE))
+  ? Math.max(0, Number(process.env.CAPABILITY_TOLERANCE_SHARE))
+  : 0.02;
+if (CAPABILITY_ENFORCE) {
+  console.warn('[config] CAPABILITY_ENFORCE=1 игнорируется: ответ 409 откатывал только что совершённые действия. Остаётся флаг phantom_capability.');
+}
 const ENERGY_TO_DUST = Number(process.env.ENERGY_TO_DUST || 1e6);
 const CIV_TO_DUST = Number(process.env.CIV_TO_DUST || 1e9);
 
@@ -1047,7 +1064,10 @@ app.post('/api/save', async (req, res) => {
         // Потраченное считаем по своим балансам, а не по словам клиента.
         const capPrev = withCoreState(existing && existing.data ? existing.data : safeSave,
           function() { return gameCore.capability(); }) || 0;
-        const capNext = withCoreState(safeSave, function() { return gameCore.capability(); }) || 0;
+        const nextInfo = withCoreState(safeSave, function() {
+          return { cap: gameCore.capability(), caps: gameCore.caps() };
+        }) || null;
+        const capNext = nextInfo ? nextInfo.cap : 0;
 
         const spentValue =
           Math.max(0, (wallet.dust - earned.dust) - Number(safeSave.dust)) +
@@ -1059,20 +1079,25 @@ app.post('/api/save', async (req, res) => {
           spentValue: spentValue, budget: Number(wallet.capBudget) || 0,
         });
 
-        if (!capAudit.funded) {
+        // Допуск: доход, который сервер ещё не успел зачислить (клики и
+        // награды в пути), не должен выглядеть подменой планет.
+        const capTolerance = nextInfo && nextInfo.caps
+          ? Math.max(0, Number(nextInfo.caps.dust) || 0) * CAPABILITY_TOLERANCE_SHARE
+          : 0;
+        const hardUncovered = Math.max(0, capAudit.uncovered - capTolerance);
+
+        if (hardUncovered > 0) {
           console.warn(`[save] user=${user.id} необоснованный прирост возможностей: ` +
-            `${Math.round(capAudit.uncovered)} (delta=${Math.round(capAudit.delta)})`);
+            `${Math.round(hardUncovered)} (delta=${Math.round(capAudit.delta)})`);
           redisSet(`save_flag:${user.id}`, JSON.stringify({
             flags: ['phantom_capability'], at: now,
-            delta: Math.round(capAudit.delta), uncovered: Math.round(capAudit.uncovered),
+            delta: Math.round(capAudit.delta), uncovered: Math.round(hardUncovered),
           })).catch(function() { /* некритично */ });
 
-          if (CAPABILITY_ENFORCE && existing && existing.data) {
-            return res.status(409).json({
-              ok: false, conflict: true, reason: 'capability',
-              data: existing.data, saved_at: existing.saved_at, version: curVersion,
-            });
-          }
+          // ★ Раньше здесь был 409: клиент принимал предыдущий сейв и терял
+          // только что купленные планеты/системы. Из-за дохода, который
+          // сервер ещё не успел зачислить, это срабатывало и у честных
+          // игроков. Теперь — только флаг для админки, без отката.
           wallet.capBudget = 0;
         } else {
           wallet.capBudget = remainingCapabilityBudget(wallet.capBudget, capAudit.delta, spentValue);
@@ -1081,9 +1106,31 @@ app.post('/api/save', async (req, res) => {
         gameCore.setState(safeSave);
         const caps = gameCore.caps();
         const allowance = rewardAllowance(caps, WALLET_ALLOWANCE_SHARE);
+
+        // ★ Копилка разовых наград входит в допуск сверки: если отчёт
+        // /api/reward не успел (сеть), честная награда не должна
+        // обрезаться молча.
+        const bank = accrueRewardBank(wallet, gameCore.rates(), caps, REWARD_BANK_SHARE, now);
+        for (const field of ['dust', 'energy', 'civ', 'metals']) {
+          allowance[field] = Math.max(0, Number(allowance[field]) || 0) +
+            Math.max(0, Number(bank[field]) || 0);
+        }
+
+        const beforeReconcile = {
+          dust: wallet.dust, energy: wallet.energy,
+          civLevel: wallet.civLevel, metalAmount: wallet.metalAmount,
+        };
         const rec = reconcileWallet(wallet, safeSave, allowance);
         safeSave = rec.data;
         clampedFields = rec.clamped;
+
+        // Списываем с копилки только то, что клиент реально добрал сверх
+        // серверного баланса (иначе бакет не пополнялся бы вообще).
+        spendRewardBank(wallet, {
+          dust: Math.max(0, wallet.dust - beforeReconcile.dust),
+          energy: Math.max(0, wallet.energy - beforeReconcile.energy),
+          civ: Math.max(0, wallet.civLevel - beforeReconcile.civLevel),
+        }, {});
         walletToWrite = wallet;
 
         if (clampedFields.length) {
@@ -1429,7 +1476,13 @@ app.post('/api/reward', async (req, res) => {
     if (!info) return res.json({ ok: true, authoritative: true, credited: null });
 
     const maxExtra = maxExtraReward(info.rates, seconds, REWARD_EXTRA_SHARE);
-    const credit = clampReward(report, maxExtra);
+    // ★ Копилка разовых наград: босс/миссия/событие дают часы дохода
+    // разом, а лимит считается за интервал между отчётами (~60 с).
+    // Без копилки защита съедала такую награду, а следующий сейв
+    // обрезал баланс — теперь крупный разовый доход проходит.
+    const bank = accrueRewardBank(wallet, info.rates, info.caps, REWARD_BANK_SHARE, now);
+    const budget = rewardBudget(maxExtra, bank);
+    const credit = clampReward(report, budget);
 
     wallet.lastRewardAt = now;
     if (hasReward(credit)) {
@@ -1437,6 +1490,7 @@ app.post('/api/reward', async (req, res) => {
       wallet.energy = Math.min(info.caps.energy, wallet.energy + credit.energy);
       wallet.civLevel = Math.min(info.caps.civ, wallet.civLevel + credit.civ);
       wallet.dustTotal += credit.dust;
+      spendRewardBank(wallet, credit, maxExtra);
     }
     await writeWallet(user.id, wallet);
 

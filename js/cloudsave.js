@@ -465,6 +465,26 @@ function mergeDailyRewardMonotonic(cloudData) {
 }
 
 
+// ★ Нерф откатов: при сверке кошелька сервер может прислать только часть
+// полей. Заменять ими весь сейв нельзя — иначе откатываются действия,
+// совершённые за время запроса (покупки, миссии, события, сборка планет).
+const SERVER_WALLET_FIELDS = ['dust', 'dustTotal', 'energy', 'civLevel', 'metalAmount'];
+
+function applyServerWalletPatch(patch) {
+  if (!patch || typeof patch !== 'object') return false;
+  if (typeof S === 'undefined' || !S) return false;
+
+  let changed = false;
+  for (let i = 0; i < SERVER_WALLET_FIELDS.length; i++) {
+    const field = SERVER_WALLET_FIELDS[i];
+    if (patch[field] === undefined || patch[field] === null) continue;
+    const value = Number(patch[field]);
+    if (!Number.isFinite(value)) continue;
+    if (Number(S[field]) !== value) { S[field] = value; changed = true; }
+  }
+  return changed;
+}
+
 // ★ Применение серверного сейва ВНУТРИ cloudSaveGame(). loadGame() может
 // вызвать checkAchievements() → saveGame(), и без этого флага мы бы
 // запланировали ещё один save из самого процесса save.
@@ -597,6 +617,23 @@ async function cloudSaveGame(options) {
       const serverVersion = cloudVersionFrom(conflict);
       setCloudVersion(serverVersion);
 
+      // ★ Аудит «оплаченных возможностей» больше не откатывает прогресс:
+      // при споре берём только кошелёк, планеты/системы остаются у игрока.
+      if (conflict && conflict.reason === 'capability') {
+        applyServerWalletPatch(cloud);
+        scheduleCloudRetry(CLOUD_SAVE_MIN_INTERVAL_MS);
+        return { ok: false, conflict: 'capability', version: serverVersion };
+      }
+
+      // ★ Потерянный ответ: наша же запись дошла до сервера, а ответ
+      // потерялся. Локальный прогресс впереди облака — не откатываем его,
+      // а берём серверную версию как базу и досылаем свой сейв.
+      const localNow = readLocalSave();
+      if (isValidCloudSave(cloud) && localProgressIsAhead(localNow, cloud)) {
+        scheduleCloudRetry(CLOUD_SAVE_MIN_INTERVAL_MS);
+        return { ok: false, conflict: 'local-ahead', version: serverVersion };
+      }
+
       // Сервер главнее: принимаем его сейв и не перезаписываем чужой прогресс.
       if (isValidCloudSave(cloud)) {
         applyCloudSaveInternal(cloud);
@@ -657,14 +694,26 @@ async function cloudSaveGame(options) {
     const r = await response.json();
     if (r && r.authoritative) window.__serverWallet = true;
 
-    // Сервер сверил баланс и что-то обрезал — принимаем его данные.
+    // ★ Сервер сверил баланс и что-то обрезал. Раньше здесь целиком
+    // применялся серверный снимок (applyCloudSaveInternal), то есть
+    // локальный сейв заменялся копией, отправленной ДО запроса: покупки,
+    // миссии и события, случившиеся за время запроса, откатывались.
+    // Теперь берём только валютные поля — прогресс остаётся живым.
+    let walletPatched = false;
     if (r && r.clamped && r.data) {
-      applyCloudSaveInternal(r.data);
-      if (typeof toast === 'function') toast('⚖️ Баланс сверен', 'Ресурсы приведены к серверным');
+      walletPatched = applyServerWalletPatch(r.data);
+      if (typeof toast === 'function') {
+        toast('⚖️ Баланс сверен', 'Ресурсы сверены с сервером, прогресс сохранён');
+      }
     }
 
     if (r && typeof r.version === 'number') setCloudVersion(r.version);
     clearCloudDirty(); // сервер подтвердил локальный прогресс
+    // ★ После обрезки баланса локальный сейв надо переписать и дослать:
+    // сервер увидел только старое состояние, а прогресс остался у игрока.
+    if (walletPatched) {
+      try { if (typeof saveGame === 'function') saveGame(); } catch (e) { /* ignore */ }
+    }
     _cloudNetworkFailStreak = 0; // успешная запись — ретраи больше не нужны
     // Чистый сейв после сброса успешно записан — снова разрешаем синхронизацию.
     try { sessionStorage.removeItem(CLOUD_RESET_SKIP_KEY); } catch (e) { /* ignore */ }
@@ -1139,13 +1188,19 @@ function readRewardBaseline() {
     return raw ? JSON.parse(raw) : null;
   } catch (e) { return null; }
 }
-
-function writeRewardBaseline() {
+function writeRewardBaseline(pending) {
   try {
+    // ★ Излишек, который сервер не зачёл (крупная разовая награда),
+    // не прощаем: сдвигаем точку отчёта назад, чтобы дослать его
+    // следующим отчётом, а не потерять.
+    const p = pending || {};
+    const dust = (Number(S && S.dust) || 0) - Math.max(0, Number(p.dust) || 0);
+    const energy = (Number(S && S.energy) || 0) - Math.max(0, Number(p.energy) || 0);
+    const civ = (Number(S && S.civLevel) || 0) - Math.max(0, Number(p.civ) || 0);
     localStorage.setItem(REWARD_BASELINE_KEY, JSON.stringify({
-      dust: Number(S && S.dust) || 0,
-      energy: Number(S && S.energy) || 0,
-      civ: Number(S && S.civLevel) || 0,
+      dust: Math.max(0, dust),
+      energy: Math.max(0, energy),
+      civ: Math.max(0, civ),
       at: Date.now(),
     }));
   } catch (e) { /* ignore */ }
@@ -1189,7 +1244,13 @@ async function reportRewards() {
 
   try {
     const r = await cloudApi('/api/reward', { initData: initData, report: report });
-    writeRewardBaseline(); // точку двигаем только после успешного отчёта
+    const credited = (r && r.credited) || null;
+    // Точку двигаем только после успешного отчёта и только на зачтённую часть.
+    writeRewardBaseline({
+      dust: Math.max(0, report.dust - (Number(credited && credited.dust) || 0)),
+      energy: Math.max(0, report.energy - (Number(credited && credited.energy) || 0)),
+      civ: Math.max(0, report.civ - (Number(credited && credited.civ) || 0)),
+    });
     return r;
   } catch (e) {
     return null; // точка не сдвинута — повторим в следующий раз

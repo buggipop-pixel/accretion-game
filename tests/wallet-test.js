@@ -109,6 +109,22 @@ function assert(name, cond, extra) {
     allow.dust === 500 && allow.energy === 100 && Math.abs(allow.civ - 5) < 1e-9);
   assert('Нулевая доля — нулевой допуск', rewardAllowance({ dust: 1e9 }, 0).dust === 0);
 
+  // ★ Копилка разовых наград расширяет допуск сверки: крупный разовый
+  // доход (босс/миссия) не обрезается, если сервер успел его накопить.
+  const tight = reconcileWallet(
+    { dust: 1000, dustTotal: 1000, energy: 0, civLevel: 0, metalAmount: 0, updatedAt: now },
+    { dust: 90000, dustTotal: 90000, energy: 0, civLevel: 0, metalAmount: 0 },
+    { dust: 500, energy: 0, civ: 0, metals: 0 });
+  assert('Без копилки крупная награда обрезается', tight.clamped.indexOf('dust') >= 0);
+
+  const walletBank = { dust: 1000, dustTotal: 1000, energy: 0, civLevel: 0, metalAmount: 0, updatedAt: now };
+  const withBank = reconcileWallet(
+    walletBank,
+    { dust: 90000, dustTotal: 90000, energy: 0, civLevel: 0, metalAmount: 0 },
+    { dust: 500 + 100000, energy: 0, civ: 0, metals: 0 });
+  assert('Копилка в допуске пропускает крупную награду',
+    withBank.clamped.length === 0 && walletBank.dust === 90000);
+
   console.log('========================================');
   console.log(`ИТОГО: Пройдено ${passed}, Провалено ${failed}`);
   if (failed > 0) process.exitCode = 1;
