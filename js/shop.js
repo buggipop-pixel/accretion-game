@@ -75,14 +75,22 @@ function systemShopBatchTotal(count) {
 }
 
 // Сколько систем игрок реально может основать на текущую пыль.
+// ★ Верхнего лимита партии нет: покупаем ровно столько, на сколько хватает пыли.
 function systemShopMaxSystems() {
   const cfg = SYSTEM_SHOP_CFG || {};
-  const cap = Math.max(1, Math.floor(cfg.batchMax || 50));
+  const cfgCap = Math.floor(Number(cfg.batchMax) || 0);
+  const cap = cfgCap > 0 ? cfgCap : Infinity;
   const start = systemShopStartIndex();
   let budget = Math.max(0, Number(S.dust) || 0);
   let total = 0, n = 0;
   while (n < cap) {
     const c = systemShopUnitCost(start + n);
+    // Бесплатный контракт (скидка 100%) даёт ровно одну систему, а не безлимит
+    // и не вечный цикл: дальше по цене уже ничего не списывается.
+    if (!(c > 0)) {
+      if (n === 0) n++;
+      break;
+    }
     if (total + c > budget) break;
     total += c;
     n++;

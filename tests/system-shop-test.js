@@ -233,6 +233,17 @@ assert('Партия: прогресс, снимок и ползунок очи�
   api.S.systemShopProgress.energy === 0 &&
   api.S.systemShopProgress.civ === 0);
 
+// ─── 5б. Ползунок не упирается в 50: можно купить на всю пыль ───
+setupGame(api);
+api.S.dust = 1e18;
+api.openSystemShop();
+const allDustMax = api.systemShopMaxSystems();
+assert('Партия: лимита в 50 систем больше нет', allDustMax > 50, 'max=' + allDustMax);
+assert('Партия: максимум покрывает всю пыль',
+  api.systemShopBatchTotal(allDustMax) <= api.S.dust &&
+  api.systemShopBatchTotal(allDustMax) + api.systemShopUnitCost(api.nextSystemCostIndex() + allDustMax) > api.S.dust,
+  'total=' + api.systemShopBatchTotal(allDustMax) + ' dust=' + api.S.dust);
+
 // ─── 6. Энергия и цивилизация дают только шанс жизни ──────────
 setupGame(api);
 api.openSystemShop();
