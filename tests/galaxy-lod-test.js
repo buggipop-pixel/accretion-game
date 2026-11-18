@@ -181,7 +181,90 @@ async function testNoDoubleFlareAfter225() {
     context.nextPrestigeRequirement() === 337, String(context.nextPrestigeRequirement()));
 }
 
-testPrestigeRewards().then(testNoDoubleFlareAfter225).then(function() {
+// ─── Регрессия: после Вспышки нельзя сразу следующую на остатках ───
+// Симптом: игрок сделал Вспышку на 1000 систем, осталось 500 — и следующая
+// Вспышка сразу доступна (уровни прокручиваются подряд). Плюс в статистике
+// «уничтожено 385», хотя сохранилось 500 — числа не сходились.
+async function testNoChainFlareAfterBigPrestige() {
+  const S = context.S;
+  S.stage = 'galaxy';
+  S.prestigeLevel = 8;
+  S.prestigeCatchupCount = 0;
+  S.prestigeCatchupMilestone = 0;
+  S.prestigeRequirementFloor = 0;
+  S.galaxies = 8;
+  S.galaxyMultiplier = context.prestigeMultiplierFor(8);
+  S.systems = 1000; S.totalSystemsCreated = 1000;
+  S.singularities = 0; S.primeSystem = null; S.activeSystemIdx = 0;
+  S.planets = []; S.systemName = 'Родная';
+  S.otherSystems = [null];
+  for (let i = 0; i < 1000; i++) {
+    S.otherSystems.push({ name: 'R' + i, starType: 'G', systemType: 'single', planets: [] });
+  }
+
+  assert('Вспышка@1000: доступна следующая ступень',
+    context.checkPrestigeAvailability() === 9);
+
+  const origRandom = Math.random;
+  Math.random = () => 0.4999; // выживает примерно половина
+  try {
+    context.performSupernova(9);
+    await wait(1800);
+  } finally {
+    Math.random = origRandom;
+  }
+
+  assert('Вспышка@1000: сохранилось около половины',
+    S.systems > 400 && S.systems < 600, String(S.systems));
+  assert('Вспышка@1000: требование-пол = 1200 (рост ×1.2)',
+    context.prestigeRequirementFloor() === 1200, String(context.prestigeRequirementFloor()));
+  assert('Вспышка@1000: следующая Вспышка НЕ доступна сразу',
+    context.checkPrestigeAvailability() === 0,
+    'need=' + context.nextPrestigeRequirement() + ' systems=' + S.systems);
+  assert('Вспышка@1000: порог выше остатка',
+    context.nextPrestigeRequirement() > S.systems);
+
+  // ── Статистика: «уничтожено» = было − осталось ──
+  assert('Статистика: 1000 → 500 = уничтожено 500',
+    context.prestigeDestroyedTotal(1000, 500) === 500);
+  assert('Статистика: пол/нули/мусор без отрицательных',
+    context.prestigeDestroyedTotal(500, 500) === 0 &&
+    context.prestigeDestroyedTotal(400, 500) === 0 &&
+    context.prestigeDestroyedTotal('abc', 100) === 0);
+
+  // ── Поля престижа обязаны переживать сейв/загрузку ──
+  // Иначе после релоада/облака использованные рубежи снова «бесплатные».
+  const prevSet = context.localStorage.setItem;
+  const prevGet = context.localStorage.getItem;
+  let savedRaw = '';
+  context.localStorage.setItem = (k, v) => { savedRaw = v; };
+  S.prestigeCatchupMilestone = 900;
+  S.prestigeCatchupCount = 2;
+  S.prestigeRequirementFloor = 1200;
+  context.saveGame();
+  context.localStorage.setItem = prevSet;
+
+  const parsed = JSON.parse(savedRaw);
+  assert('Сейв: рубеж/счётчик/пол попадают в сейв',
+    parsed.prestigeCatchupMilestone === 900 &&
+    parsed.prestigeCatchupCount === 2 &&
+    parsed.prestigeRequirementFloor === 1200,
+    JSON.stringify({
+      m: parsed.prestigeCatchupMilestone,
+      c: parsed.prestigeCatchupCount,
+      f: parsed.prestigeRequirementFloor,
+    }));
+
+  context.localStorage.getItem = () => JSON.stringify(parsed);
+  vm.runInContext('loadGame()', context);
+  context.localStorage.getItem = prevGet;
+  assert('Загрузка: рубеж догоняющей не сбрасывается',
+    S.prestigeCatchupMilestone === 900, String(S.prestigeCatchupMilestone));
+  assert('Загрузка: требование-пол сохраняется',
+    S.prestigeRequirementFloor === 1200, String(S.prestigeRequirementFloor));
+}
+
+testPrestigeRewards().then(testNoDoubleFlareAfter225).then(testNoChainFlareAfterBigPrestige).then(function() {
   console.log('\n' + (failed === 0 ? '✅ Все тесты пройдены' : '❌ Провалов: ' + failed) + ' (' + passed + ' проверок)');
   process.exit(failed === 0 ? 0 : 1);
 }).catch(function(err) {

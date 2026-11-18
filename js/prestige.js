@@ -220,6 +220,26 @@ function prestigeTierFor() {
   const catchups = Math.min(level, Math.max(0, Math.floor(Number(S.prestigeCatchupCount) || 0)));
   return Math.max(0, level - catchups);
 }
+// ★ Требование-пол: после Вспышки следующий порог не может быть ниже того,
+//   сколько систем было у игрока на её момент (плюс запас роста). Иначе на
+//   остатках (например 1000 → 500) следующая Вспышка доступна сразу же
+//   и уровни прокручиваются подряд. Каждая Вспышка — разовое действие.
+function prestigeRequirementFloor() {
+  const floor = Math.ceil(Number(S.prestigeRequirementFloor) || 0);
+  return Number.isFinite(floor) && floor > 0 ? floor : 0;
+}
+window.prestigeRequirementFloor = prestigeRequirementFloor;
+
+// ★ Сколько систем реально уничтожено: было минус осталось.
+//   Раньше в итог шёл только счётчик обычных: игрок с 1000 системами видел
+//   «уничтожено 385», хотя сохранилось 500 — числа не сходились.
+function prestigeDestroyedTotal(systemsBefore, totalSystemsAfter) {
+  const before = Math.max(0, Math.round(Number(systemsBefore) || 0));
+  const after = Math.max(0, Math.round(Number(totalSystemsAfter) || 0));
+  return Math.max(0, before - after);
+}
+window.prestigeDestroyedTotal = prestigeDestroyedTotal;
+
 function prestigeCatchupNeed() {
   const systems = Math.max(0, Number(S.systems) || 0);
   const milestone = prestigeMilestoneFor(systems);
@@ -228,14 +248,18 @@ function prestigeCatchupNeed() {
   if (systems > milestone * 1.2) return 0;
   const used = Math.max(0, Number(S.prestigeCatchupMilestone) || 0);
   if (used >= milestone) return 0;
+  // Требование-пол выше рубежа — рубеж уже пройден, а не «догоняется».
+  if (prestigeRequirementFloor() > milestone) return 0;
   const base = prestigeRequirementFor(prestigeTierFor());
   return base > systems ? milestone : 0;
 }
 
-// Требование, которое реально проверяет игра (с учётом догоняющей вспышки).
+// Требование, которое реально проверяет игра (с учётом догоняющей вспышки
+// и требования-пола после прошлой Вспышки).
 function nextPrestigeRequirement() {
   const catchup = prestigeCatchupNeed();
-  return catchup || prestigeRequirementFor(prestigeTierFor());
+  const base = catchup || prestigeRequirementFor(prestigeTierFor());
+  return Math.max(base, prestigeRequirementFloor());
 }
 
 // ─── Проверка доступности престижа ───────────────────────────────
@@ -484,11 +508,16 @@ function performSupernova(level) {
   // 5. Итоговый список сохраненных: ВСЕ Праймы + лучшие Обычные
   const kept = [...primeSystems, ...keptRegulars];
   const totalSystemsAfter = 1 + kept.length;
-  const destroyedCount = Math.max(0, regularSystems.length - keepRegularCount);
+  // «Обычных уничтожено» — для строки подробностей.
+  const destroyedRegular = Math.max(0, regularSystems.length - keepRegularCount);
   const savedPct = regularSystems.length > 0
     ? Math.round((keepRegularCount / regularSystems.length) * 100)
     : 100;
   const systemsBefore = S.systems;
+  // ★ Итоговая статистика — по тому, сколько систем было и сколько осталось.
+  //   Раньше в заголовок шёл только счётчик обычных: игрок с 1000 системами
+  //   видел «уничтожено 385», хотя сохранилось 500 — числа не сходились.
+  const destroyedTotal = prestigeDestroyedTotal(systemsBefore, totalSystemsAfter);
   const gainedSingularities = Math.floor(Math.max(0, Number(systemsBefore) || 0) / 10);
   const oldPanX = Number(S.panX) || 0;
   const oldPanY = Number(S.panY) || 0;
@@ -508,6 +537,16 @@ function performSupernova(level) {
   //   неотмеченным: если после неё выживало ≥150 систем, догоняющая Вспышка
   //   на 150 становилась доступна сразу же (две вспышки почти подряд).
   const markMilestone = Math.max(catchupMilestone || 0, milestoneNow || 0);
+
+  // ★ Следующая Вспышка — только после реального роста империи.
+  //   Пол = системы на момент вспышки × запас (1.2). При нормальной игре
+  //   у порога лестницы это ничего не меняет (и так ×1.5), а при «пересидении»
+  //   не даёт прокрутить несколько уровней на остатках.
+  const growthFloor = Number(PRESTIGE_CFG.minGrowthBetweenPrestiges) || 1.2;
+  const requirementFloorNext = Math.max(
+    Math.ceil(Number(S.prestigeRequirementFloor) || 0),
+    Math.ceil(systemsNow * growthFloor)
+  );
 
   // 6. Что переносится между галактиками
   const keep = {
@@ -546,6 +585,7 @@ function performSupernova(level) {
     prestigeLevel: level,
     prestigeCatchupCount: catchupCountNext,
     prestigeCatchupMilestone: Math.max(Number(S.prestigeCatchupMilestone) || 0, markMilestone || 0),
+    prestigeRequirementFloor: requirementFloorNext,
     storageLevels: Object.assign({ dust: 1, energy: 1, civ: 1 }, S.storageLevels),
     storageProgress: Object.assign({ dust: 0, energy: 0, civ: 0 }, S.storageProgress),
     // ★ Цена систем после Вспышки считается от ВЫЖИВШИХ систем, а не от пика
@@ -632,19 +672,20 @@ function performSupernova(level) {
     const good = savedPct >= 70;
     const title = good
       ? '🎉 Поздравляем! Вспышка почти не нанесла ущерба'
-      : '💥 Вспышка уничтожила ' + destroyedCount + ' систем';
+      : '💥 Вспышка уничтожила ' + destroyedTotal + ' систем';
     const sub = 'Сохранено ' + keepRegularCount + ' из ' + regularSystems.length +
       ' обычных (' + savedPct + '%)';
     const text = good
       ? '<div class="modal-sub" style="color:#7ee0a8;font-weight:bold;line-height:1.6;">Поздравляем! Вспышка сверхновой почти не нанесла ущерба — сохранилось <b>' + totalSystemsAfter + '</b> систем.</div>'
-      : '<div class="modal-sub" style="color:#ff8a8a;font-weight:bold;line-height:1.6;">Вспышка уничтожила <b>' + destroyedCount + '</b> систем. Из остатков звёзд и пыли сформировалось <b>' + totalSystemsAfter + '</b> систем.</div>';
+      : '<div class="modal-sub" style="color:#ff8a8a;font-weight:bold;line-height:1.6;">Вспышка уничтожила <b>' + destroyedTotal + '</b> систем. Из остатков звёзд и пыли сформировалось <b>' + totalSystemsAfter + '</b> систем.</div>';
     const oldMultiplier = (typeof prestigeMultiplierFor === 'function')
       ? prestigeMultiplierFor(Math.max(0, level - 1))
       : (S.galaxyMultiplier || 1);
     const info = `
       <div class="info-box">
         <div class="row-stat"><span>Обычных сохранено:</span><span>${keepRegularCount} из ${regularSystems.length} (${savedPct}%)</span></div>
-        <div class="row-stat"><span>Уничтожено:</span><span>${destroyedCount}</span></div>
+        <div class="row-stat"><span>Уничтожено:</span><span>${destroyedTotal}</span></div>
+        <div class="row-stat"><span>Обычных уничтожено:</span><span>${destroyedRegular}</span></div>
         <div class="row-stat"><span>Всего систем после:</span><span>${totalSystemsAfter} (родная + ${primeSystems.length} прайм + ${keepRegularCount} обычных)</span></div>
         <div class="row-stat"><span>Сингулярности:</span><span>+${gainedSingularities} (всего ${Number(S.singularities) || 0})</span></div>
         <div class="row-stat"><span>Множитель дохода:</span><span>×${oldMultiplier.toFixed(1)} ➔ ×${(S.galaxyMultiplier || 1).toFixed(1)}</span></div>
@@ -686,9 +727,9 @@ function performSupernova(level) {
       const good = savedPct >= 70;
       const sub = good
         ? 'Почти без потерь: ' + totalSystemsAfter + ' систем · +' + gainedSingularities + ' ✨ · ×' + (S.galaxyMultiplier || 1).toFixed(1)
-        : 'Уничтожено ' + destroyedCount + ' · осталось ' + totalSystemsAfter + ' систем · +' + gainedSingularities + ' ✨';
+        : 'Уничтожено ' + destroyedTotal + ' · осталось ' + totalSystemsAfter + ' систем · +' + gainedSingularities + ' ✨';
       toast(good ? '🎉 Удача! Вспышка почти не нанесла ущерба'
-                 : '💥 Вспышка уничтожила ' + destroyedCount + ' систем', sub);
+                 : '💥 Вспышка уничтожила ' + destroyedTotal + ' систем', sub);
       if (typeof updateUI === 'function') updateUI();
       if (typeof updateSystemSwitcher === 'function') updateSystemSwitcher();
       saveGame();

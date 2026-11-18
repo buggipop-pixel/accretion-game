@@ -91,6 +91,9 @@ const S = {
   prestigeLevel: 0,
   prestigeCatchupMilestone: 0,
   prestigeCatchupCount: 0,
+  // ★ Требование-пол после последней Вспышки: следующий престиж не может
+  //   требовать меньше, чем империя была на момент Вспышки (с запасом).
+  prestigeRequirementFloor: 0,
   galaxies: 1,
   galaxyForm: 'spiral',
   galaxyMultiplier: 1,
@@ -436,6 +439,11 @@ function saveGame() {
       
       // Престиж и ачивки
       prestigeLevel: S.prestigeLevel, galaxies: S.galaxies,
+      // ★ Догоняющая Вспышка и требование-пол обязаны переживать сейв/загрузку,
+      //   иначе после перезахода использованные рубежи снова становятся бесплатными.
+      prestigeCatchupMilestone: S.prestigeCatchupMilestone || 0,
+      prestigeCatchupCount: S.prestigeCatchupCount || 0,
+      prestigeRequirementFloor: S.prestigeRequirementFloor || 0,
       galaxyForm: S.galaxyForm, galaxyMultiplier: S.galaxyMultiplier,
       achievements: S.achievements, unlockedAch: S.unlockedAch,
       galaxyZoomLevel: S.galaxyZoomLevel,
@@ -584,6 +592,12 @@ function loadGame() {
       S.prestigeCatchupCount = 0;
     } else {
       S.prestigeCatchupCount = Math.floor(S.prestigeCatchupCount);
+    }
+    // ★ Требование-пол после Вспышки (0 — не задавалось, старые сейвы).
+    if (typeof S.prestigeRequirementFloor !== 'number' || !isFinite(S.prestigeRequirementFloor) || S.prestigeRequirementFloor < 0) {
+      S.prestigeRequirementFloor = 0;
+    } else {
+      S.prestigeRequirementFloor = Math.ceil(S.prestigeRequirementFloor);
     }
     if (typeof S.galaxies !== 'number') S.galaxies = 1;
     if (!S.galaxyForm) S.galaxyForm = 'spiral';
