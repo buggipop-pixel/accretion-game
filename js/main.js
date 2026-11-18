@@ -380,6 +380,13 @@ canvas.addEventListener('pointerdown', function(e) {
     const evtPos = getPointerPos(e);
     if (tryHitEventVisual(evtPos.x, evtPos.y)) return;
   }
+  // ★ Промах рядом с кораблём вторжения — это попытка выстрела.
+  //   Не отдаём такой тап навигации: иначе камера разворачивает
+  //   группу галактики, и цель уезжает из-под пальца.
+  if (S.stage === 'galaxy' && typeof invasionTapGrace === 'function') {
+    const invPos = getPointerPos(e);
+    if (invasionTapGrace(invPos.x, invPos.y)) return;
+  }
 
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -427,7 +434,10 @@ canvas.addEventListener('pointerdown', function(e) {
         const macroHit = galaxyMacroAt(pos.x, pos.y);
         if (macroHit >= 0) {
           // Двойной тап раскрывает объект: камера подлетает, затем LOD становится детальнее.
-          if (galaxyTap.macro === macroHit && nowTap - galaxyTap.at <= GALAXY_DOUBLE_TAP_MS) {
+          // Двойной тап раскрывает объект: камера подлетает, затем LOD становится детальнее.
+          // ★ Если в этой группе идёт вторжение — раскрытие отключено:
+          //   игрок в этот момент стреляет по кораблям, а не листает галактику.
+          if (galaxyTap.macro === macroHit && nowTap - galaxyTap.at <= GALAXY_DOUBLE_TAP_MS && !macroGroupHasInvasion(macroHit)) {
             galaxyTap.macro = -1;
             galaxyTap.idx = -1;
             galaxyTap.at = 0;
@@ -946,6 +956,27 @@ function galaxyMacroAt(x, y) {
     if (d <= o.r * 0.95 + 8 && d < bestD) { bestD = d; best = o.index; }
   }
   return best;
+}
+
+// ★ Группа галактики, внутри которой идёт вторжение: пока игрок тапает
+//   по кораблям, двойной тап не должен «проваливать» камеру внутрь
+//   созвездия/туманности и уводить цель из-под пальца.
+function macroGroupHasInvasion(macroIndex) {
+  if (!S.invasions || !S.invasions.length) return false;
+  if (!(macroIndex >= 0)) return false;
+  const level = galaxyLodLevel();
+  if (level >= 4) return false;
+  const total = Math.max(1, S.totalSystemsCreated || 1);
+  const objects = galaxyMacroObjects(performance.now() / 1000, total, level);
+  const o = objects[macroIndex];
+  if (!o) return false;
+  for (let i = 0; i < S.invasions.length; i++) {
+    const inv = S.invasions[i];
+    if (!inv || inv.targetType !== 'system') continue;
+    const idx = Number(inv.systemIdx);
+    if (idx >= o.start && idx < o.end) return true;
+  }
+  return false;
 }
 // ─── Раскрытие макро-объекта ────────────────────────────────────
 // Двойной тап по объекту не просто меняет LOD: камера плавно

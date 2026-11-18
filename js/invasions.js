@@ -689,79 +689,99 @@ function destroyPlanetByInvasion(victim) {
 }
 
 // ─── Клик по кораблю ────────────────────────────────────────────
+// ★ Экранная позиция корабля. В галактике корабли вращаются вокруг
+//   системы в экранных пикселях (орбита не масштабируется зумом),
+//   поэтому попадание считается по тем же координатам, что и рисуются.
+function invShipScreenPos(inv, ship, z) {
+  if (!inv || !ship) return null;
+  if (inv.targetType === 'system') {
+    let cxPos, cyPos, shipOrbitWorld;
+    if (S.stage === 'galaxy') {
+      if (typeof galaxySystemPos !== 'function') return null;
+      const gPos = galaxySystemPos(inv.systemIdx, S.totalSystemsCreated, performance.now() / 1000);
+      if (!gPos || !isFinite(gPos.x) || !isFinite(gPos.y)) return null;
+      cxPos = gPos.x; cyPos = gPos.y; shipOrbitWorld = 40;
+    } else if (S.stage === 'system' && inv.systemIdx === S.activeSystemIdx) {
+      if (typeof worldToScreen !== 'function') return null;
+      const cp = worldToScreen(0, 0);
+      if (!cp) return null;
+      cxPos = cp.x; cyPos = cp.y; shipOrbitWorld = 120 * z;
+    } else {
+      return null;
+    }
+    return {
+      x: cxPos + Math.cos(ship.angle) * shipOrbitWorld * ship.dist,
+      y: cyPos + Math.sin(ship.angle) * shipOrbitWorld * ship.dist * 0.5
+    };
+  }
+  if (inv.targetType === 'planet' && inv.planetSeed) {
+    if (S.stage === 'galaxy' || typeof worldToScreen !== 'function' || typeof getPlanetWorldPos !== 'function') return null;
+    const planets = Array.isArray(S.planets) ? S.planets : [];
+    let victim = null;
+    for (let j = 0; j < planets.length; j++) {
+      if (planets[j].seed === inv.planetSeed) { victim = planets[j]; break; }
+    }
+    if (!victim) return null;
+    const pos = getPlanetWorldPos(victim, performance.now() / 1000);
+    const shipOrbitWorld = victim.diameter * 25;
+    return worldToScreen(
+      pos.x + Math.cos(ship.angle) * shipOrbitWorld * ship.dist,
+      pos.y + Math.sin(ship.angle) * shipOrbitWorld * ship.dist * 0.5
+    );
+  }
+  return null;
+}
+
+// ★ Радиус попадания не должен схлопываться до пикселя при сильном
+//   отдалении галактики: 20px * zoom при зуме 0.04 — это 0.8px.
+function invasionHitRadius(ship, z) {
+  const base = Math.max(INVASION_CFG.hitRadius * (Number(z) || 1), 26);
+  return base + 6 * (Number(ship && ship.size) || 1);
+}
+
 function tryHitInvasionShip(screenX, screenY) {
   if (!S.invasions || S.invasions.length === 0) return false;
   const z = S.zoom || 1;
-  const hitR = INVASION_CFG.hitRadius * z;
 
   for (let i = S.invasions.length - 1; i >= 0; i--) {
     const inv = S.invasions[i];
-
-    if (inv.targetType === 'system') {
-      let cxPos, cyPos, shipOrbitWorld;
-      if (S.stage === 'galaxy') {
-        const gPos = galaxySystemPos(inv.systemIdx, S.totalSystemsCreated, performance.now() / 1000);
-        cxPos = gPos.x; cyPos = gPos.y; shipOrbitWorld = 40;
-      } else if (S.stage === 'system' && inv.systemIdx === S.activeSystemIdx) {
-        const cp = worldToScreen(0, 0);
-        cxPos = cp.x; cyPos = cp.y; shipOrbitWorld = 120 * z;
-      } else {
-        continue;
-      }
-
-      for (let si = inv.ships.length - 1; si >= 0; si--) {
-        const ship = inv.ships[si];
-        if (ship.destroyed) continue;
-        const wx = cxPos + Math.cos(ship.angle) * shipOrbitWorld * ship.dist;
-        const wy = cyPos + Math.sin(ship.angle) * shipOrbitWorld * ship.dist * 0.5;
-        const d = Math.hypot(wx - screenX, wy - screenY);
-        if (d < hitR) {
-          const hitDmg = invasionClickDamage();
-          ship.hp = Math.max(0, (Number(ship.hp) || 0) - hitDmg);
-          if (ship.hp <= 0) {
-            ship.destroyed = true;
-            S.explosions.push({ x: wx, y: wy, type: 'destroy', startAt: Date.now(), endAt: Date.now() + 500, size: 18 });
-            const reward = grantManualKillReward(inv, ship);
-            if (typeof toast === 'function') toast('🏆 Корабль уничтожен', '+' + Math.round(reward.metals) + '⚙ +' + Math.round(reward.dust) + '✦');
-          } else {
-            S.explosions.push({ x: wx, y: wy, type: 'hit', startAt: Date.now(), endAt: Date.now() + 250, size: 10 });
-          }
-          return true;
+    for (let si = inv.ships.length - 1; si >= 0; si--) {
+      const ship = inv.ships[si];
+      if (ship.destroyed) continue;
+      const p = invShipScreenPos(inv, ship, z);
+      if (!p) continue;
+      if (Math.hypot(p.x - screenX, p.y - screenY) < invasionHitRadius(ship, z)) {
+        const hitDmg = invasionClickDamage();
+        ship.hp = Math.max(0, (Number(ship.hp) || 0) - hitDmg);
+        if (ship.hp <= 0) {
+          ship.destroyed = true;
+          S.explosions.push({ x: p.x, y: p.y, type: 'destroy', startAt: Date.now(), endAt: Date.now() + 500, size: 18 });
+          const reward = grantManualKillReward(inv, ship);
+          if (typeof toast === 'function') toast('🏆 Корабль уничтожен', '+' + Math.round(reward.metals) + '⚙ +' + Math.round(reward.dust) + '✦');
+        } else {
+          S.explosions.push({ x: p.x, y: p.y, type: 'hit', startAt: Date.now(), endAt: Date.now() + 250, size: 10 });
         }
+        return true;
       }
-      continue;
     }
+  }
+  return false;
+}
 
-    if (inv.targetType === 'planet' && inv.planetSeed) {
-      let victim = null;
-      for (let j = 0; j < S.planets.length; j++) {
-        if (S.planets[j].seed === inv.planetSeed) { victim = S.planets[j]; break; }
-      }
-      if (victim) {
-        const pos = getPlanetWorldPos(victim, performance.now() / 1000);
-        const shipOrbitWorld = victim.diameter * 25;
-        for (let si = inv.ships.length - 1; si >= 0; si--) {
-          const ship = inv.ships[si];
-          if (ship.destroyed) continue;
-          const wx = pos.x + Math.cos(ship.angle) * shipOrbitWorld * ship.dist;
-          const wy = pos.y + Math.sin(ship.angle) * shipOrbitWorld * ship.dist * 0.5;
-          const sp = worldToScreen(wx, wy);
-          const d = Math.hypot(sp.x - screenX, sp.y - screenY);
-          if (d < hitR) {
-            const hitDmg = invasionClickDamage();
-            ship.hp = Math.max(0, (Number(ship.hp) || 0) - hitDmg);
-            if (ship.hp <= 0) {
-              ship.destroyed = true;
-              S.explosions.push({ x: sp.x, y: sp.y, type: 'destroy', startAt: Date.now(), endAt: Date.now() + 500, size: 18 });
-              const reward = grantManualKillReward(inv, ship);
-              if (typeof toast === 'function') toast('🏆 Корабль уничтожен', '+' + Math.round(reward.metals) + '⚙ +' + Math.round(reward.dust) + '✦');
-            } else {
-              S.explosions.push({ x: sp.x, y: sp.y, type: 'hit', startAt: Date.now(), endAt: Date.now() + 250, size: 10 });
-            }
-            return true;
-          }
-        }
-      }
+// ★ Промах рядом с кораблём вторжения — это всё ещё попытка выстрела,
+//   а не тап по галактике. Иначе камера уезжает/разворачивает группу
+//   систем вместе с целью, и попасть становится невозможно.
+function invasionTapGrace(screenX, screenY) {
+  if (!S.invasions || S.invasions.length === 0) return false;
+  const z = S.zoom || 1;
+  for (let i = S.invasions.length - 1; i >= 0; i--) {
+    const inv = S.invasions[i];
+    for (let si = 0; si < inv.ships.length; si++) {
+      const ship = inv.ships[si];
+      if (ship.destroyed) continue;
+      const p = invShipScreenPos(inv, ship, z);
+      if (!p) continue;
+      if (Math.hypot(p.x - screenX, p.y - screenY) < invasionHitRadius(ship, z) + 12) return true;
     }
   }
   return false;
@@ -774,7 +794,8 @@ function drawFleetShots(ctx, inv, z, shipScreenPos) {
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   ctx.strokeStyle = '#7ee0a8';
-  ctx.lineWidth = Math.max(1, 2 * z);
+  const zz = Math.max(0.8, Number(z) || 1);
+  ctx.lineWidth = Math.max(1, 2 * zz);
   for (let i = 0; i < inv.fleetShots.length; i++) {
     const shot = inv.fleetShots[i];
     const ship = inv.ships && inv.ships[shot.targetIdx];
@@ -782,7 +803,7 @@ function drawFleetShots(ctx, inv, z, shipScreenPos) {
     const p = shipScreenPos(ship);
     if (!p) continue;
     ctx.beginPath();
-    ctx.moveTo(p.x, p.y + 30 * z);
+    ctx.moveTo(p.x, p.y + 30 * zz);
     ctx.lineTo(p.x, p.y);
     ctx.stroke();
   }
@@ -804,7 +825,9 @@ function invShipRgba(hex, a) {
 
 // Корабль вторжения: у каждого типа свой силуэт, свечение, сопла и HP-бар.
 function drawInvaderShip(ctx, ship, z) {
-  const s = Math.max(0.6, Number(ship.size) || 1) * z;
+  // ★ Если зум галактики ушёл далеко вниз, корабль всё равно должен
+  //   оставаться видимой и кликабельной целью.
+  const s = Math.max(0.6, Number(ship.size) || 1) * Math.max(0.75, Number(z) || 1);
   const type = ship.type || 'fighter';
   const base = ship.color || '#ff5e5e';
   const t = (typeof performance !== 'undefined' && performance.now) ? performance.now() / 1000 : Date.now() / 1000;
@@ -949,6 +972,11 @@ function drawInvasions(ctx, time) {
   if (!S.invasions || S.invasions.length === 0) return;
   const now = Date.now();
   const z = S.zoom || 1;
+  // ★ Минимальный экранный масштаб: при сильном отдалении галактики
+  //   (много систем, зум ~0.04) корабли и полоски раньше сжимались
+  //   в невидимую точку — по ним физически нельзя было попасть.
+  const zShip = Math.max(z, 0.95);
+  const zUi = Math.max(z, 0.70);
 
   for (let i = 0; i < S.invasions.length; i++) {
     const inv = S.invasions[i];
@@ -970,7 +998,7 @@ function drawInvasions(ctx, time) {
       const pulse = 1 + 0.15 * Math.sin(time * 4);
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      const auraR = S.stage === 'galaxy' ? 50 * z : 80 * z;
+      const auraR = (S.stage === 'galaxy' ? 50 : 80) * zUi;
       const aura = ctx.createRadialGradient(cxPos, cyPos, 0, cxPos, cyPos, auraR * pulse);
       aura.addColorStop(0, 'rgba(255, 40, 40, 0.4)');
       aura.addColorStop(0.6, 'rgba(255, 40, 40, 0.15)');
@@ -987,11 +1015,11 @@ function drawInvasions(ctx, time) {
         ctx.save();
         ctx.translate(wx, wy);
         ctx.rotate(ship.angle + Math.PI / 2);
-        drawInvaderShip(ctx, ship, z);
+        drawInvaderShip(ctx, ship, zShip);
         ctx.restore();
       }
 
-      drawFleetShots(ctx, inv, z, function (ship) {
+      drawFleetShots(ctx, inv, zShip, function (ship) {
         return {
           x: cxPos + Math.cos(ship.angle) * shipOrbitWorld * ship.dist,
           y: cyPos + Math.sin(ship.angle) * shipOrbitWorld * ship.dist * 0.5,
@@ -1001,18 +1029,18 @@ function drawInvasions(ctx, time) {
       const elapsed = now - inv.spawnedAt, total = INVASION_CFG.totalDuration;
       const remainMs = Math.max(0, total - elapsed);
       const mm = String(Math.floor(remainMs / 60000)).padStart(2, '0'), ss = String(Math.floor((remainMs % 60000) / 1000)).padStart(2, '0');
-      const barW = 70 * z, barH = 4 * z;
-      const barX = cxPos - barW / 2, barY = cyPos - (S.stage === 'galaxy' ? 40 : 160) * z;
+      const barW = 70 * zUi, barH = 4 * zUi;
+      const barX = cxPos - barW / 2, barY = cyPos - (S.stage === 'galaxy' ? Math.max(34, 40 * z) : 160 * zUi);
 
       ctx.save();
-      ctx.fillStyle = 'rgba(15, 5, 5, 0.85)'; ctx.fillRect(barX - 2, barY - 26 * z, barW + 4, 36 * z);
-      ctx.strokeStyle = 'rgba(255, 60, 60, 0.6)'; ctx.strokeRect(barX - 2, barY - 26 * z, barW + 4, 36 * z);
-      ctx.fillStyle = '#ffd0d0'; ctx.font = 'bold ' + Math.round(7 * z) + 'px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(15, 5, 5, 0.85)'; ctx.fillRect(barX - 2, barY - 26 * zUi, barW + 4, 36 * zUi);
+      ctx.strokeStyle = 'rgba(255, 60, 60, 0.6)'; ctx.strokeRect(barX - 2, barY - 26 * zUi, barW + 4, 36 * zUi);
+      ctx.fillStyle = '#ffd0d0'; ctx.font = 'bold ' + Math.max(9, Math.round(7 * zUi)) + 'px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       
       let sysName = inv.systemIdx === 0 ? 'Родная' : (S.otherSystems[inv.systemIdx] ? S.otherSystems[inv.systemIdx].name : 'Неизвестно');
-      ctx.fillText('⚔ ' + sysName, cxPos, barY - 19 * z);
-      ctx.fillStyle = '#ff3030'; ctx.fillRect(barX, barY - 10 * z, barW * (elapsed / total), barH);
-      ctx.fillText('УНИЧТОЖЕНИЕ ' + mm + ':' + ss, cxPos, barY - 4 * z);
+      ctx.fillText('⚔ ' + sysName, cxPos, barY - 19 * zUi);
+      ctx.fillStyle = '#ff3030'; ctx.fillRect(barX, barY - 10 * zUi, barW * (elapsed / total), barH);
+      ctx.fillText('УНИЧТОЖЕНИЕ ' + mm + ':' + ss, cxPos, barY - 4 * zUi);
       ctx.restore();
       continue;
     }
@@ -1031,9 +1059,9 @@ function drawInvasions(ctx, time) {
       const pulse = 1 + 0.15 * Math.sin(time * 4);
 
       ctx.save(); ctx.globalCompositeOperation = 'lighter';
-      const aura = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, 45 * z * pulse);
+      const aura = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, 45 * zUi * pulse);
       aura.addColorStop(0, 'rgba(255, 40, 40, 0.35)'); aura.addColorStop(0.6, 'rgba(255, 40, 40, 0.15)'); aura.addColorStop(1, 'rgba(255, 40, 40, 0)');
-      ctx.fillStyle = aura; ctx.beginPath(); ctx.arc(sp.x, sp.y, 45 * z * pulse, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = aura; ctx.beginPath(); ctx.arc(sp.x, sp.y, 45 * zUi * pulse, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
 
       const shipOrbitWorld = victim.diameter * 25;
@@ -1044,11 +1072,11 @@ function drawInvasions(ctx, time) {
         const wy = pos.y + Math.sin(ship.angle) * shipOrbitWorld * ship.dist * 0.5;
         const ssp = worldToScreen(wx, wy);
         ctx.save(); ctx.translate(ssp.x, ssp.y); ctx.rotate(ship.angle + Math.PI / 2);
-        drawInvaderShip(ctx, ship, z);
+        drawInvaderShip(ctx, ship, zShip);
         ctx.restore();
       }
 
-      drawFleetShots(ctx, inv, z, function (ship) {
+      drawFleetShots(ctx, inv, zShip, function (ship) {
         return worldToScreen(
           pos.x + Math.cos(ship.angle) * shipOrbitWorld * ship.dist,
           pos.y + Math.sin(ship.angle) * shipOrbitWorld * ship.dist * 0.5
@@ -1058,21 +1086,20 @@ function drawInvasions(ctx, time) {
       const elapsed = now - inv.spawnedAt, total = INVASION_CFG.totalDuration;
       const remainMs = Math.max(0, total - elapsed);
       const mm = String(Math.floor(remainMs / 60000)).padStart(2, '0'), ss = String(Math.floor((remainMs % 60000) / 1000)).padStart(2, '0');
-      const barW = 70 * z, barH = 4 * z;
-      const barX = sp.x - barW / 2, barY = sp.y - 40 * z;
+      const barW = 70 * zUi, barH = 4 * zUi;
+      const barX = sp.x - barW / 2, barY = sp.y - Math.max(34, 40 * zUi);
 
       ctx.save();
-      ctx.fillStyle = 'rgba(15, 5, 5, 0.85)'; ctx.fillRect(barX - 2, barY - 26 * z, barW + 4, 36 * z);
-      ctx.strokeStyle = 'rgba(255, 60, 60, 0.6)'; ctx.strokeRect(barX - 2, barY - 26 * z, barW + 4, 36 * z);
-      ctx.fillStyle = '#ffd0d0'; ctx.font = 'bold ' + Math.round(7 * z) + 'px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('⚔ ' + PLANET_TYPES[victim.type].name, sp.x, barY - 19 * z);
+      ctx.fillStyle = 'rgba(15, 5, 5, 0.85)'; ctx.fillRect(barX - 2, barY - 26 * zUi, barW + 4, 36 * zUi);
+      ctx.strokeStyle = 'rgba(255, 60, 60, 0.6)'; ctx.strokeRect(barX - 2, barY - 26 * zUi, barW + 4, 36 * zUi);
+      ctx.fillStyle = '#ffd0d0'; ctx.font = 'bold ' + Math.max(9, Math.round(7 * zUi)) + 'px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('⚔ ' + PLANET_TYPES[victim.type].name, sp.x, barY - 19 * zUi);
       
       const isDestroying = elapsed >= INVASION_CFG.robberyDuration;
       const phaseLabel = isDestroying ? '💀 УНИЧТОЖЕНИЕ' : '💰 ГРАБЁЖ';
       const phaseColor = isDestroying ? '#ff3030' : '#ff9944';
-      
-      ctx.fillStyle = phaseColor; ctx.fillRect(barX, barY - 10 * z, barW * (elapsed / total), barH);
-      ctx.fillText(phaseLabel + ' · ' + mm + ':' + ss, sp.x, barY - 4 * z);
+      ctx.fillStyle = phaseColor; ctx.fillRect(barX, barY - 10 * zUi, barW * (elapsed / total), barH);
+      ctx.fillText(phaseLabel + ' · ' + mm + ':' + ss, sp.x, barY - 4 * zUi);
       ctx.restore();
     }
   }
@@ -1082,4 +1109,7 @@ window.spawnInvasion = spawnInvasion;
 window.tickInvasions = tickInvasions;
 window.drawInvasions = drawInvasions;
 window.tryHitInvasionShip = tryHitInvasionShip;
+window.invShipScreenPos = invShipScreenPos;
+window.invasionHitRadius = invasionHitRadius;
+window.invasionTapGrace = invasionTapGrace;
 window.destroyPlanetByInvasion = destroyPlanetByInvasion;
