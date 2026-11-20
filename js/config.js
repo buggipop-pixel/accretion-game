@@ -246,8 +246,19 @@ const INVASION_CFG = {
   nightCapHours: 4,                // и не более 4 часов прогресса
   planetDisabledHours: 2,          // сколько планета простаивает после повреждения
   repairCostShare: 0.15,           // ремонт планеты стоит 15% её цены в пыли
+  // ★ duration оставлен числом ради совместимости с ui.js (окно читает
+  //   INVASION_CFG.defenseHours). Пер-уровневые длительности — в
+  //   defenseHoursByLevel: их использует economy.defenseActivationHours()
+  //   и ui.js для покупки/витрины.
   defenseHours: 10,                // ★ активная Автоборона живёт 10 ч (щит за Stars — отдельно, 24 ч)
-  defenseCost: [0, 150, 350, 750, 1500, 3000],
+  defenseHoursByLevel: [0, 10, 10, 10, 8, 6], // ур.1–3 — 10 ч, ур.4 — 8 ч, ур.5 — 6 ч
+  // ★ Прогрессивная цена повторных активаций за игровые сутки:
+  //   каждая следующая покупка обороны дороже на defenseRenewalStepPct,
+  //   но не более defenseRenewalCapMult от базовой цены. Сброс — на
+  //   новом игровом дне (serverDayIndex), поля S.defenseBuysDay/Count.
+  defenseRenewalStepPct: 0.35,
+  defenseRenewalCapMult: 3.0,
+  defenseCost: [0, 150, 350, 800, 1800, 3600],
   defenseCostMultiplierPerSystem: 0.15, // +15% к цене за каждую систему свыше 1
   expeditionDefensePenalty: 0.15,
   offlineAttackInterval: 3 * 60 * 60 * 1000, offlineAttackMax: 5, offlineAttackPerSystems: 3,
@@ -303,7 +314,9 @@ const TROPHY_CFG = {
 // ─── ПРЕМИУМ (Металлы) ───
 const PREMIUM_CFG = {
   // shield удалён: щит покупается за звёзды (CHEST_CFG.shieldStars), не за металл.
-  booster: { hours: 2, costMetals: 600, incomeMult: 2.0 },
+  // ★ Бустер должен быть выгодным: цена 0.5 ч металлодобычи вместо 2 ч,
+  //   доход ×2 ко ВСЕМ валютам (пыль/энергия/цив/металлы) на 2 ч.
+  booster: { hours: 2, costMetals: 600, incomeMult: 2.0, priceHours: 0.5 },
 };
 
 // ─── МИССИИ ───
@@ -569,7 +582,8 @@ const ECONOMY_CFG = {
   // «3000 ⚙», а «столько-то часов добычи» — ресурсы распределяются осознанно.
   priceHours: {
     // Автоборона: часы металлодобычи по уровням 1..5 (держится defenseHours = 10 ч)
-    defense: [0, 0.15, 0.35, 0.70, 1.20, 2.00],
+    // Автоборона: часы металлодобычи по уровням 1..5 (база, до прогрессии)
+    defense: [0, 0.15, 0.35, 0.80, 1.60, 3.00],
     // Верфь: часы металлодобычи за ОДИН корабль
     fleet: { interceptor: 0.25, cruiser: 0.75, dreadnought: 2.00 },
     // Экспедиция: часы металлодобычи за запуск (×дальность)
@@ -918,14 +932,23 @@ function dailyRewardFor(day, rates, systems) {
   const dustRate = isFinite(dustPerSec) ? dustPerSec : 0;
   const energyRate = isFinite(energyPerSec) ? energyPerSec : 0;
   const civRate = isFinite(civPerSec) ? civPerSec : 0;
+  // ★ Металлодобыча: rates.metals (сервер/будущие вызовы) или живой
+  //   metalsPerSec() из economy.js (браузер/серверный vm). Иначе 0 —
+  //   сработает гарантированный минимум 5000 ⚙ × системы.
+  let metalsRate = Number(r.metals);
+  if (!isFinite(metalsRate) || metalsRate < 0) metalsRate = 0;
+  if (metalsRate === 0 && typeof metalsPerSec === 'function') {
+    const live = Number(metalsPerSec());
+    if (isFinite(live) && live > 0) metalsRate = live;
+  }
   const rewards = [
-    { icon: '✦', name: 'Пыль', amount: Math.floor(Math.max(50000, dustRate * 3600 * 4)), type: 'dust' },
-    { icon: '⚡', name: 'Энергия', amount: Math.floor(Math.max(1000, energyRate * 3600 * 4)), type: 'energy' },
-    { icon: '🧬', name: 'Цивилизация', amount: Math.floor(Math.max(10, civRate * 3600 * 8)), type: 'civ' },
-    { icon: '⚙', name: 'Металлы', amount: Math.floor(1000 * sys), type: 'metal' },
-    { icon: '🛡', name: 'Оборона', amount: 'Ур.3', type: 'defense' },
-    { icon: '🌐', name: 'Щит', amount: '8ч', type: 'shield' },
-    { icon: '🎫', name: 'Трофей', amount: 'Случайный', type: 'trophy' },
+    { icon: '✦', name: 'Пыль', amount: Math.floor(Math.max(50000, dustRate * 3600 * 8)), type: 'dust' },
+    { icon: '⚡', name: 'Энергия', amount: Math.floor(Math.max(2000, energyRate * 3600 * 8)), type: 'energy' },
+    { icon: '🧬', name: 'Цивилизация', amount: Math.floor(Math.max(20, civRate * 3600 * 16)), type: 'civ' },
+    { icon: '⚙', name: 'Металлы', amount: Math.floor(Math.max(5000 * sys, metalsRate * 3600 * 2)), type: 'metal', minAmount: 5000 * sys },
+    { icon: '🛡', name: 'Оборона', amount: 'Ур.4', type: 'defense', level: 4, hours: 24 },
+    { icon: '🌐', name: 'Щит', amount: '12ч', type: 'shield', hours: 12 },
+    { icon: '🎫', name: 'Трофей', amount: 'Rare+', type: 'trophy', minRarity: 'rare' },
   ];
   return rewards[d];
 }

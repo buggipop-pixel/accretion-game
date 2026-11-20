@@ -24,7 +24,15 @@ function check(name, condition, details) {
   }
 }
 
-function makeSandbox() {
+function makeSandbox(opts) {
+  const options = opts || {};
+  const store = options.store || {};
+  const localStorageMock = {
+    getItem(key) { return Object.prototype.hasOwnProperty.call(store, key) ? store[key] : null; },
+    setItem(key, value) { store[key] = String(value); },
+    removeItem(key) { delete store[key]; },
+    clear() { for (const k in store) delete store[k]; },
+  };
   const stats = {
     audioElements: 0,
     plays: 0,
@@ -125,16 +133,18 @@ function makeSandbox() {
     Uint8ClampedArray,
     Audio: AudioMock,
     document: documentMock,
-    S: { settings: { brightness: 1, sound: true } },
+    localStorage: localStorageMock,
+    S: { settings: { brightness: 1, sound: options.cloudSound !== false } },
   };
+  sandbox.__store = store;
   sandbox.window = sandbox;
   sandbox.window.AudioContext = AudioContextMock;
 
   return { sandbox, stats, listeners, AudioMock, warnings };
 }
 
-function loadAudioModule() {
-  const { sandbox, stats, listeners, AudioMock, warnings } = makeSandbox();
+function loadAudioModule(opts) {
+  const { sandbox, stats, listeners, AudioMock, warnings } = makeSandbox(opts);
   const code = fs.readFileSync(AUDIO_PATH, 'utf8');
   const context = vm.createContext(sandbox);
   vm.runInContext(code, context, { filename: 'js/audio.js' });
@@ -254,6 +264,36 @@ async function testSoundDisabledNeverStarts() {
   check('включение из выключенного состояния работает', on === true && sandbox.getAmbient().paused === false);
 }
 
+
+// ★ Главный регресс: выключенный звук переживает перезаход и облачный сейв.
+async function testSoundPrefPersistsAcrossSessions() {
+  // Сеанс 1: игрок выключает звук
+  const first = loadAudioModule();
+  first.sandbox.initAudio();
+  first.sandbox.unlockAudio();
+  first.sandbox.toggleSound();
+  check('выключение звука пишет локальный флаг',
+    first.sandbox.__store.accretion_sound_off === '1',
+    JSON.stringify(first.sandbox.__store));
+
+  // Сеанс 2: новое устройство/облако присылает sound=true, но флаг off остался
+  const second = loadAudioModule({ store: first.sandbox.__store, cloudSound: true });
+  check('при загрузке модуля звук применён как выключенный',
+    second.sandbox.S.settings.sound === false);
+  second.sandbox.initAudio();
+  second.sandbox.unlockAudio();
+  check('★ после перезахода фон не запускается',
+    second.stats.plays === 0, 'plays=' + second.stats.plays);
+  check('★ звук остаётся выключенным даже при sound=true в сейве',
+    second.sandbox.S.settings.sound === false);
+
+  // Игрок снова включает звук — флаг снимается, фон возвращается
+  const on = second.sandbox.toggleSound();
+  check('повторное включение снимает локальный флаг',
+    !Object.prototype.hasOwnProperty.call(second.sandbox.__store, 'accretion_sound_off'));
+  check('повторное включение запускает фон', on === true && second.sandbox.getAmbient().paused === false);
+}
+
 async function main() {
   console.log('========================================');
   console.log('🔊 ТЕСТЫ ЗВУКА');
@@ -265,6 +305,7 @@ async function main() {
   await testSuspendedContextResumesOnClick();
   await testVisibilityChangeRestoresAudio();
   await testSoundDisabledNeverStarts();
+  await testSoundPrefPersistsAcrossSessions();
 
   console.log('========================================');
   console.log('ИТОГО: Пройдено ' + results.pass + ', Провалено ' + results.fail);

@@ -464,6 +464,176 @@ function mergeDailyRewardMonotonic(cloudData) {
   return cloudData;
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  СЛИЯНИЕ «ПРИОБРЕТЁННОГО» ПРОГРЕССА ПРИ ЗАГРУЗКЕ ОБЛАКА
+//
+//  Облачный сейв может быть старше локального: он сохранён на другом
+//  устройстве или автосейвом ДО покупки. Заменять им локальный сейв
+//  целиком нельзя — у игрока «откатывались» купленный флот, автоборона,
+//  бустер, системы и настройки.
+//
+//  mergeOwnedProgress(local, cloud) возвращает копию облачного сейва,
+//  в которой необратимые приобретения не уменьшаются:
+//    • флот по типам, уровни и срок автобороны, срок бустера;
+//    • трофеи, части/сборки Прайма, достижения (achievements/unlockedAch);
+//    • techLevels, storageLevels, systems/totalSystemsCreated;
+//    • планеты и otherSystems — если локально их больше;
+//    • settings (звук/яркость) — выбор игрока на этом устройстве.
+//  Остальные поля (ресурсы, таймеры, события, позиции) берутся из
+//  облака: сервер остаётся источником правды по «живому миру».
+//
+//  Античит при этом НЕ ослабляется: слияние касается только владений,
+//  ресурсы по-прежнему сверяет сервер (reconcileWallet), а щит/бустер в
+//  режиме серверного кошелька — серверные права (entitlement). Поэтому
+//  локальный бустер там не принимается: он мог быть нарисован клиентом.
+// ═══════════════════════════════════════════════════════════════
+
+function ownedNum(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+function ownedNumberMax(a, b) {
+  const x = Number(a);
+  const y = Number(b);
+  const nx = Number.isFinite(x) ? x : 0;
+  const ny = Number.isFinite(y) ? y : 0;
+  return nx > ny ? nx : ny;
+}
+
+// Пофайловое слияние объектов-счётчиков ({interceptor, cruiser, ...}).
+function ownedCountersMax(localObj, cloudObj) {
+  const out = {};
+  const add = function (obj) {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return;
+    const keys = Object.keys(obj);
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      if (CLOUD_BAD_KEYS.has(k)) continue;
+      out[k] = ownedNumberMax(out[k], obj[k]);
+    }
+  };
+  add(cloudObj);
+  add(localObj);
+  return out;
+}
+
+// Объединение массивов: локальные элементы идут первыми, ключ задаёт
+// вызывающий. Так покупки/достижения с обоих устройств не теряются.
+function ownedArrayUnion(localArr, cloudArr, keyFn) {
+  const out = [];
+  const seen = Object.create(null);
+  const add = function (list) {
+    if (!Array.isArray(list)) return;
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i];
+      let key;
+      try { key = keyFn(item, i); } catch (e) { key = null; }
+      if (key === undefined || key === null || key === '') key = 'i:' + i;
+      key = String(key);
+      if (seen[key]) continue;
+      seen[key] = true;
+      out.push(item);
+    }
+  };
+  add(localArr);
+  add(cloudArr);
+  return out;
+}
+
+function mergeOwnedProgress(local, cloud) {
+  if (!cloud || typeof cloud !== 'object') return cloud;
+  if (!local || typeof local !== 'object') return cloud;
+
+  try {
+    const out = Object.assign({}, cloud);
+
+    // 1. Счётчики, которые не могут уменьшиться: берём максимум.
+    //    Для флота это осознанный компромисс: потеря покупки при сверке
+    //    гораздо хуже, чем «вернувшиеся» из облака корабли, погибшие
+    //    между автосейвами.
+    const maxFields = [
+      'nightDefenseLevel', 'nightDefenseExpiresAt',
+      'primeParts', 'primeCrafts',
+      'systems', 'totalSystemsCreated', 'systemCostFloor',
+      'boosterDay', 'prestigeLevel', 'galaxies',
+    ];
+    for (let i = 0; i < maxFields.length; i++) {
+      const f = maxFields[i];
+      const lv = local[f];
+      const cv = cloud[f];
+      if (lv === undefined && cv === undefined) continue;
+      // Массивы (совместимость со старыми/тестовыми сейвами) числом не
+      // сливаем — их длину обрабатывает пункт 5.
+      if (Array.isArray(lv) || Array.isArray(cv)) continue;
+      out[f] = ownedNumberMax(lv, cv);
+    }
+
+    // 2. Словари уровней/кораблей: максимум по каждому ключу.
+    const counterFields = ['fleet', 'storageLevels', 'techLevels'];
+    for (let i = 0; i < counterFields.length; i++) {
+      const f = counterFields[i];
+      if (local[f] === undefined && cloud[f] === undefined) continue;
+      out[f] = ownedCountersMax(local[f], cloud[f]);
+    }
+
+    // 3. Бустер. В режиме серверного кошелька единственный источник —
+    //    серверное право (entitlement, см. overlayBoosterEntitlement в
+    //    server.js): локальное значение может быть нарисовано, поэтому
+    //    облако не перебиваем. Вне этого режима бустер покупается
+    //    локально — сохраняем более поздний срок.
+    if (local.boosters || cloud.boosters) {
+      const lb = (local.boosters && typeof local.boosters === 'object') ? local.boosters : {};
+      const cb = (cloud.boosters && typeof cloud.boosters === 'object') ? cloud.boosters : {};
+      const merged = Object.assign({}, cb, lb);
+      merged.incomeUntil = (typeof window !== 'undefined' && window.__serverWallet === true)
+        ? ownedNum(cb.incomeUntil)
+        : ownedNumberMax(lb.incomeUntil, cb.incomeUntil);
+      out.boosters = merged;
+    }
+
+    // 4. Достижения и трофеи — объединение, а не замена.
+    out.achievements = ownedArrayUnion(local.achievements, cloud.achievements,
+      function (v) { return v; });
+    out.trophyContracts = ownedArrayUnion(local.trophyContracts, cloud.trophyContracts,
+      function (c) { return (c && (c.id || (c.type + '|' + c.value + '|' + c.createdAt))) || ''; });
+    out.activeTrophyEffects = ownedArrayUnion(local.activeTrophyEffects, cloud.activeTrophyEffects,
+      function (e) { return (e && (e.type + '|' + e.value + '|' + e.expiresAt)) || ''; });
+    if (local.unlockedAch || cloud.unlockedAch) {
+      out.unlockedAch = Object.assign({}, cloud.unlockedAch || {}, local.unlockedAch || {});
+    }
+
+    // 5. Купленные системы/планеты не исчезают: если локально их больше,
+    //    оставляем локальный набор.
+    if (Array.isArray(local.planets) && Array.isArray(cloud.planets) &&
+        local.planets.length > cloud.planets.length) {
+      out.planets = local.planets;
+    }
+    if (Array.isArray(local.otherSystems) && Array.isArray(cloud.otherSystems) &&
+        local.otherSystems.length > cloud.otherSystems.length) {
+      out.otherSystems = local.otherSystems;
+    }
+
+    // 6. Настройки устройства: локальные звук/яркость приоритетнее
+    //    облачных (общий аккаунт не должен включать звук, который
+    //    игрок выключил здесь).
+    if (local.settings && typeof local.settings === 'object') {
+      const cloudSettings = (cloud.settings && typeof cloud.settings === 'object') ? cloud.settings : {};
+      out.settings = Object.assign({}, cloudSettings, local.settings);
+    }
+
+    // 7. Стадия не откатывается назад (например, локально уже галактика,
+    //    а устаревшее облако ещё система).
+    const localStageRank = cloudStageRank(local.stage);
+    const cloudStageRankNow = cloudStageRank(cloud.stage);
+    if (localStageRank > cloudStageRankNow) out.stage = local.stage;
+
+    return out;
+  } catch (e) {
+    console.warn('[CloudSave] слияние прогресса не удалось, применяем облако:', e);
+    return cloud;
+  }
+}
 
 // ★ Нерф откатов: при сверке кошелька сервер может прислать только часть
 // полей. Заменять ими весь сейв нельзя — иначе откатываются действия,
@@ -870,6 +1040,14 @@ async function cloudSync() {
 function applyCloudSaveToRuntime(cloudData) {
   if (!cloudData || typeof cloudData !== 'object') return false;
 
+  // ★ Сначала сливаем с локальным сейвом «приобретённое» (флот, автоборона,
+  //   бустер, системы, настройки): устаревшее облако не должно откатывать
+  //   покупки. Локальным источником берём живую S, а без неё — сохранённый сейв.
+  const mergeLocal = (typeof S !== 'undefined' && S && typeof S === 'object')
+    ? S : readLocalSave();
+  if (mergeLocal && mergeLocal !== cloudData) {
+    cloudData = mergeOwnedProgress(mergeLocal, cloudData);
+  }
   // ★ Облако со старого устройства не должно откатывать уже забранную сегодня награду.
   cloudData = mergeDailyRewardMonotonic(cloudData);
   // 1. Фиксируем сейв локально, чтобы loadGame() прочитал именно его
@@ -885,6 +1063,10 @@ function applyCloudSaveToRuntime(cloudData) {
     try { Object.assign(S, cloudData); } catch (e2) { return false; }
   }
 
+  // ★ Локальный выбор звука сильнее облачного: облачный settings.sound=true
+  //   не должен включать звук, который игрок выключил на этом устройстве.
+  //   applySoundPref() определён в js/audio.js (item 5).
+  if (typeof applySoundPref === 'function') applySoundPref();
   // 3. Обновляем интерфейс и визуал под новые данные
   try {
     S.activeMinigame = null;
@@ -1089,12 +1271,21 @@ async function syncCloudOnStart() {
     // ★ Страховка: сохраняем прошлый локальный сейв перед заменой облачным.
     // Если у игрока были дни игры без сети, прогресс можно вернуть из бэкапа.
     backupLocalSave();
-    localStorage.setItem(getSaveKey(), JSON.stringify(cloudData));
+    // ★ Не пишем облако поверх локального сейва напрямую: сначала сливаем
+    //   «приобретённое» (флот/автоборона/бустер/системы/настройки), иначе
+    //   устаревшее облако откатывает покупки. Внутри applyCloudSaveToRuntime
+    //   слияние тоже есть, но здесь оно нужно раньше — сейв вот-вот
+    //   перезапишется облачным и локальная копия исчезнет.
+    const localSnapshot = (typeof S !== 'undefined' && S && typeof S === 'object')
+      ? S : localData;
+    const mergedCloud = mergeOwnedProgress(localSnapshot, cloudData);
+    localStorage.setItem(getSaveKey(), JSON.stringify(mergedCloud));
 
     if (typeof applyCloudSaveToRuntime === 'function') {
-      applyCloudSaveToRuntime(cloudData);
+      applyCloudSaveToRuntime(mergedCloud);
     } else {
-      Object.assign(S, cloudData);
+      Object.assign(S, mergedCloud);
+      if (typeof applySoundPref === 'function') applySoundPref();
       if (typeof updateUI === 'function') updateUI();
     }
 
@@ -1675,6 +1866,8 @@ window.cloudLoadGame = cloudLoadGame;
 window.cloudSync = cloudSync;
 window.syncCloudOnStart = syncCloudOnStart;
 window.applyCloudSaveToRuntime = applyCloudSaveToRuntime;
+// ★ Для тестов и отладки: слияние приобретённого прогресса при загрузке облака.
+window.mergeOwnedProgress = mergeOwnedProgress;
 window.initCloudSave = initCloudSave;
 window.isCloudAvailable = isCloudAvailable;
 window.startCloudAutosave = startCloudAutosave;

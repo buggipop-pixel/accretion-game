@@ -956,6 +956,28 @@ function initUI() {
     });
   });
 
+  // ★ Металлы: ячейка хранилища — вход в «Хранилище металла» (магазин + витрина).
+  // Остальные ячейки не трогаем: у dust/energy/civ тап по кнопке «Улучшить».
+  const metalsCell = document.querySelector('.storage-cell[data-res="metals"]');
+  if (metalsCell) {
+    const openVault = function() {
+      if (typeof playSFX === 'function') playSFX('ui_click');
+      if (typeof openMetalVault === 'function') openMetalVault();
+      else if (typeof openPremiumShop === 'function') openPremiumShop();
+    };
+    metalsCell.addEventListener('click', function(ev) {
+      // Кнопка «Улучшить» внутри ячейки (если появится) не должна открывать витрину.
+      if (ev.target && ev.target.closest && ev.target.closest('.storage-upgrade-btn')) return;
+      openVault();
+    });
+    metalsCell.addEventListener('keydown', function(ev) {
+      if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
+        ev.preventDefault();
+        openVault();
+      }
+    });
+  }
+
   updateStorageUI();
   setInterval(updateSystemSwitcher, 2000);
 
@@ -1319,7 +1341,13 @@ function openNightMode() {
   const debuffCapPct = Math.round((Number(INVASION_CFG.debuffStackCap) || 0.8) * 100);
   const offlineCapPct = Math.round((Number(INVASION_CFG.nightLossCapShare) || 0.4) * 100);
   const offlineMaxCapPct = Math.round((Number(neglectCfg.lossCapShareMax) || 0.8) * 100);
-  const defenseHours = Number(INVASION_CFG.defenseHours) || 10;
+  // ★ Часы обороны — пер-уровневые (economy.js: ур.4 = 8 ч, ур.5 = 6 ч).
+  const defenseHoursFor = function(lvl) {
+    return (typeof defenseActivationHours === 'function')
+      ? defenseActivationHours(lvl)
+      : (Number(INVASION_CFG.defenseHours) || 10);
+  };
+  const defenseHours = defenseHoursFor(selDefLvl);
   // Кнопки уровней обороны
   const defenseButtons = [1, 2, 3, 4, 5].map(lvl => {
     const systemsExtra = Math.max(0, (S.systems || 1) - 1);
@@ -1330,7 +1358,7 @@ function openNightMode() {
     const isCurrent = selDefLvl === lvl;
     return `<button class="pour-btn" style="flex-direction:column;padding:6px 2px;font-size:9px; line-height:1.2; ${isCurrent ? 'background:rgba(46,170,119,0.4);border-color:#2eaa77;' : ''}"
       onclick="selectDefenseLevel(${lvl})" ${ (S.metalAmount || 0) >= cost ? '' : 'disabled' }>
-      Ур.${lvl}<br><span style="font-size:8px;">${cost}⚙</span><br>+${bonus}%
+      Ур.${lvl}<br><span style="font-size:8px;">${cost}⚙</span><br>+${bonus}%<br><span style="font-size:8px;">${defenseHoursFor(lvl)}ч</span>
     </button>`;
   }).join('');
 
@@ -1365,7 +1393,7 @@ function openNightMode() {
 
     <div class="info-box">
       <div class="row-stat">
-        <span>🛡 Автооборона (на ${Number(INVASION_CFG.defenseHours) || 10}ч)</span>
+        <span>🛡 Автооборона (на ${defenseHours} ч)</span>
         <span style="color:${selDefLvl > 0 ? '#7ee0a8' : '#ff8a8a'}">${defenseLabel}</span>
       </div>
       <div class="pour-btn-group" style="flex-wrap:wrap;gap:4px;margin-top:8px;">
@@ -1425,7 +1453,7 @@ function openNightMode() {
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Кап потерь без присмотра:</span><span>${offlineCapPct}% → до ${offlineMaxCapPct}% каждого ресурса</span></div>
       <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Планеты:</span><span>до ${maxDisablePlanets} в простой на ${maxDisableHours} ч (дольше при запустении)</span></div>
       <div class="row-stat" style="font-size:10px;color:#ffb347;"><span>Системы:</span><span>при запустении выводятся из строя на часы</span></div>
-      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Длительность обороны:</span><span>${defenseHours} ч (щит 24 ч)</span></div>
+      <div class="row-stat" style="font-size:10px;color:#8b7fd4;"><span>Длительность обороны:</span><span>${defenseHours} ч · ур.4 — ${defenseHoursFor(4)} ч · ур.5 — ${defenseHoursFor(5)} ч (щит 24 ч)</span></div>
       <div class="row-stat" style="font-size:10px;color:#7ee0a8;"><span>Альтернатива:</span><span>⭐ щит 24 ч — 100% без уровней и флота</span></div>
     </div>
 
@@ -1486,11 +1514,16 @@ function saveNightConfig() {
   // Списываем ресурсы
   if (mCostComet > 0) { S.metalAmount -= mCostComet; S.dust -= dCostComet; }
   if (eCostExp > 0) { S.energy -= eCostExp; S.metalAmount -= mCostExp; S.civLevel -= cCostExp; }
+  let appliedDefenseHours = 0;
   if (mCostDefense > 0) {
     S.metalAmount -= mCostDefense;
     S.nightDefenseLevel = selDefLvl;
-    const hours = Number(INVASION_CFG.defenseHours) || 10;
+    // ★ Часы активации берём из economy.js по выбранному уровню.
+    const hours = (typeof defenseActivationHours === 'function')
+      ? defenseActivationHours(selDefLvl)
+      : (Number(INVASION_CFG.defenseHours) || 10);
     S.nightDefenseExpiresAt = Date.now() + hours * 3600 * 1000;
+    appliedDefenseHours = hours;
     // ★ Пишем активацию в журнал: иначе бонус к отбитию остаётся невидимым.
     if (typeof addEvent === 'function') {
       const addPct = Math.round(selDefLvl * (Number(INVASION_CFG.repelDefensePerLevel) || 0.10) * 100);
@@ -1510,7 +1543,7 @@ function saveNightConfig() {
   document.getElementById('modal').classList.remove('show');
 
   let totalCostText = '';
-  if (mCostDefense > 0) totalCostText += `Оборона ур.${selDefLvl}: ${mCostDefense}⚙. `;
+  if (mCostDefense > 0) totalCostText += `Оборона ур.${selDefLvl}: ${mCostDefense}⚙ на ${appliedDefenseHours}ч. `;
   if (mCostComet > 0) totalCostText += `Комета: ${mCostComet}⚙ ${fmt(dCostComet)}✦. `;
   if (eCostExp > 0) totalCostText += `Экспедиция: ${eCostExp}⚡ ${mCostExp}⚙ ${cCostExp}🧬. `;
 
@@ -1688,18 +1721,34 @@ function claimDailyReward() {
   else if (rw.type === 'civ') { S.civLevel += rw.amount; toast('Награда!', '+' + fmt(rw.amount) + ' 🧬'); }
   else if (rw.type === 'metal') { S.metalAmount += rw.amount; toast('Награда!', '+' + fmt(rw.amount) + ' ⚙'); }
   else if (rw.type === 'defense') { 
-    S.nightDefenseLevel = 3; 
-    const rewardDefenseHours = Number(INVASION_CFG.defenseHours) || 10;
+    const rewardDefLvl = Math.max(1, Math.min(5, Number(rw.level) || 3));
+    S.nightDefenseLevel = rewardDefLvl;
+    // ★ Часы — из награды, иначе пер-уровневые (ур.4 = 8 ч, ур.5 = 6 ч).
+    const rewardDefenseHours = Number(rw.hours)
+      || ((typeof defenseActivationHours === 'function') ? defenseActivationHours(rewardDefLvl) : (Number(INVASION_CFG.defenseHours) || 10));
     S.nightDefenseExpiresAt = Date.now() + rewardDefenseHours * 3600 * 1000;
-    toast('Награда!', 'Автооборона Ур.3 на ' + rewardDefenseHours + 'ч');
+    toast('Награда!', 'Автооборона Ур.' + rewardDefLvl + ' на ' + rewardDefenseHours + 'ч');
   }
   else if (rw.type === 'shield') { 
-    S.shieldUntil = Math.max(S.shieldUntil || 0, Date.now() + 8 * 3600 * 1000); 
-    toast('Награда!', 'Щит на 8ч'); 
+    const shieldHours = Number(rw.hours) || 8;
+    S.shieldUntil = Math.max(S.shieldUntil || 0, Date.now() + shieldHours * 3600 * 1000);
+    toast('Награда!', 'Щит на ' + shieldHours + 'ч');
   }
   else if (rw.type === 'trophy') { 
-    if (typeof tryRollTrophy === 'function') tryRollTrophy('insane'); 
-    toast('Джекпот!', 'Трофейный контракт'); 
+    // ★ Джекпот не бывает «обычным»: рероллим до редкого (missions.js не правим).
+    let trophy = null;
+    if (typeof generateTrophy === 'function' && typeof grantTrophy === 'function') {
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const rolled = generateTrophy();
+        if (!rolled) continue;
+        if (!trophy) trophy = rolled; // страховка, если всё выпало common
+        if (rolled.rarity && rolled.rarity !== 'common') { trophy = rolled; break; }
+      }
+      if (trophy) grantTrophy(trophy);
+    } else if (typeof tryRollTrophy === 'function') {
+      trophy = tryRollTrophy('insane');
+    }
+    toast('Джекпот!', trophy ? ('Трофей: ' + (trophy.rarity || 'rare')) : 'Трофейный контракт');
   }
 
   S.dailyReward.lastClaimed = Date.now();

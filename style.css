@@ -1717,6 +1717,18 @@ body.tg-fullscreen #app { max-width: none; }
   background: rgba(255, 255, 255, 0.028);
   border: 1px solid rgba(139, 127, 212, 0.12);
 }
+
+/* ── Ячейка «МЕТАЛЛЫ» — вход в «Хранилище металла» (тап/ Enter) ── */
+.storage-cell--vault {
+  cursor: pointer;
+  border-color: rgba(139, 127, 212, 0.4);
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.15s ease, transform 0.12s ease;
+}
+.storage-cell--vault:hover { border-color: rgba(185, 168, 255, 0.7); }
+.storage-cell--vault:active { transform: scale(0.97); border-color: #b9a8ff; }
+.storage-cell--vault:focus-visible { outline: 2px solid #b9a8ff; outline-offset: 1px; }
+.storage-cell--vault .storage-label::after { content: ' ›'; opacity: 0.85; }
 .sc-top {
   display: flex;
   align-items: center;

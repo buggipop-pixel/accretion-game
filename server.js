@@ -1179,7 +1179,13 @@ app.post('/api/save', async (req, res) => {
       ok: true, saved_at: payload.saved_at, version: payload.version,
       authoritative: SERVER_AUTHORITATIVE,
       clamped: clampedFields.length ? clampedFields : undefined,
-      data: clampedFields.length ? safeSave : undefined,
+      // ★ Клиенту при обрезке отдаём ТОЛЬКО валютные поля, а не весь
+      //   сейв: полный снимок легко применить как замену и откатить
+      //   покупки/миссии, случившиеся за время запроса. Прогресс живёт
+      //   на клиенте, сервер сверяет только кошелёк.
+      data: (clampedFields.length && walletToWrite)
+        ? walletToSavePatch(walletToWrite)
+        : (clampedFields.length ? safeSave : undefined),
     });
   } catch (e) {
     console.error('[save]', e);

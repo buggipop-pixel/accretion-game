@@ -162,6 +162,13 @@ function makeDevice(server, opts) {
     dev.S.planets = [{ id: 1 }, { id: 2 }];
     server.clampNext = { dust: 700, dustTotal: 5000 };
 
+    // Покупки, которые clamped-патч трогать не имеет права.
+    dev.S.fleet = { interceptor: 4, cruiser: 2, dreadnought: 1 };
+    dev.S.boosters = { incomeUntil: 123456789 };
+    dev.S.nightDefenseLevel = 3;
+    dev.S.nightDefenseExpiresAt = 987654321;
+    dev.S.settings = { sound: false, brightness: 0.5, pushEnabled: true };
+
     // Действие во время запроса: игрок покупает ещё одну планету.
     server.onSave = function() { dev.S.planets.push({ id: 3 }); dev.S.totalSystemsCreated = 9; };
 
@@ -173,6 +180,18 @@ function makeDevice(server, opts) {
     assert('Планета, купленная во время запроса, НЕ откатилась',
       dev.S.planets.length === 3, JSON.stringify(dev.S.planets));
     assert('Прочие поля прогресса не откатились', dev.S.totalSystemsCreated === 9);
+    assert('Clamped-патч не трогает флот',
+      dev.S.fleet.interceptor === 4 && dev.S.fleet.cruiser === 2 && dev.S.fleet.dreadnought === 1,
+      JSON.stringify(dev.S.fleet));
+    assert('Clamped-патч не трогает автоборону',
+      dev.S.nightDefenseLevel === 3 && dev.S.nightDefenseExpiresAt === 987654321,
+      dev.S.nightDefenseLevel + '/' + dev.S.nightDefenseExpiresAt);
+    assert('Clamped-патч не трогает бустер',
+      dev.S.boosters && dev.S.boosters.incomeUntil === 123456789,
+      JSON.stringify(dev.S.boosters));
+    assert('Clamped-патч не трогает настройки',
+      dev.S.settings && dev.S.settings.sound === false && dev.S.settings.brightness === 0.5,
+      JSON.stringify(dev.S.settings));
     assert('Показан тост «Баланс сверен»',
       dev.toasts.some((t) => String(t.title).indexOf('Баланс сверен') >= 0));
     assert('Локальный сейв переписан (ресурсы серверные, прогресс свой)', (() => {

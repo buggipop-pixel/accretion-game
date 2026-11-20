@@ -114,7 +114,7 @@ function openPremiumShop() {
         <span>🚀 Бустер Дохода (×${PREMIUM_CFG.booster.incomeMult})</span>
         <span>${boostActive ? 'Активен ' + boostLeft + 'ч' : PREMIUM_CFG.booster.hours + ' часа'}</span>
       </div>
-      <div class="modal-sub" style="margin-top:4px;color:#8b7fd4;">1 покупка в день за металл · цена = 2 часа добычи</div>
+      <div class="modal-sub" style="margin-top:4px;color:#8b7fd4;">1 покупка в день за металл · цена = 0.5 часа добычи</div>
       <button class="pour-btn" style="width:100%;margin-top:8px;"
         onclick="buyIncomeBooster()" ${boughtBoosterToday ? 'disabled' : ((S.metalAmount || 0) >= boosterCost ? '' : 'disabled')}>
         ${boughtBoosterToday ? 'Куплено сегодня' : ((S.metalAmount || 0) >= boosterCost ? 'Купить за ' + fmt(boosterCost) + ' ⚙' : 'Нужно ' + fmt(boosterCost) + ' ⚙')}
@@ -528,10 +528,12 @@ function showChestResult(prime, opts) {
   if (typeof playSFX === 'function') playSFX('ui_levelup');
 }
 
-// ★ Цена бустера — 2 часа текущей металлодобычи (не константа).
+// ★ Цена бустера — полчаса текущей металлодобычи (не константа).
+// priceHours из конфига, чтобы баланс правился в одном месте.
 function boosterPriceMetals() {
   const base = Number(PREMIUM_CFG.booster.costMetals) || 600;
-  const dynamic = Math.floor((typeof metalsPerSec === 'function' ? metalsPerSec() : 0) * 7200);
+  const priceHours = Number(PREMIUM_CFG.booster.priceHours) || 0.5;
+  const dynamic = Math.floor((typeof metalsPerSec === 'function' ? metalsPerSec() : 0) * priceHours * 3600);
   return Math.max(base, dynamic);
 }
 window.boosterPriceMetals = boosterPriceMetals;
@@ -634,6 +636,179 @@ async function buyBoosterWithStars() {
   });
 }
 window.buyBoosterWithStars = buyBoosterWithStars;
+
+// ═══════════════════════════════════════════════════════════════
+//  ХРАНИЛИЩЕ МЕТАЛЛА (магазин за металлы + витрина трофеев)
+// ═══════════════════════════════════════════════════════════════
+// ★ Экран открывается тапом по ячейке «МЕТАЛЛЫ» в нижнем доке
+// (делегирование клика — js/ui.js, initUI). Здесь только сборка HTML:
+// покупки идут через существующие функции флота/бустера/обороны.
+function openMetalVault() {
+  const card = document.getElementById('modalCard');
+  const modal = document.getElementById('modal');
+  if (!card || !modal) return;
+  if (typeof playSFX === 'function') playSFX('ui_click');
+
+  const f = (typeof fmt === 'function') ? fmt : function(n) { return String(Math.floor(Number(n) || 0)); };
+  const now = Date.now();
+
+  // Остаток срока в человеческом виде (бустер, оборона, трофеи).
+  function left(expiresAt) {
+    const ms = Number(expiresAt) - now;
+    if (!(ms > 0)) return 'истёк';
+    const totalMin = Math.ceil(ms / 60000);
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    if (h > 0) return h + ' ч' + (m > 0 ? ' ' + m + ' мин' : '');
+    return m + ' мин';
+  }
+
+  const metals = Number(S.metalAmount) || 0;
+  const cap = (typeof getResourceCap === 'function') ? (Number(getResourceCap('metals')) || 0) : 0;
+  const ev = (typeof eventMult === 'function') ? eventMult('metals') : 1;
+  const gross = (typeof metalsPerSec === 'function') ? metalsPerSec() * ev * 3600 : 0;
+  const upkeep = (typeof fleetUpkeepPerSec === 'function') ? fleetUpkeepPerSec() * ev * 3600 : 0;
+  const net = Math.max(0, gross - upkeep);
+  const capText = cap > 0 ? f(cap) + ' ⚙' : 'без лимита';
+
+  let html = `<div class="modal-title">⚙ Хранилище металла</div>
+    <div class="modal-sub">Металлы: ${f(metals)} ⚙ · Доход: +${f(net)} ⚙/ч · Лимит: ${capText}</div>`;
+
+  // ─── Верфь: быстрый список кораблей (покупка — существующий buyShip) ───
+  const totalShips = (typeof fleetShipTotal === 'function') ? fleetShipTotal() : 0;
+  const dps = (typeof fleetDps === 'function') ? fleetDps() : 0;
+  html += `<div class="info-box">
+    <div class="row-stat"><span>🚀 Верфь</span><span>Кораблей: ${totalShips} · ${dps.toFixed(1)} урона/с</span></div>
+    <div class="modal-sub" style="margin-top:4px;color:#8b7fd4;">Корабли тратят ⚙ металлы, ⚡ энергию и 🧬 цивилизацию, флот сразу встаёт на службу.</div>`;
+
+  for (const key in FLEET_CFG.ships) {
+    const ship = FLEET_CFG.ships[key];
+    const count = shipCount(key);
+    const shipPrice = (typeof fleetShipPrice === 'function') ? fleetShipPrice(key) : ship.costMetals;
+    const canAfford = metals >= shipPrice && (S.energy || 0) >= ship.costEnergy && (S.civLevel || 0) >= ship.costCiv;
+    html += `<div class="row-stat" style="margin-top:8px;font-size:11px;">
+        <span>${ship.name} <span style="opacity:0.7;">(есть: ${count})</span></span>
+        <span>${f(shipPrice)} ⚙ · ${f(ship.costEnergy)} ⚡ · ${ship.costCiv} 🧬</span>
+      </div>
+      <button class="pour-btn" style="width:100%;margin-top:4px;" onclick="buyShip('${key}', 1)" ${canAfford ? '' : 'disabled'}>Купить 1</button>`;
+  }
+
+  html += `<button class="pour-btn" style="width:100%;margin-top:8px;" onclick="openShipyard()">🚀 Открыть Верфь</button></div>`;
+
+  // ─── Бустер дохода ───
+  const boostUntil = Number(S.boosters && S.boosters.incomeUntil) || 0;
+  const boostActive = boostUntil > now;
+  const boostCost = (typeof boosterPriceMetals === 'function') ? boosterPriceMetals() : (Number(PREMIUM_CFG.booster.costMetals) || 600);
+  const todayIdx = (typeof serverDayIndex === 'function') ? serverDayIndex() : Math.floor(now / 86400000);
+  const boughtToday = Number(S.boosterDay) === todayIdx;
+  const canBuyBoost = !boughtToday && metals >= boostCost;
+  let boostLabel = 'Купить за ' + f(boostCost) + ' ⚙';
+  if (boughtToday) boostLabel = 'Куплено сегодня';
+  else if (metals < boostCost) boostLabel = 'Нужно ' + f(boostCost) + ' ⚙';
+  const priceHours = Number(PREMIUM_CFG.booster.priceHours) || 0.5;
+  html += `<div class="info-box">
+    <div class="row-stat"><span>🚀 Бустер дохода (×${PREMIUM_CFG.booster.incomeMult})</span><span>${boostActive ? 'Активен ' + left(boostUntil) : (boughtToday ? 'куплен сегодня' : 'не активен')}</span></div>
+    <div class="row-stat" style="font-size:11px;opacity:0.85;"><span>Цена: ${f(boostCost)} ⚙</span><span>≈ ${priceHours} ч добычи</span></div>
+    <div class="modal-sub" style="margin-top:4px;color:#8b7fd4;">Ускоряет все доходы на ${PREMIUM_CFG.booster.hours} ч. Одна покупка за металлы в день.</div>
+    <button class="pour-btn" style="width:100%;margin-top:8px;" onclick="buyIncomeBooster()" ${canBuyBoost ? '' : 'disabled'}>${boostLabel}</button>
+  </div>`;
+
+  // ─── Активная оборона ───
+  const defPaidActive = (Number(S.nightDefenseExpiresAt) || 0) > now;
+  const defLvl = (typeof activeDefenseLevel === 'function') ? activeDefenseLevel(now) : (defPaidActive ? (S.nightDefenseLevel || 0) : 0);
+  const defHoursFor = function(lvl) {
+    return (typeof defenseActivationHours === 'function')
+      ? defenseActivationHours(lvl)
+      : ((typeof INVASION_CFG !== 'undefined' && Number(INVASION_CFG.defenseHours)) || 10);
+  };
+  // ★ Часы обороны пер-уровневые (economy.js): ур.1–3 держатся дольше, ур.4 — 8 ч, ур.5 — 6 ч.
+  const defHoursLow = defHoursFor(1);
+  const defHours4 = defHoursFor(4);
+  const defHours5 = defHoursFor(5);
+  const defCost5 = (typeof defenseActivationCost === 'function') ? defenseActivationCost(5) : 0;
+  const renewMult = (typeof defenseRenewalMult === 'function') ? defenseRenewalMult() : 1;
+  const renewCap = ((typeof INVASION_CFG !== 'undefined' && Number(INVASION_CFG.defenseRenewalCapMult)) || 3);
+  const repelPct = (typeof INVASION_CFG !== 'undefined' && Number(INVASION_CFG.repelDefensePerLevel))
+    ? Math.round(Number(INVASION_CFG.repelDefensePerLevel) * 100) : 10;
+  html += `<div class="info-box">
+    <div class="row-stat"><span>🛡 Активная оборона</span><span>${defLvl > 0 ? 'Ур. ' + defLvl + (defPaidActive ? ' · ' + left(S.nightDefenseExpiresAt) : ' · трофей') : 'выключена'}</span></div>
+    <div class="modal-sub" style="margin-top:4px;color:#8b7fd4;">Часы по уровню: ур.1–3 — ${defHoursLow} ч, ур.4 — ${defHours4} ч, ур.5 — ${defHours5} ч. +${repelPct}% к отбитию за уровень (макс +50%).</div>
+    <div class="row-stat" style="font-size:11px;opacity:0.85;"><span>Цена ур.5 сейчас</span><span>${f(defCost5)} ⚙</span></div>
+    <div class="row-stat" style="font-size:10px;color:${renewMult > 1.001 ? '#ffb347' : '#8b7fd4'};"><span>Повторная активация</span><span>×${renewMult.toFixed(2)} к цене · дорожает с каждой покупкой за сутки, потолок ×${renewCap}</span></div>
+    <button class="pour-btn" style="width:100%;margin-top:8px;" onclick="openNightMode()">🛡 Настроить оборону</button>
+  </div>`;
+
+  // ─── Витрина: куски Прайма + трофеи ───
+  const parts = Number(S.primeParts) || 0;
+  const partTotal = (typeof PRIME_PART_TOTAL !== 'undefined') ? PRIME_PART_TOTAL : 10;
+  const perSystem = (typeof PRIME_PART_PER_SYSTEM !== 'undefined') ? PRIME_PART_PER_SYSTEM : 5;
+  const crafts = Number(S.primeCrafts) || 0;
+  const maxCrafts = (typeof PRIME_MAX_CRAFTS !== 'undefined') ? PRIME_MAX_CRAFTS : 2;
+  const canCraft = parts >= perSystem && crafts < maxCrafts;
+
+  html += `<div class="info-box">
+    <div class="row-stat"><span>🏆 Витрина</span><span>Прайм и трофеи</span></div>
+    <div class="row-stat" style="font-size:11px;opacity:0.85;"><span>🧩 Куски Прайма</span><span>${parts} / ${partTotal}</span></div>
+    <div class="row-stat" style="font-size:11px;opacity:0.85;"><span>Собрано систем</span><span>${crafts} / ${maxCrafts}</span></div>
+    <div class="modal-sub" style="margin-top:4px;color:#8b7fd4;">Каждые ${perSystem} кусков — Прайм-система из того же пула, что и сундук.</div>
+    <button class="ach-btn ${canCraft ? 'ready' : ''}" style="width:100%;margin-top:8px;" onclick="craftPrimeFromParts()" ${canCraft ? '' : 'disabled'}>${crafts >= maxCrafts ? 'Прайм собран' : 'Собрать за 🧩' + perSystem + ' (есть ' + parts + ')'}</button>
+  </div>`;
+
+  const contracts = Array.isArray(S.trophyContracts) ? S.trophyContracts : [];
+  const effects = (Array.isArray(S.activeTrophyEffects) ? S.activeTrophyEffects : [])
+    .filter(function(e) { return e && (!e.expiresAt || Number(e.expiresAt) > now); });
+  const trophyNames = {
+    system_discount: '🎫 Скидка на систему',
+    system_free: '🎫 Бесплатная система',
+    shield: '🎫 Щит',
+    defense_discount: '🎫 Скидка на оборону',
+    defense_level: '🎫 Автооборона'
+  };
+  html += `<div class="info-box">
+    <div class="row-stat"><span>🎫 Трофеи</span><span>${contracts.length + effects.length > 0 ? (contracts.length + effects.length) + ' шт.' : 'пусто'}</span></div>`;
+  if (contracts.length + effects.length === 0) {
+    html += `<div style="font-size:11px;color:#8b7fd4;margin-top:6px;">Пока нет трофеев — выпадают за активную оборону во вторжениях.</div>`;
+  } else {
+    for (let i = 0; i < effects.length; i++) {
+      const eff = effects[i];
+      const label = eff.type === 'shield'
+        ? '🛡 Щит'
+        : (eff.type === 'defense_level' ? '🛡 Автооборона Ур.' + eff.value : '🎫 ' + (trophyNames[eff.type] || eff.type));
+      html += `<div class="ach-item" style="border-left:3px solid #7ee0a8;margin-top:6px;">
+        <div class="ach-info">
+          <div class="ach-name" style="color:#7ee0a8;">${label}</div>
+          <div class="ach-desc">Активно ещё ${left(eff.expiresAt)}</div>
+        </div>
+      </div>`;
+    }
+    for (let i = 0; i < contracts.length; i++) {
+      const t = contracts[i];
+      let desc = '';
+      if (t.type === 'system_discount') desc = Math.round(Number(t.value) * 100) + '% к цене системы';
+      else if (t.type === 'system_free') desc = 'Основание системы бесплатно';
+      else if (t.type === 'shield') desc = 'Щит на ' + t.value + ' ч';
+      else if (t.type === 'defense_discount') desc = Math.round(Number(t.value) * 100) + '% на апгрейд обороны';
+      else if (t.type === 'defense_level') desc = 'Автооборона Ур.' + t.value + ' на 12 ч';
+      const color = t.rarity === 'epic' ? '#ffd700' : (t.rarity === 'rare' ? '#b9a8ff' : '#e8e2ff');
+      html += `<div class="ach-item" style="border-left:3px solid ${color};margin-top:6px;">
+        <div class="ach-info">
+          <div class="ach-name" style="color:${color};">${trophyNames[t.type] || t.type}</div>
+          <div class="ach-desc">${desc}</div>
+        </div>
+        <div style="font-size:9px;color:#8b7fd4;text-transform:uppercase;">${t.rarity || 'common'}</div>
+      </div>`;
+    }
+    html += `<div style="font-size:10px;color:#8b7fd4;margin-top:6px;">Скидки-контракты копятся и тратятся в магазине.</div>`;
+  }
+  html += `</div>`;
+
+  html += `<button class="pour-btn" style="width:100%;margin-top:10px;background:rgba(255,94,94,0.2);border-color:rgba(255,94,94,0.5);color:#ff8a8a;"
+      onclick="document.getElementById('modal').classList.remove('show');">✕ Закрыть</button>`;
+
+  card.innerHTML = html;
+  modal.classList.add('show');
+}
+window.openMetalVault = openMetalVault;
 
 // ═══════════════════════════════════════════════════════════════
 //  ВЕРФЬ (ФЛОТ)

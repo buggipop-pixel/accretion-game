@@ -173,6 +173,19 @@ function invasionDebuffMult() {
 }
 window.invasionDebuffMult = invasionDebuffMult;
 
+// ─── Бустер дохода: ×N ко ВСЕМ валютам ──────────────────────────
+// ★ Раньше boostMult применялся только к пыли: игрок платил металлы
+//   за «×2 пыли», а энергия/цив/металлы не ускорялись. Теперь один
+//   хелпер для всех четырёх доходов (и клиент, и серверный gameCore).
+function boosterIncomeMult(now) {
+  const cfg = (typeof PREMIUM_CFG !== 'undefined' && PREMIUM_CFG && PREMIUM_CFG.booster) || {};
+  const mult = Number(cfg.incomeMult);
+  const safeMult = (isFinite(mult) && mult > 0) ? mult : 1;
+  const until = Number(S && S.boosters && S.boosters.incomeUntil) || 0;
+  return until > (now || Date.now()) ? safeMult : 1;
+}
+window.boosterIncomeMult = boosterIncomeMult;
+
 // ─── Металлы (доход в секунду от лава-планет ВСЕХ систем) ───────
 function metalsPerSec() {
   let sum = 0;
@@ -198,6 +211,8 @@ function metalsPerSec() {
   }
   // ★ Оккупация после вторжения режет и металлы.
   sum *= invasionDebuffMult();
+  // ★ Бустер ускоряет и металлы — иначе он невыгоден по определению.
+  sum *= boosterIncomeMult();
   return isFinite(sum) ? sum : 0;
 }
 
@@ -209,7 +224,7 @@ function dustPerSec() {
 
   // ★ Бонусы всех прайм-систем (с затуханием), а не только активной.
   const primeMultiplier = primeBonusMult('dust');
-  const boostMult = (S.boosters && S.boosters.incomeUntil > Date.now()) ? (PREMIUM_CFG.booster.incomeMult || 1) : 1;
+  const boostMult = boosterIncomeMult();
 
   const base = Number(st.baseRate) || 0;
   const pRate = Number(planetRate()) || 0;
@@ -283,6 +298,138 @@ function priceHours(key) {
 }
 window.priceHoursFor = priceHours;
 // ─── Автоборона: базовая цена × системы + динамика по доходу ────
+// ★ Ребаланс (item 7): уровни 4–5 дороже, а КАЖДАЯ покупка/продление
+//   обороны в течение одних игровых суток повышает цену на
+//   INVASION_CFG.defenseRenewalStepPct (потолок — defenseRenewalCapMult).
+//   «Сидеть вечно на максимуме» невыгодно: эффект ограничен +10%/ур.,
+//   а цена растёт геометрически от количества покупок за день.
+//
+//   Состояние lazy-инициализируется прямо в S и зеркалируется в S.stats
+//   (saveGame() в state.js сохраняет только whitelist полей, поэтому
+//   без зеркала перезаход обнулял бы счётчик):
+//     S.defenseBuysDay     — номер игрового дня (serverDayIndex)
+//     S.defenseBuysCount   — сколько раз оборона куплена за этот день
+//     S.defenseBuysLastEnd — последняя замеченная метка окончания оплаты
+//   Покупка автодетектится по изменению S.nightDefenseExpiresAt: ui.js
+//   уже выставляет её при активации, поэтому отдельный вызов не нужен.
+//   Явный API defenseNotePurchase() оставлен для будущей интеграции.
+function defenseDayIndex() {
+  if (typeof serverDayIndex === 'function') {
+    try {
+      const v = Number(serverDayIndex());
+      if (isFinite(v)) return v;
+    } catch (e) { /* fallback ниже */ }
+  }
+  return Math.floor(Date.now() / 86400000);
+}
+
+// ★ Состояние храним и в S.defenseBuys*, и в S.stats.*: saveGame()
+//   в state.js сохраняет только явный whitelist полей (S.stats входит),
+//   поэтому топ-левел-поля сами по себе переживают перезаход только
+//   как зеркало. Лениво мигрируем старое/новое состояние.
+function defenseStateMirror() {
+  if (!S.stats || typeof S.stats !== 'object') S.stats = {};
+  return S.stats;
+}
+
+function persistDefenseBuyState() {
+  const st = defenseStateMirror();
+  st.defenseBuysDay = Number(S.defenseBuysDay) || 0;
+  st.defenseBuysCount = Number(S.defenseBuysCount) || 0;
+  st.defenseBuysLastEnd = Number(S.defenseBuysLastEnd) || 0;
+}
+
+function ensureDefenseBuyState() {
+  if (typeof S === 'undefined' || !S) return 0;
+  const st = defenseStateMirror();
+  const today = defenseDayIndex();
+
+  let day = Number(S.defenseBuysDay);
+  if (!isFinite(day)) day = Number(st.defenseBuysDay);
+  let count = Number(S.defenseBuysCount);
+  if (!isFinite(count) || count < 0) count = Number(st.defenseBuysCount);
+  let lastEnd = Number(S.defenseBuysLastEnd);
+  if (!isFinite(lastEnd)) lastEnd = Number(st.defenseBuysLastEnd);
+  if (!isFinite(lastEnd) || lastEnd < 0) lastEnd = 0;
+
+  if (!isFinite(day) || day !== today) {
+    day = today;
+    count = 0;
+    // Текущая (уже оплаченная вчера) активация не должна сразу
+    // считаться «новой покупкой» нового дня.
+    lastEnd = Number(S.nightDefenseExpiresAt) || 0;
+  }
+
+  S.defenseBuysDay = day;
+  S.defenseBuysCount = (isFinite(count) && count > 0) ? Math.floor(count) : 0;
+  S.defenseBuysLastEnd = lastEnd;
+  persistDefenseBuyState();
+  return S.defenseBuysCount;
+}
+
+// Если S.nightDefenseExpiresAt стал больше последнего замеченного —
+// это оплаченная активация. Считаем её один раз на уникальную метку.
+function syncDefensePurchase() {
+  ensureDefenseBuyState();
+  const end = Number(S.nightDefenseExpiresAt) || 0;
+  const last = Number(S.defenseBuysLastEnd) || 0;
+  if (end > Date.now() && end > last) {
+    S.defenseBuysLastEnd = end;
+    S.defenseBuysCount = (Number(S.defenseBuysCount) || 0) + 1;
+    persistDefenseBuyState();
+  }
+  return S.defenseBuysCount;
+}
+
+// Явный хук для ui.js (если клиент начнёт вызывать его сам), чтобы
+// не ждать автодетекта. Идемпотентен по одной и той же метке окончания.
+function defenseNotePurchase() {
+  ensureDefenseBuyState();
+  const end = Number(S.nightDefenseExpiresAt) || 0;
+  if (end > (Number(S.defenseBuysLastEnd) || 0)) {
+    S.defenseBuysLastEnd = end;
+    S.defenseBuysCount = (Number(S.defenseBuysCount) || 0) + 1;
+    persistDefenseBuyState();
+  }
+  return S.defenseBuysCount;
+}
+window.defenseNotePurchase = defenseNotePurchase;
+
+// Множитель цены повторной активации: 1 + шаг × покупки (с потолком).
+function defenseRenewalMult(level) {
+  const prevCount = Number(S.defenseBuysCount) || 0;
+  syncDefensePurchase();
+  const count = Number(S.defenseBuysCount) || 0;
+  // Первый вызов цены для ТОГО ЖЕ уровня, который только что оплачен,
+  // возвращает цену уже списанной покупки; остальные уровни сразу видят
+  // новую цену. Так ui.js не показывает только что оплаченному уровню
+  // цену, которую он не списывал.
+  const justPaidLevel = (count > prevCount) &&
+    Number(level) === Number(S.nightDefenseLevel);
+  const effectiveCount = justPaidLevel ? prevCount : count;
+  const cfg = (typeof INVASION_CFG !== 'undefined') ? INVASION_CFG : {};
+  const stepRaw = Number(cfg.defenseRenewalStepPct);
+  const capRaw = Number(cfg.defenseRenewalCapMult);
+  const step = (isFinite(stepRaw) && stepRaw >= 0) ? stepRaw : 0.35;
+  const cap = (isFinite(capRaw) && capRaw > 1) ? capRaw : 3.0;
+  return Math.min(cap, 1 + effectiveCount * step);
+}
+window.defenseRenewalMult = defenseRenewalMult;
+
+// Сколько часов держится уровень (пер-уровневые длительности в конфиге).
+function defenseActivationHours(level) {
+  const cfg = (typeof INVASION_CFG !== 'undefined') ? INVASION_CFG : {};
+  const lvl = Math.max(0, Math.min(5, Math.round(Number(level) || 0)));
+  const byLvl = Array.isArray(cfg.defenseHoursByLevel) ? cfg.defenseHoursByLevel : null;
+  if (byLvl) {
+    const h = Number(byLvl[lvl]);
+    if (isFinite(h) && h > 0) return h;
+  }
+  const h = Number(cfg.defenseHours);
+  return (isFinite(h) && h > 0) ? h : 10;
+}
+window.defenseActivationHours = defenseActivationHours;
+
 function defenseActivationCost(level) {
   const lvl = Math.max(0, Math.min(5, Math.round(Number(level) || 0)));
   if (lvl === 0) return 0;
@@ -293,7 +440,9 @@ function defenseActivationCost(level) {
                (1 + systemsExtra * (Number(cfg.defenseCostMultiplierPerSystem) || 0));
 
   const hoursArr = priceHours('defense');
-  return metalPrice(base, Number(hoursArr[lvl]) || 0);
+  const raw = metalPrice(base, Number(hoursArr[lvl]) || 0);
+  const mult = defenseRenewalMult(lvl);
+  return Math.ceil(raw * mult);
 }
 window.defenseActivationCost = defenseActivationCost;
 
@@ -420,6 +569,8 @@ function civPerSec() {
   if (typeof eventMult === 'function') finalRate *= eventMult('civ');
   // ★ Оккупация после вторжения бьёт по ВСЕМ доходам, а не только по пыли.
   finalRate *= invasionDebuffMult();
+  // ★ Бустер дохода действует на ВСЕ валюты, включая цивилизацию.
+  finalRate *= boosterIncomeMult();
   return isFinite(finalRate) ? finalRate : 0;
 }
 
@@ -444,6 +595,8 @@ function energyPerSec() {
   let finalRate = civCurve * c * 0.5 * lvlMult * techMult * primeMultiplier;
   if (typeof eventMult === 'function') finalRate *= eventMult('energy');
   finalRate *= invasionDebuffMult();
+  // ★ Бустер дохода: энергия ускоряется так же, как пыль.
+  finalRate *= boosterIncomeMult();
   return (isFinite(finalRate) && !isNaN(finalRate)) ? Math.max(0, finalRate) : 0;
 }
 window.energyPerSec = energyPerSec;

@@ -548,6 +548,85 @@ function settle() {
     fbRes.ok === true && fbSaveReqs.length === 1 &&
     fbSaveReqs[0].init.keepalive === false && fallbackServer.data.dust === 11);
 
+  // ── 13. ★ Облачная сверка НЕ откатывает покупки и настройки ─────
+  // (a) купил флот → в облаке старый флот → после load флот остался
+  // (b) купил автоборону → в облаке старая метка → оборона осталась
+  // (d) settings.sound=false локально → облако sound=true не включает звук
+  const ownedServer = makeServer();
+  ownedServer.data = {
+    stage: 'star', lastTick: 500, dust: 10, dustTotal: 10, playerName: 'CloudPlayer',
+    fleet: { interceptor: 1, cruiser: 0, dreadnought: 0 },
+    nightDefenseLevel: 1, nightDefenseExpiresAt: 1000,
+    boosters: { incomeUntil: 5000 },
+    settings: { sound: true, brightness: 1.0, pushEnabled: true },
+    planets: [{ id: 'old' }], otherSystems: [],
+    primeParts: 0, trophyContracts: [{ id: 'cloud-contract', type: 'system_discount', value: 0.1 }],
+    techLevels: { astro: 1 }, storageLevels: { dust: 1, energy: 1, civ: 1 },
+  };
+  ownedServer.saved_at = 1700000000500;
+  ownedServer.version = 4;
+  const Owned = makeDevice(ownedServer, {
+    knownVersion: 1,
+    initialSave: {
+      stage: 'star', lastTick: 400, dust: 10, dustTotal: 10,
+      fleet: { interceptor: 5, cruiser: 2, dreadnought: 1 },
+      nightDefenseLevel: 4, nightDefenseExpiresAt: 999999,
+      boosters: { incomeUntil: 8888888 },
+      settings: { sound: false, brightness: 0.5, pushEnabled: true },
+      planets: [{ id: 'new1' }, { id: 'new2' }, { id: 'new3' }],
+      otherSystems: [{ name: 'A' }, { name: 'B' }],
+      primeParts: 3,
+      trophyContracts: [{ id: 'local-contract', type: 'shield', value: 2 }],
+      techLevels: { astro: 3, cyber: 2 },
+      storageLevels: { dust: 3, energy: 1, civ: 1 },
+    },
+  });
+  const ownedSync = await Owned.context.window.syncCloudOnStart();
+  assert('Покупки: облачный сейв применён', ownedSync === true);
+  assert('Покупки: флот не откатился',
+    Owned.S.fleet && Owned.S.fleet.interceptor === 5 && Owned.S.fleet.cruiser === 2 &&
+    Owned.S.fleet.dreadnought === 1, JSON.stringify(Owned.S.fleet));
+  assert('Покупки: автоборона не откатилась',
+    Owned.S.nightDefenseLevel === 4 && Owned.S.nightDefenseExpiresAt === 999999,
+    Owned.S.nightDefenseLevel + '/' + Owned.S.nightDefenseExpiresAt);
+  assert('Покупки: бустер не откатился',
+    Owned.S.boosters && Owned.S.boosters.incomeUntil === 8888888,
+    JSON.stringify(Owned.S.boosters));
+  assert('Покупки: планеты не исчезли', Owned.S.planets && Owned.S.planets.length === 3);
+  assert('Покупки: другие системы не исчезли',
+    Owned.S.otherSystems && Owned.S.otherSystems.length === 2);
+  assert('Покупки: части Прайма не откатились', Owned.S.primeParts === 3);
+  assert('Покупки: техи и хранилище не откатились',
+    Owned.S.techLevels.astro === 3 && Owned.S.techLevels.cyber === 2 && Owned.S.storageLevels.dust === 3,
+    JSON.stringify(Owned.S.techLevels) + ' / ' + JSON.stringify(Owned.S.storageLevels));
+  assert('Покупки: трофеи с обоих устройств сохранены',
+    Array.isArray(Owned.S.trophyContracts) && Owned.S.trophyContracts.length === 2,
+    JSON.stringify(Owned.S.trophyContracts));
+  assert('Покупки: звук остался выключенным',
+    Owned.S.settings && Owned.S.settings.sound === false, JSON.stringify(Owned.S.settings));
+  assert('Покупки: яркость осталась локальной',
+    Owned.S.settings && Owned.S.settings.brightness === 0.5, JSON.stringify(Owned.S.settings));
+  assert('Покупки: облачный мир (lastTick/пыль) не подменён локальным',
+    Owned.S.playerName === 'CloudPlayer' && Owned.S.dust === 10,
+    Owned.S.playerName + ' / ' + Owned.S.dust);
+
+  // 13б. ★ Античит: в режиме серверного кошелька локальный бустер
+  // (мог быть нарисован клиентом) не побеждает серверное право.
+  Owned.context.window.__serverWallet = true;
+  const cheatMerged = Owned.context.window.mergeOwnedProgress(
+    { boosters: { incomeUntil: 900000 } },
+    { boosters: { incomeUntil: 400000 } });
+  Owned.context.window.__serverWallet = false;
+  assert('Античит: серверный бустер не перебивается локальным',
+    cheatMerged.boosters && cheatMerged.boosters.incomeUntil === 400000,
+    JSON.stringify(cheatMerged.boosters));
+  const honestMerged = Owned.context.window.mergeOwnedProgress(
+    { boosters: { incomeUntil: 900000 } },
+    { boosters: { incomeUntil: 400000 } });
+  assert('Без серверного кошелька локальный бустер сохраняется',
+    honestMerged.boosters && honestMerged.boosters.incomeUntil === 900000,
+    JSON.stringify(honestMerged.boosters));
+
   console.log('========================================');
   console.log(process.exitCode === 1 ? '❌ Есть падения' : '✅ Все проверки пройдены');
 })();

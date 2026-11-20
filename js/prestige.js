@@ -561,7 +561,15 @@ function performSupernova(level) {
     cosmicTrail: { x: oldCenterX, y: oldCenterY, start: Date.now(), duration: 600000 },
     galaxyZoomLevel: (typeof galaxyLodForTotal === 'function')
       ? galaxyLodForTotal(1 + kept.length) : 4,
-    metalAmount: Math.floor((S.metalAmount || 0) * 0.5),
+    // ★ Металлы НЕ переносятся: иначе после Вспышки накопленный
+    //   запас (при упавшем доходе) покупал флот сотнями, т.к. цена
+    //   корабля масштабируется от текущей металлодобычи.
+    metalAmount: 0,
+    // Прогрессия цены обороны за текущие игровые сутки переживает Вспышку,
+    // чтобы сброс империи не обнулял антиспам-счётчик.
+    defenseBuysDay: Number(S.defenseBuysDay) || 0,
+    defenseBuysCount: Number(S.defenseBuysCount) || 0,
+    defenseBuysLastEnd: Number(S.defenseBuysLastEnd) || 0,
     unlockedAch: S.unlockedAch || {},
     stats: S.stats || {},
     dailyProgress: S.dailyProgress || {},

@@ -325,6 +325,60 @@ function testShieldBlocksSpawn() {
   g.spawnInvasion();
   assert('Живой спавн: премиум-щит не создаёт вторжение', S.invasions.length === 0);
 }
+// ─── Ребаланс цены Активной обороны (item 7) ────────────────
+// Уровни 4–5 дороже, повторные активации за игровые сутки дорожают,
+// держать максимум «вечно» — невыгодно.
+function testDefenseCostRebalance() {
+  const g = createGame();
+  const S = prepare(g);
+  S.systems = 1;
+  S.metalAmount = 1e12;
+  S.defenseBuysDay = undefined;
+  S.defenseBuysCount = 0;
+  S.defenseBuysLastEnd = 0;
+
+  const c1 = g.defenseActivationCost(1);
+  const c4 = g.defenseActivationCost(4);
+  const c5 = g.defenseActivationCost(5);
+  assert('Ребаланс: ур.5 дороже ур.1', c5 > c1);
+  assert('Ребаланс: ур.4 дороже ур.3', c4 > g.defenseActivationCost(3));
+  assert('Ребаланс: базовая цена ур.5 = 3600 ⚙', c5 === 3600, c5);
+  assert('Ребаланс: базовая цена ур.4 = 1800 ⚙', c4 === 1800, c4);
+
+  assert('Длительность: ур.1 = 10 ч', g.defenseActivationHours(1) === 10);
+  assert('Длительность: ур.5 = 6 ч', g.defenseActivationHours(5) === 6);
+
+  // Первая покупка по базовой цене, каждая следующая — +35%.
+  const first = g.defenseActivationCost(5);
+  S.nightDefenseLevel = 5;
+  S.nightDefenseExpiresAt = Date.now() + 6 * 3600 * 1000;
+  // Первый вызов для только что оплаченного уровня — цена этой покупки.
+  const paidAgain = g.defenseActivationCost(5);
+  assert('Ребаланс: цена уже оплаченной покупки стабильна', paidAgain === first, paidAgain + ' vs ' + first);
+  const second = g.defenseActivationCost(5);
+  assert('Ребаланс: повторная активация дороже первой', second > first, first + ' → ' + second);
+  assert('Ребаланс: шаг повторной активации ≈ +35%',
+    close(second, Math.ceil(first * 1.35), 2), first + ' → ' + second);
+  assert('Ребаланс: счётчик покупок за день инкрементируется', S.defenseBuysCount === 1, S.defenseBuysCount);
+  assert('Ребаланс: счётчик зеркалится в S.stats (переживает сейв)',
+    S.stats && S.stats.defenseBuysCount === 1, JSON.stringify(S.stats));
+
+  // Много продлений за день — цена упирается в потолок ×3.
+  for (let i = 0; i < 10; i++) {
+    S.nightDefenseExpiresAt = Date.now() + (i + 2) * 6 * 3600 * 1000;
+    g.defenseActivationCost(5);
+  }
+  const capped = g.defenseActivationCost(5);
+  assert('Ребаланс: потолок цены = ×3 базовой',
+    capped <= Math.ceil(first * 3) + 1 && capped >= Math.ceil(first * 2.9), capped);
+  assert('Ребаланс: множитель не превышает 3.0', g.defenseRenewalMult() <= 3.0);
+
+  // Новый игровой день сбрасывает прогрессию.
+  S.defenseBuysDay = -1;
+  const afterDay = g.defenseActivationCost(5);
+  assert('Ребаланс: новый день сбрасывает цену к базовой', afterDay === first, afterDay + ' vs ' + first);
+}
+
 
 (function run() {
   console.log('========================================');
@@ -342,6 +396,7 @@ function testShieldBlocksSpawn() {
     testOfflineShield();
     testLiveSpawnRepel();
     testShieldBlocksSpawn();
+    testDefenseCostRebalance();
   } catch (e) {
     console.error('❌ Исключение в тестах: ' + (e && e.stack || e));
     failed++;

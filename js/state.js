@@ -818,6 +818,8 @@ function loadGame() {
     }
 
     S.vis.collapse = S.starType ? 1 : (S.stage === 'condense' ? 0.3 : 0);
+    // ★ Постоянная настройка звука важнее значения из сейва/облака.
+    if (typeof applySoundPref === 'function') applySoundPref();
   } catch (e) { console.warn('load error', e); }
 }
 

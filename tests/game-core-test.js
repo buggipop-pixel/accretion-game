@@ -203,6 +203,29 @@ function makeClientContext() {
     booster.hours === client.CFG_PREMIUM.booster.hours &&
     booster.incomeMult === client.CFG_PREMIUM.booster.incomeMult,
     `server=${JSON.stringify(booster)}`);
+  assert('Конфиг бустера: цена = 0.5 часа металлодобычи',
+    Math.abs(Number(client.CFG_PREMIUM.booster.priceHours) - 0.5) < 1e-9,
+    String(client.CFG_PREMIUM.booster.priceHours));
+
+  // ── Бустер × 2 ко ВСЕМ доходам (пыль/энергия/цив/металлы) ──
+  const boosterSave = JSON.parse(JSON.stringify(SAMPLE_SAVE));
+  boosterSave.planets = boosterSave.planets.concat([
+    { type: 'lava', baseOrbitR: 0.9, orbitR: 90, mass: 1.0, radius: 7, forming: false },
+  ]);
+  boosterSave.boosters = { incomeUntil: 0 };
+  core.setState(boosterSave);
+  const baseRates = core.rates();
+  boosterSave.boosters = { incomeUntil: Date.now() + 3600 * 1000 };
+  core.setState(boosterSave);
+  const boostedRates = core.rates();
+  ['dust', 'energy', 'civ', 'metals'].forEach(function(key) {
+    const base = Number(baseRates[key]) || 0;
+    const boosted = Number(boostedRates[key]) || 0;
+    assert('Бустер ×2: ' + key + ' (серверный расчёт)',
+      base > 0 && Math.abs(boosted - base * 2) <= Math.abs(base * 2) * 1e-9 + 1e-9,
+      `base=${base} boosted=${boosted}`);
+  });
+  core.setState(SAMPLE_SAVE);
 
   // ── Параметры вторжений (нужны админ-панели) ───────────────
   const inv = core.invasionConfig();

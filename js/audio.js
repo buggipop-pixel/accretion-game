@@ -12,6 +12,49 @@ let ambientSource = null;
 let ambientGain = null;
 let ambientAudio = null;   // Один HTMLAudioElement на весь сеанс (не создаём новый при каждом включении)
 
+// ─── ЗВУК: ПОСТОЯННАЯ НАСТРОЙКА ─────────────────────────────────
+// ★ Настройка звука хранится ещё и в localStorage, отдельно от сейва:
+//   облачный сейв/старое устройство с sound=true не должны включать звук,
+//   который игрок осознанно выключил.
+const SOUND_PREF_KEY = 'accretion_sound_off';
+
+function soundPrefOff() {
+  try {
+    return (typeof localStorage !== 'undefined' && localStorage) ?
+      localStorage.getItem(SOUND_PREF_KEY) === '1' : false;
+  } catch (e) {
+    return false;
+  }
+}
+
+function writeSoundPref(off) {
+  try {
+    if (typeof localStorage === 'undefined' || !localStorage) return;
+    if (off) localStorage.setItem(SOUND_PREF_KEY, '1');
+    else localStorage.removeItem(SOUND_PREF_KEY);
+  } catch (e) { /* приватный режим / нет места — не критично */ }
+}
+
+// Применяет сохранённую настройку к S.settings и кнопке в настройках.
+function applySoundPref() {
+  const off = soundPrefOff();
+  if (typeof S !== 'undefined' && S) {
+    if (!S.settings) S.settings = { brightness: 1.0, sound: !off };
+    if (off) S.settings.sound = false;
+  }
+  if (off) stopAmbient();
+  try {
+    const btn = (typeof document !== 'undefined' && document && document.getElementById)
+      ? document.getElementById('soundToggleBtn') : null;
+    if (btn) {
+      const on = !off && !(typeof S !== 'undefined' && S && S.settings && S.settings.sound === false);
+      btn.textContent = on ? 'Вкл' : 'Выкл';
+      if (btn.classList) btn.classList.toggle('active', on);
+    }
+  } catch (e) { /* UI может быть ещё не отрисован */ }
+  return off;
+}
+
 function initAudio() {
   if (audioCtx) return;
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -37,7 +80,9 @@ function unlockAudio() {
 
   // startAmbient() сам понимает, играет фон или нет, поэтому вызов на каждый
   // клик безопасен — именно так музыка возвращается после «Выкл → Вкл».
-  if (!S.settings || S.settings.sound !== false) startAmbient();
+  // ★ Постоянная настройка звука имеет приоритет над облачным сейвом.
+  applySoundPref();
+  if (!soundPrefOff() && (!S.settings || S.settings.sound !== false)) startAmbient();
 }
 
 // ─── Базовые генераторы звука ───────────────────────────────────
@@ -96,6 +141,7 @@ function playNoise(duration, vol, filterFreq) {
 
 // ─── ПРОИГРЫВАНИЕ ЗВУКОВ ────────────────────────────────────────
 function playSFX(type) {
+  if (soundPrefOff()) return;
   if (!S.settings || !S.settings.sound || !isAudioUnlocked || !audioCtx) return;
   
   switch (type) {
@@ -176,6 +222,7 @@ function playSFX(type) {
 function startAmbient() {
   if (!audioCtx) initAudio();
   if (!audioCtx) return;
+  if (soundPrefOff()) return;
   if (S.settings && S.settings.sound === false) return;
   if (!isAudioUnlocked) return;
 
@@ -221,6 +268,8 @@ function stopAmbient() {
 function toggleSound() {
   if (!S.settings) S.settings = { brightness: 1.0, sound: true };
   S.settings.sound = !S.settings.sound;
+  // ★ Пишем флаг сразу: saveGame может упасть/быть перезаписан облаком.
+  writeSoundPref(S.settings.sound === false);
 
   if (S.settings.sound) {
     if (!audioCtx) initAudio();
@@ -246,12 +295,16 @@ window.unlockAudio = unlockAudio;
 window.initAudio = initAudio;
 window.startAmbient = startAmbient;
 window.stopAmbient = stopAmbient;
+window.applySoundPref = applySoundPref;
+window.soundPrefOff = soundPrefOff;
+window.SOUND_PREF_KEY = SOUND_PREF_KEY;
 
 // ─── СТРАХОВКА: возврат звука после сворачивания вкладки ─────────
 // Браузер может усыпить AudioContext или поставить фон на паузу, пока вкладка
 // скрыта. При возврате на страницу без клика звук иначе остался бы тихим.
 document.addEventListener('visibilitychange', function() {
   if (document.visibilityState !== 'visible') return;
+  if (soundPrefOff()) return;
   if (!S.settings || S.settings.sound === false) return;
   if (!audioCtx) return;
   if (audioCtx.state !== 'running') {
@@ -260,3 +313,6 @@ document.addEventListener('visibilitychange', function() {
   }
   if (isAudioUnlocked) startAmbient();
 });
+
+// ★ При загрузке модуля сразу применяем постоянную настройку (до первого жеста).
+try { applySoundPref(); } catch (e) { /* S ещё не готов — применим в unlockAudio */ }

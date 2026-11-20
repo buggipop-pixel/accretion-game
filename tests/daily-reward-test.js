@@ -114,18 +114,27 @@ function status(ts) {
 {
   const rates = { dust: 10, energy: 2, civ: 0.001 };
   const d0 = g.dailyRewardFor(0, rates, 3);
-  assert('День 1: пыль = 4 часа дохода', d0.type === 'dust' && d0.amount === 10 * 3600 * 4, d0.amount);
+  assert('День 1: пыль = 8 часов дохода', d0.type === 'dust' && d0.amount === 10 * 3600 * 8, d0.amount);
   const d1 = g.dailyRewardFor(1, rates, 3);
-  assert('День 2: энергия = 4 часа дохода', d1.type === 'energy' && d1.amount === 2 * 3600 * 4);
-  const d3 = g.dailyRewardFor(3, rates, 3);
-  assert('День 4: металлы = 1000 × систем', d3.type === 'metal' && d3.amount === 3000, d3.amount);
-  assert('День 5: автооборона', g.dailyRewardFor(4, rates, 1).type === 'defense');
-  assert('День 6: щит', g.dailyRewardFor(5, rates, 1).type === 'shield');
-  assert('День 7: трофей', g.dailyRewardFor(6, rates, 1).type === 'trophy');
+  assert('День 2: энергия = 8 часов дохода', d1.type === 'energy' && d1.amount === 2 * 3600 * 8, d1.amount);
+  const d2 = g.dailyRewardFor(2, rates, 3);
+  assert('День 3: цивилизация = 16 часов дохода', d2.type === 'civ' && d2.amount === Math.floor(0.001 * 3600 * 16), d2.amount);
+  // Металлы: 2 часа добычи, но не меньше 5000 × систем.
+  const d3 = g.dailyRewardFor(3, Object.assign({ metals: 100 }, rates), 3);
+  assert('День 4: металлы = 2 часа металлодобычи', d3.type === 'metal' && d3.amount === 100 * 3600 * 2, d3.amount);
+  const d3min = g.dailyRewardFor(3, { dust: 0, energy: 0, civ: 0, metals: 0 }, 3);
+  assert('День 4: минимум 5000 × систем', d3min.amount === 5000 * 3, d3min.amount);
+  const d4 = g.dailyRewardFor(4, rates, 1);
+  assert('День 5: автооборона ур.4 на 24 ч', d4.type === 'defense' && d4.level === 4 && d4.hours === 24, JSON.stringify(d4));
+  const d5 = g.dailyRewardFor(5, rates, 1);
+  assert('День 6: щит на 12 ч', d5.type === 'shield' && d5.hours === 12, JSON.stringify(d5));
+  const d6 = g.dailyRewardFor(6, rates, 1);
+  assert('День 7: гарантированный трофей rare+', d6.type === 'trophy' && d6.minRarity === 'rare', JSON.stringify(d6));
   assert('День за пределами цикла зажимается', g.dailyRewardFor(99, rates, 1).type === 'trophy');
   const min = g.dailyRewardFor(0, { dust: 0, energy: 0, civ: 0 }, 1);
   assert('Нулевой доход: минимум 50 000 пыли', min.amount === 50000, min.amount);
 }
+
 
 // ─── 2. Новый игрок ─────────────────────────────────────────────
 {
