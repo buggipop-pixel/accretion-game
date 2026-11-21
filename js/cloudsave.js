@@ -318,8 +318,15 @@ function writeLocalSave(data) {
     localStorage.setItem(getSaveKey(), JSON.stringify(data));
     return true;
   } catch (e) {
-    console.warn('[cloudsave] не удалось записать локальный сейв', e);
-    return false;
+    // ★ Квота WebView (iOS ~5 МБ): освобождаем бэкап и пробуем ещё раз.
+    try {
+      localStorage.removeItem(CLOUD_BACKUP_KEY);
+      localStorage.setItem(getSaveKey(), JSON.stringify(data));
+      return true;
+    } catch (e2) {
+      console.warn('[cloudsave] не удалось записать локальный сейв', e);
+      return false;
+    }
   }
 }
 
@@ -773,7 +780,13 @@ async function cloudSaveGame(options) {
       try { await reportRewards(); } catch (e) { /* отчёт не критичен */ }
     }
 
-    const saveData = readLocalSave();
+    let saveData = readLocalSave();
+    // ★ Если локальная запись упала (квота), шлём живой снимок S,
+    //   а не старый сейв из localStorage.
+    if (localOk === false) {
+      const live = (typeof window !== 'undefined' && window.__lastSaveSnapshot) || null;
+      if (live && typeof live === 'object') saveData = live;
+    }
     if (!saveData) return { ok: false, error: 'no-save' };
 
     const baseVersion = getCloudVersion();
@@ -1067,9 +1080,11 @@ function applyCloudSaveToRuntime(cloudData) {
   writeLocalSave(cloudData);
 
   // 2. Применяем штатным путём: loadGame() делает Object.assign(S, data)
-  //    и всю валидацию (MISS, планеты, фазы, vis.collapse и т.д.)
+  //    и всю валидацию (MISS, планеты, фазы, vis.collapse и т.д.).
+  //    ★ Передаём данные напрямую: при переполненной квоте localStorage
+  //    запись выше могла не пройти, и loadGame() прочитал бы старый сейв.
   try {
-    if (typeof loadGame === 'function') loadGame();
+    if (typeof loadGame === 'function') loadGame(cloudData);
     else Object.assign(S, cloudData);
   } catch (e) {
     console.warn('[CloudSave] loadGame упал, применяем сейв напрямую:', e);

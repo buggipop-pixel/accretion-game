@@ -14,11 +14,18 @@ const path = require('path');
 const SAVE_KEY = 'accretion_v17';
 const cloudsaveCode = fs.readFileSync(path.join(__dirname, '../js/cloudsave.js'), 'utf8');
 
-function makeStorage() {
+function makeStorage(failKey) {
   const map = new Map();
   return {
     getItem: (k) => (map.has(k) ? map.get(k) : null),
-    setItem: (k, v) => map.set(k, String(v)),
+    setItem: (k, v) => {
+      if (failKey && k === failKey) {
+        const err = new Error('QuotaExceededError');
+        err.name = 'QuotaExceededError';
+        throw err;
+      }
+      map.set(k, String(v));
+    },
     removeItem: (k) => map.delete(k),
     _map: map,
   };
@@ -57,12 +64,13 @@ function makeServer() {
 
 function makeDevice(server, opts) {
   const cfg = opts || {};
-  const localStorage = makeStorage();
   const sessionStorage = makeStorage();
   const toasts = [];
+  // cfg.storageFull — имитация переполненной квоты iOS WebView.
+  const localStorage = makeStorage(cfg.storageFull ? SAVE_KEY : null);
   const S = { stage: 'galaxy', lastTick: Date.now(), dust: 0 };
   if (cfg.initialSave) {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(cfg.initialSave));
+    if (!cfg.storageFull) localStorage.setItem(SAVE_KEY, JSON.stringify(cfg.initialSave));
     Object.assign(S, cfg.initialSave);
   }
   if (cfg.knownVersion) localStorage.setItem('accretion_cloud_version', String(cfg.knownVersion));
@@ -101,7 +109,10 @@ function makeDevice(server, opts) {
     S,
     updateUI() {},
     toast(title, message) { toasts.push({ title, message }); },
-    loadGame() { Object.assign(S, JSON.parse(localStorage.getItem(SAVE_KEY))); },
+    loadGame(dataOverride) {
+      if (dataOverride && typeof dataOverride === 'object') { Object.assign(S, dataOverride); return; }
+      Object.assign(S, JSON.parse(localStorage.getItem(SAVE_KEY)));
+    },
   };
   context.globalThis = context;
   vm.createContext(context);
@@ -110,9 +121,14 @@ function makeDevice(server, opts) {
   // Имитируем state.js: локальная запись + (если не skipCloud) отправка в облако.
   vm.runInContext(`
     function saveGame(opts) {
-      localStorage.setItem(getSaveKey(), JSON.stringify(S));
+      let ok = true;
+      try {
+        const payload = S;
+        window.__lastSaveSnapshot = payload;
+        localStorage.setItem(getSaveKey(), JSON.stringify(payload));
+      } catch (e) { ok = false; }
       if (!(opts && opts.skipCloud) && typeof autoSaveToCloud === 'function') autoSaveToCloud(true);
-      return true;
+      return ok;
     }
   `, context, { filename: 'test-state-bridge.js' });
   return { S, localStorage, context, toasts, server };
@@ -307,6 +323,30 @@ function settle() {
     pollServer.data.prestigeLevel === 16 && pollServer.writes >= 1,
     pollServer.data.prestigeLevel + ' writes=' + pollServer.writes);
   assert('Опрос: результат не «применено»', pollResult === false, String(pollResult));
+  // 9. Переполненная квота localStorage: облако всё равно применяется в памяти.
+  const Quota = makeDevice(makeServer(), {
+    storageFull: true,
+    initialSave: {
+      stage: 'galaxy', lastTick: 1700000000000, dust: 1,
+      prestigeLevel: 15, galaxies: 16, systems: 1064, totalSystemsCreated: 1064,
+      planets: [{}], otherSystems: [{}, {}],
+      fleet: { interceptor: 161, cruiser: 20, dreadnought: 1 },
+    },
+  });
+  Quota.context.window.applyCloudSaveToRuntime({
+    stage: 'galaxy', lastTick: 1700000000000, dust: 2,
+    prestigeLevel: 16, galaxies: 17, systems: 1612, totalSystemsCreated: 1612,
+    planets: [], otherSystems: [{}],
+    fleet: { interceptor: 0, cruiser: 0, dreadnought: 0 },
+  });
+  assert('Квота: облако применено в памяти (престиж)',
+    Quota.S.prestigeLevel === 16 && Quota.S.galaxies === 17,
+    Quota.S.prestigeLevel + '/' + Quota.S.galaxies);
+  assert('Квота: системы из облака', Quota.S.systems === 1612, Quota.S.systems);
+  assert('Квота: флот из облака', Quota.S.fleet.interceptor === 0, Quota.S.fleet.interceptor);
+  assert('Квота: запись действительно не прошла',
+    Quota.localStorage.getItem(SAVE_KEY) === null);
+
 
   console.log('========================================');
   console.log(process.exitCode === 1 ? '❌ Есть падения' : '✅ Все проверки пройдены');

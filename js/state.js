@@ -394,12 +394,14 @@ function saveGame(opts) {
   //   stage уже galaxy, но systems/planets ещё старые. Не сохраняем его.
   if (typeof window !== 'undefined' && window.__prestigeInProgress === true) return false;
   let ok = true;
+  let data = null;
+  let payload = null;
   try {
     // ★ lastTick — «сердце» офлайн-прогресса. Его двигает ТОЛЬКО игровой цикл
     //   (и applyOfflineProgress). Сохранение не должно стирать время отсутствия:
     //   иначе автосейв в свёрнутой вкладке «съедал» всю ночь.
     if (typeof S.tutorialStep !== 'number') S.tutorialStep = 0;
-    const data = {
+    data = {
       // Фаза и прогресс
       stage: S.stage, phaseProgress: S.phaseProgress, playerName: S.playerName || '',
       tutorialStep: S.tutorialStep, tutorialDone: !!S.tutorialDone,
@@ -480,10 +482,25 @@ function saveGame(opts) {
       missLastCometAt: (typeof MISS !== 'undefined') ? MISS.lastCometAt : 0,
       missLastExpeditionAt: (typeof MISS !== 'undefined') ? MISS.lastExpeditionAt : 0,
     };
-    localStorage.setItem(SAVE_KEY, JSON.stringify(stripEmptyForSave(data)));
+    payload = stripEmptyForSave(data);
+    // ★ Снимок живого состояния: если localStorage переполнен (iOS WebView,
+    //   галактика на тысячи систем), облако всё равно получит свежий S.
+    if (typeof window !== 'undefined') window.__lastSaveSnapshot = payload;
+    localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
   } catch (e) {
-    ok = false;
-    console.warn('save error', e);
+    // ★ Квота: освобождаем локальный бэкап и пробуем ещё раз.
+    let retried = false;
+    if (payload) {
+      try {
+        localStorage.removeItem('accretion_local_backup');
+        localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
+        retried = true;
+      } catch (e2) { /* места всё равно нет */ }
+    }
+    if (!retried) {
+      ok = false;
+      console.warn('save error', e);
+    }
   }
 
   // ★ Локальные изменения ещё не подтверждены сервером. Если save упадёт,
@@ -496,11 +513,18 @@ function saveGame(opts) {
   return ok;
 }
 
-function loadGame() {
+function loadGame(localDataOverride) {
   try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return;
-    const data = JSON.parse(raw);
+    let data;
+    if (localDataOverride && typeof localDataOverride === 'object') {
+      // ★ Применяем облако из памяти, не перечитывая localStorage:
+      //   при переполненной квоте запись могла не пройти.
+      data = localDataOverride;
+    } else {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) return;
+      data = JSON.parse(raw);
+    }
     Object.assign(S, data);
 
     // ★ Санити lastTick: битые часы / старый сейв / восстановление бэкапа
