@@ -378,15 +378,22 @@ function stripEmptyForSave(data) {
   for (const key in data) {
     const v = data[key];
     if (v === null || v === undefined) continue;
-    if (Array.isArray(v) && v.length === 0) continue;
+    // ★ Пустые массивы НЕ вырезаем. Иначе после Вспышки в сейве нет
+    // planets/otherSystems/invasions, а loadGame() делает Object.assign(S, data)
+    // и отсутствующий ключ не очищает старые массивы — на телефоне
+    // «воскресали» уничтоженные Вспышкой системы и планеты.
     if (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) continue;
     out[key] = v;
   }
   return out;
 }
 
-function saveGame() {
-  if (isResetting) return;
+function saveGame(opts) {
+  if (isResetting) return false;
+  // ★ Между подтверждением Вспышки и применением keep (1.5 с) S — гибрид:
+  //   stage уже galaxy, но systems/planets ещё старые. Не сохраняем его.
+  if (typeof window !== 'undefined' && window.__prestigeInProgress === true) return false;
+  let ok = true;
   try {
     // ★ lastTick — «сердце» офлайн-прогресса. Его двигает ТОЛЬКО игровой цикл
     //   (и applyOfflineProgress). Сохранение не должно стирать время отсутствия:
@@ -474,14 +481,19 @@ function saveGame() {
       missLastExpeditionAt: (typeof MISS !== 'undefined') ? MISS.lastExpeditionAt : 0,
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(stripEmptyForSave(data)));
-  } catch (e) { console.warn('save error', e); }
+  } catch (e) {
+    ok = false;
+    console.warn('save error', e);
+  }
 
   // ★ Локальные изменения ещё не подтверждены сервером. Если save упадёт,
   // при следующем старте не позволим старому облаку их перетереть.
   if (typeof markCloudDirty === 'function') markCloudDirty();
   // ★ Любое действие, вызвавшее saveGame(), сразу уходит и в облако.
-  // autoSaveToCloud() сам проверяет Telegram и защищён от рекурсии.
-  if (typeof autoSaveToCloud === 'function') autoSaveToCloud(true);
+  // skipCloud — для путей закрытия страницы, где облако отправляется
+  // отдельным keepalive-запросом уже после локальной записи.
+  if (!(opts && opts.skipCloud) && typeof autoSaveToCloud === 'function') autoSaveToCloud(true);
+  return ok;
 }
 
 function loadGame() {

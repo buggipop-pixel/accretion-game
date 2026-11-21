@@ -21,7 +21,7 @@ import {
   walletToSavePatch,
   accruePassive,
   creditClicks,
-  reconcileWallet,
+  auditWallet,
   rewardAllowance,
 } from './lib/wallet.js';
 import { rollChestReward } from './lib/chest.js';
@@ -32,6 +32,7 @@ import {
 import { capabilityAudit, remainingCapabilityBudget, chestCapabilityValue } from './lib/capability.js';
 import { applyAdminWallet, adminCapabilityBonus, adminEntitlementPlan } from './lib/admin-trust.js';
 import { summarizeSave } from './lib/admin-summary.js';
+import { createFraudAlert, mergeFraudAlerts, alertsFromRecord, summarizeFraudAlerts } from './lib/fraud-alerts.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import TelegramBot from 'node-telegram-bot-api';
@@ -652,6 +653,97 @@ function accrueWalletPassive(wallet, save, now) {
   return earned;
 }
 
+// ─── Оповещения админки (без отката прогресса) ─────────────────
+// Сервер больше не обрезает ресурсы: любые расхождения превращаются
+// в структурированные alert'ы. Админка показывает причину, способ
+// получения и числа-доказательства, а игрок продолжает играть.
+const WALLET_FIELD_LABELS = {
+  dust: 'пыль',
+  dustTotal: 'всего добыто пыли',
+  energy: 'энергия',
+  civLevel: 'цивилизация',
+  metalAmount: 'металлы',
+};
+
+function saveProgressSnapshot(save) {
+  const s = (save && typeof save === 'object') ? save : {};
+  const other = Array.isArray(s.otherSystems) ? s.otherSystems : [];
+  let totalPlanets = Array.isArray(s.planets) ? s.planets.length : 0;
+  let otherSystems = 0;
+  for (let i = 0; i < other.length; i++) {
+    if (!other[i] || typeof other[i] !== 'object') continue;
+    otherSystems++;
+    if (Array.isArray(other[i].planets)) totalPlanets += other[i].planets.length;
+  }
+  return {
+    stage: String(s.stage || ''),
+    systems: Math.max(0, Math.floor(Number(s.systems) || 0)),
+    otherSystems: otherSystems,
+    activePlanets: Array.isArray(s.planets) ? s.planets.length : 0,
+    totalPlanets: totalPlanets,
+    lastTick: Math.max(0, Number(s.lastTick) || 0),
+  };
+}
+
+async function recordFraudAlerts(userId, alerts) {
+  const list = (Array.isArray(alerts) ? alerts : [alerts]).filter(Boolean);
+  if (!list.length) return false;
+  const key = `save_flag:${userId}`;
+  try {
+    const prev = parseRedisJson(await redisGet(key));
+    const merged = mergeFraudAlerts(prev, list, Date.now());
+    await redisSet(key, JSON.stringify(merged));
+    return true;
+  } catch (e) {
+    console.warn(`[fraud] user=${userId} не удалось записать оповещение:`, e.message);
+    return false;
+  }
+}
+
+function walletAlertsFromFindings(findings, ctx) {
+  const context = ctx || {};
+  return (Array.isArray(findings) ? findings : []).map(function(f) {
+    const field = String(f.field || 'dust');
+    const label = WALLET_FIELD_LABELS[field] || field;
+    const before = Number(f.wallet) || 0;
+    const after = Number(f.client) || 0;
+    if (f.code === 'wallet_invalid_value') {
+      return createFraudAlert({
+        code: 'wallet_invalid_value',
+        severity: 'medium',
+        title: '🧾 Некорректное значение в сейве',
+        reason: `Клиент прислал ${field} = ${JSON.stringify(f.client)} (${label}). Сервер принял 0, но прогресс не откатывал.`,
+        method: 'Повреждённый сейв, ручная правка localStorage или баг клиентской формулы.',
+        fields: [{ field: field, label: label, wallet: before, client: f.client, accepted: 0 }],
+        evidence: context,
+        at: Date.now(),
+      });
+    }
+
+    const extra = Math.max(0, Number(f.extra) || (after - (Number(f.maxValue) || 0)));
+    return createFraudAlert({
+      code: f.code === 'wallet_dust_total_rewind' ? 'wallet_dust_total_rewind' : 'wallet_unearned_gain',
+      severity: 'high',
+      title: f.code === 'wallet_dust_total_rewind'
+        ? '💰 Счётчик добытой пыли уменьшился'
+        : '💰 Необоснованный прирост ресурса',
+      reason: f.code === 'wallet_dust_total_rewind'
+        ? `dustTotal в сейве меньше серверного: ${Math.round(after)} против ${Math.round(before)}. Баланс принят без отката.`
+        : `Клиент прислал ${label} = ${Math.round(after)}, сервер допускал не больше ${Math.round(Number(f.maxValue) || 0)} ` +
+          `(кошелёк ${Math.round(before)} + допуск ${Math.round(Number(f.allowance) || 0)}). ` +
+          `Сверх допуска: ${Math.round(extra)}. Баланс принят без отката.`,
+      method: 'POST /api/save: клиент сохранил баланс после покупки, награды или пассивного дохода. ' +
+        'Возможные способы: подмена localStorage/облачного сейва, повторное начисление награды, рассинхрон устройств.',
+      fields: [{
+        field: field, label: label, wallet: before, client: after,
+        maxValue: Number(f.maxValue) || 0, allowance: Number(f.allowance) || 0, extra: extra,
+      }],
+      evidence: context,
+      at: Date.now(),
+    });
+  });
+}
+
 // ─── Express ────────────────────────────────────────────────────
 const app = express();
 app.use(express.json({ limit: '16mb' })); // 16mb: поздняя игра с тысячами систем
@@ -928,14 +1020,16 @@ app.post('/api/save', async (req, res) => {
 
     // Грубая квота: сейвами нельзя забивать Redis и бюджет Upstash
     const hourKey = `save_q:${user.id}:${Math.floor(Date.now() / 3600000)}`;
-    if (await bumpCounter(hourKey, 3600) > 300) {
+    // ★ Квоту только читаем — счётчик растёт после успешной записи,
+    //   иначе 409/429 сами съедали бы лимит 300/час.
+    const savesThisHour = Number(await redisGet(hourKey)) || 0;
+    if (savesThisHour >= 300) {
       console.warn(`[save] user=${user.id} превысил квоту сохранений`);
       return res.status(429).json({ error: 'Too many saves per hour' });
     }
     const rlKey = `save_rl:${user.id}`;
     const last = await redisGet(rlKey);
     if (last && Date.now() - Number(last) < SAVE_RATE_LIMIT_MS) return res.status(429).json({ error: 'Too frequent' });
-    await redisSet(rlKey, String(Date.now()));
 
     // ★ Оптимистическая блокировка: клиент присылает версию, которую он видел.
     // Если на сервере уже новее — отдаём 409 + актуальный сейв, чтобы клиент
@@ -960,8 +1054,7 @@ app.post('/api/save', async (req, res) => {
         const anomalies = detectSaveAnomalies(existing.data, safeSave, existing.saved_at);
         if (anomalies.length) {
           console.warn(`[save] подозрительный прогресс user=${user.id}: ${anomalies.join(',')}`);
-          redisSet(`save_flag:${user.id}`, JSON.stringify({ flags: anomalies, at: Date.now() }))
-            .catch(function() { /* некритично */ });
+          await recordFraudAlerts(user.id, alertsFromRecord({ flags: anomalies, at: Date.now() }));
         }
       } catch (e) {
         console.warn('[save] проверка аномалий не удалась:', e.message);
@@ -974,8 +1067,15 @@ app.post('/api/save', async (req, res) => {
       const shieldRight = Number(await redisGet(`entitlement:shield:${user.id}`)) || 0;
       if (isShieldSuspicious(safeSave, Date.now(), shieldRight)) {
         console.warn(`[save] подозрительный shieldUntil user=${user.id}`);
-        redisSet(`save_flag:${user.id}`, JSON.stringify({ flags: ['shield_forged'], at: Date.now() }))
-          .catch(function() { /* некритично */ });
+        await recordFraudAlerts(user.id, [createFraudAlert({
+          code: 'shield_forged',
+          severity: 'high',
+          title: '🛡 Подозрительный щит',
+          reason: `shieldUntil = ${new Date(Number(safeSave.shieldUntil) || 0).toISOString()}, ` +
+            `а серверное право/игровой лимит допускают не дальше ${new Date(shieldRight || Date.now()).toISOString()}.`,
+          method: 'Поле shieldUntil в сейве больше серверного права. Возможные способы: правка localStorage, подмена облачного сейва, повторная выдача щита.',
+          evidence: { shieldUntil: Number(safeSave.shieldUntil) || 0, serverRight: shieldRight, now: Date.now() },
+        })]);
       }
       // ★ Детектор без обрезки оставлял читеру «вечный» щит. Обрезаем
       // нарисованный щит так же, как бустер: потолок — серверное право
@@ -1001,8 +1101,14 @@ app.post('/api/save', async (req, res) => {
         const after = Number(safeSave.boosters && safeSave.boosters.incomeUntil) || 0;
         if (after < before) {
           console.warn(`[save] user=${user.id} обрезан бустер: ${before} → ${after}`);
-          redisSet(`save_flag:${user.id}`, JSON.stringify({ flags: ['booster_forged'], at: Date.now() }))
-            .catch(function() { /* некритично */ });
+          await recordFraudAlerts(user.id, [createFraudAlert({
+            code: 'booster_forged',
+            severity: 'high',
+            title: '⚡ Подозрительный бустер',
+            reason: `boosters.incomeUntil = ${new Date(before).toISOString()}, а серверное право — ${new Date(boosterRight || 0).toISOString()}.`,
+            method: 'Бустер в сейве дольше серверного права. Возможные способы: правка boosters.incomeUntil, повторная покупка/выдача.',
+            evidence: { before: before, after: after, serverRight: boosterRight, now: Date.now() },
+          })]);
         }
       } catch (e) {
         console.warn('[save] проверка бустера не удалась:', e.message);
@@ -1048,10 +1154,10 @@ app.post('/api/save', async (req, res) => {
         }
       }
     }
-    // ★ СВЕРКА С СЕРВЕРНЫМ КОШЕЛЬКОМ (только при SERVER_AUTHORITATIVE=1).
-    // Клиент мог нарисовать баланс — его прирост принимается только в пределах
-    // серверного начисления. Траты принимаются как есть.
-    let clampedFields = [];
+    // ★ СВЕРКА С СЕРВЕРНЫМ КОШЕЛЬКОМ — ТОЛЬКО АУДИТ (без откатов).
+    // Баланс клиента принимается как есть: крупная покупка/награда больше
+    // не откатывается из-за гонки автосейва. Все расхождения уходят
+    // в админку как структурированные оповещения с причиной и способом.
     let walletToWrite = null;
     if (SERVER_AUTHORITATIVE && gameCore) {
       try {
@@ -1062,7 +1168,8 @@ app.post('/api/save', async (req, res) => {
 
         // ★ Возможности (планеты/системы) должны быть оплачены.
         // Потраченное считаем по своим балансам, а не по словам клиента.
-        const capPrev = withCoreState(existing && existing.data ? existing.data : safeSave,
+        const capPrevSave = existing && existing.data ? existing.data : safeSave;
+        const capPrev = withCoreState(capPrevSave,
           function() { return gameCore.capability(); }) || 0;
         const nextInfo = withCoreState(safeSave, function() {
           return { cap: gameCore.capability(), caps: gameCore.caps() };
@@ -1085,21 +1192,39 @@ app.post('/api/save', async (req, res) => {
           ? Math.max(0, Number(nextInfo.caps.dust) || 0) * CAPABILITY_TOLERANCE_SHARE
           : 0;
         const hardUncovered = Math.max(0, capAudit.uncovered - capTolerance);
+        const alerts = [];
 
         if (hardUncovered > 0) {
           console.warn(`[save] user=${user.id} необоснованный прирост возможностей: ` +
             `${Math.round(hardUncovered)} (delta=${Math.round(capAudit.delta)})`);
-          redisSet(`save_flag:${user.id}`, JSON.stringify({
-            flags: ['phantom_capability'], at: now,
-            delta: Math.round(capAudit.delta), uncovered: Math.round(hardUncovered),
-          })).catch(function() { /* некритично */ });
-
-          // ★ Раньше здесь был 409: клиент принимал предыдущий сейв и терял
-          // только что купленные планеты/системы. Из-за дохода, который
-          // сервер ещё не успел зачислить, это срабатывало и у честных
-          // игроков. Теперь — только флаг для админки, без отката.
-          wallet.capBudget = 0;
-        } else {
+          alerts.push(createFraudAlert({
+            code: 'phantom_capability',
+            severity: hardUncovered > capAudit.delta * 0.5 ? 'high' : 'medium',
+            title: '🏗 Неоплаченный прирост возможностей',
+            reason: `Стоимость планет/систем выросла на ${Math.round(capAudit.delta)}, ` +
+              `подтверждено тратами ${Math.round(spentValue)}, бюджет ${Math.round(Number(wallet.capBudget) || 0)}, ` +
+              `допуск ${Math.round(capTolerance)}. Не покрыто: ${Math.round(hardUncovered)}.`,
+            method: 'Сейв содержит больше систем/планет, чем оплачено. ' +
+              'Возможные способы: правка localStorage/облачного сейва, бесплатное основание системы, дубликат планет/систем.',
+            fields: [],
+            evidence: {
+              progressBefore: saveProgressSnapshot(capPrevSave),
+              progressAfter: saveProgressSnapshot(safeSave),
+              capability: {
+                before: Math.round(capPrev), after: Math.round(capNext), delta: Math.round(capAudit.delta),
+              },
+              spentValue: Math.round(spentValue),
+              budget: Math.round(Number(wallet.capBudget) || 0),
+              tolerance: Math.round(capTolerance),
+              uncovered: Math.round(hardUncovered),
+              caps: nextInfo ? nextInfo.caps : null,
+            },
+            at: now,
+          }));
+        }
+        // ★ Бюджет не обнуляем: откат/обнуление больше не наказывает игрока.
+        // При подозрении оставляем бюджет как есть — решает админ, а не автомат.
+        if (hardUncovered <= 0) {
           wallet.capBudget = remainingCapabilityBudget(wallet.capBudget, capAudit.delta, spentValue);
         }
 
@@ -1107,40 +1232,47 @@ app.post('/api/save', async (req, res) => {
         const caps = gameCore.caps();
         const allowance = rewardAllowance(caps, WALLET_ALLOWANCE_SHARE);
 
-        // ★ Копилка разовых наград входит в допуск сверки: если отчёт
+        // ★ Копилка разовых наград входит в допуск аудита: если отчёт
         // /api/reward не успел (сеть), честная награда не должна
-        // обрезаться молча.
+        // выглядеть подозрительной.
         const bank = accrueRewardBank(wallet, gameCore.rates(), caps, REWARD_BANK_SHARE, now);
         for (const field of ['dust', 'energy', 'civ', 'metals']) {
           allowance[field] = Math.max(0, Number(allowance[field]) || 0) +
             Math.max(0, Number(bank[field]) || 0);
         }
 
-        const beforeReconcile = {
+        const beforeAudit = {
           dust: wallet.dust, energy: wallet.energy,
           civLevel: wallet.civLevel, metalAmount: wallet.metalAmount,
         };
-        const rec = reconcileWallet(wallet, safeSave, allowance);
-        safeSave = rec.data;
-        clampedFields = rec.clamped;
+        const audit = auditWallet(wallet, safeSave, allowance);
+        safeSave = audit.data;
+
+        if (audit.findings.length) {
+          alerts.push.apply(alerts, walletAlertsFromFindings(audit.findings, {
+            progress: saveProgressSnapshot(safeSave),
+            walletBefore: beforeAudit,
+            walletAfter: {
+              dust: wallet.dust, energy: wallet.energy,
+              civLevel: wallet.civLevel, metalAmount: wallet.metalAmount, dustTotal: wallet.dustTotal,
+            },
+            earned: earned,
+            caps: caps,
+          }));
+        }
 
         // Списываем с копилки только то, что клиент реально добрал сверх
         // серверного баланса (иначе бакет не пополнялся бы вообще).
         spendRewardBank(wallet, {
-          dust: Math.max(0, wallet.dust - beforeReconcile.dust),
-          energy: Math.max(0, wallet.energy - beforeReconcile.energy),
-          civ: Math.max(0, wallet.civLevel - beforeReconcile.civLevel),
+          dust: Math.max(0, wallet.dust - beforeAudit.dust),
+          energy: Math.max(0, wallet.energy - beforeAudit.energy),
+          civ: Math.max(0, wallet.civLevel - beforeAudit.civLevel),
         }, {});
         walletToWrite = wallet;
 
-        if (clampedFields.length) {
-          console.warn(`[save] user=${user.id} обрезаны ресурсы: ${clampedFields.join(',')}`);
-          redisSet(`save_flag:${user.id}`, JSON.stringify({
-            flags: clampedFields.map(function(f) { return 'wallet_clamp:' + f; }), at: now,
-          })).catch(function() { /* некритично */ });
-        }
+        if (alerts.length) await recordFraudAlerts(user.id, alerts);
       } catch (e) {
-        console.warn('[save] сверка с кошельком не удалась:', e.message);
+        console.warn('[save] аудит кошелька не удался:', e.message);
       }
     }
 
@@ -1175,17 +1307,14 @@ app.post('/api/save', async (req, res) => {
     // версий) клиентский срез затирал бы кошелёк, включая выдачу админа.
     if (walletToWrite) await writeWallet(user.id, walletToWrite);
 
+    // ★ Лимиты фиксируем только после реальной записи: неудачный CAS (409)
+    //   не должен блокировать следующий корректный save и жечь квоту.
+    await redisSet(rlKey, String(Date.now()));
+    try { await bumpCounter(hourKey, 3600); } catch (e) { /* квота не критична */ }
+
     res.json({
       ok: true, saved_at: payload.saved_at, version: payload.version,
       authoritative: SERVER_AUTHORITATIVE,
-      clamped: clampedFields.length ? clampedFields : undefined,
-      // ★ Клиенту при обрезке отдаём ТОЛЬКО валютные поля, а не весь
-      //   сейв: полный снимок легко применить как замену и откатить
-      //   покупки/миссии, случившиеся за время запроса. Прогресс живёт
-      //   на клиенте, сервер сверяет только кошелёк.
-      data: (clampedFields.length && walletToWrite)
-        ? walletToSavePatch(walletToWrite)
-        : (clampedFields.length ? safeSave : undefined),
     });
   } catch (e) {
     console.error('[save]', e);
@@ -1560,20 +1689,37 @@ app.post('/api/buy-booster', async (req, res) => {
     const entKey = `entitlement:booster:${user.id}`;
     const prevUntil = Number(await redisGet(entKey)) || 0;
     const incomeUntil = nextBoosterUntil(prevUntil, now, cfg.hours * 3600 * 1000);
-    await redisSet(entKey, String(incomeUntil));
 
     wallet.metalAmount = metals - pay;
     wallet.updatedAt = now;
-    await writeWallet(user.id, wallet);
 
     const data = Object.assign({}, payload.data);
     data.metalAmount = wallet.metalAmount;
     data.boosters = Object.assign({}, payload.data.boosters || {}, { incomeUntil });
 
+    const baseVersion = Number(payload.version) || 0;
     payload.data = data;
     payload.saved_at = now;
-    payload.version = (Number(payload.version) || 0) + 1;
-    await redisSet(`cloudsave:${user.id}`, JSON.stringify(payload));
+    payload.version = baseVersion + 1;
+
+    // ★ CAS: покупка не должна затирать сейв, который успело записать
+    // другое устройство между чтением и записью (например, после Вспышки).
+    const cas = await redisSetIfVersion(`cloudsave:${user.id}`, JSON.stringify(payload), baseVersion);
+    if (cas.failed) {
+      return res.status(503).json({ error: 'Не удалось сохранить на сервер (хранилище недоступно)' });
+    }
+    if (cas.conflict) {
+      const latest = cas.currentRaw ? parseRedisJson(cas.currentRaw) : null;
+      return res.status(409).json({
+        ok: false, conflict: true,
+        data: latest && latest.data, saved_at: latest && latest.saved_at, version: cas.version,
+      });
+    }
+
+    // ★ Кошелёк и право на бустер фиксируем ТОЛЬКО после успешного CAS:
+    // иначе при конфликте металлы списывались бы без покупки.
+    await writeWallet(user.id, wallet);
+    await redisSet(entKey, String(incomeUntil));
     await redisCommand('SET', dayKey, '1', 'EX', '172800');
 
     res.json({
@@ -1910,6 +2056,18 @@ app.get('/admin/api/players', adminGuard, async (req, res) => {
         p.presence = toAdminPresence(await readUserPresence(p.id));
       }));
     }
+    // ★ Сводка оповещений: один scan по save_flag, затем чтение только
+    // реально помеченных игроков (их обычно единицы, не сотни).
+    const alertKeys = await redisScanAll('save_flag:*', 500);
+    const alertMap = {};
+    await Promise.all(alertKeys.map(async function(key) {
+      const userId = key.slice('save_flag:'.length);
+      const record = parseRedisJson(await redisGet(key));
+      alertMap[userId] = summarizeFraudAlerts(record);
+    }));
+    for (const p of players) {
+      p.alertSummary = alertMap[p.id] || { count: 0, lastAt: 0, flags: [] };
+    }
 
     players.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
 
@@ -1917,6 +2075,49 @@ app.get('/admin/api/players', adminGuard, async (req, res) => {
     res.json({ ok: true, count: players.length, players });
   } catch (e) {
     console.error('[admin] /admin/api/players', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /admin/api/alerts — все серверные оповещения о подозрительном прогрессе.
+// Отдаём последние события с причиной, способом и числами-доказательствами.
+app.get('/admin/api/alerts', adminGuard, async (req, res) => {
+  console.log(`[admin] GET /admin/api/alerts — ip=${req.ip}`);
+  try {
+    const limit = Math.max(1, Math.min(200, Math.floor(Number(req.query && req.query.limit) || 100)));
+    const keys = await redisScanAll('save_flag:*', 500);
+    const rows = [];
+
+    // Пачками, чтобы не устраивать лавину параллельных запросов к Redis.
+    for (let i = 0; i < keys.length; i += 25) {
+      const chunk = keys.slice(i, i + 25);
+      const part = await Promise.all(chunk.map(async function(key) {
+        const userId = key.slice('save_flag:'.length);
+        const record = parseRedisJson(await redisGet(key));
+        const alerts = alertsFromRecord(record);
+        if (!alerts.length) return [];
+        const cloudRaw = await redisGet(`cloudsave:${userId}`);
+        const cloud = parseRedisJson(cloudRaw);
+        const data = (cloud && cloud.data && typeof cloud.data === 'object') ? cloud.data : {};
+        const snapshot = saveProgressSnapshot(data);
+        return alerts.map(function(alert) {
+          return Object.assign({}, alert, {
+            playerId: userId,
+            playerName: data.playerName || '—',
+            stage: snapshot.stage || '—',
+            systems: snapshot.systems,
+            savedAt: (cloud && cloud.saved_at) || 0,
+          });
+        });
+      }));
+      for (const item of part) rows.push.apply(rows, item);
+    }
+
+    rows.sort(function(a, b) { return (b.at || 0) - (a.at || 0); });
+    const alerts = rows.slice(0, limit);
+    res.json({ ok: true, count: rows.length, alerts: alerts, flags: rows.length });
+  } catch (e) {
+    console.error('[admin] /admin/api/alerts', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -2057,13 +2258,14 @@ app.get('/admin/api/player/:id', adminGuard, async (req, res) => {
 
     // ★ Всё «мягкое» читаем параллельно и с защитой: сбой Redis
     // (кошелёк, права, покупки) не должен ломать редактор сейва.
-    const [wallet, shieldRaw, boosterRaw, chestRaw, shieldPurchaseRaw, boosterPurchaseRaw] = await Promise.all([
+    const [wallet, shieldRaw, boosterRaw, chestRaw, shieldPurchaseRaw, boosterPurchaseRaw, fraudRaw] = await Promise.all([
       adminSafeRead('кошелёк', () => readWallet(id), null),
       adminSafeRead('право щита', () => redisGet(`entitlement:shield:${id}`), null),
       adminSafeRead('право бустера', () => redisGet(`entitlement:booster:${id}`), null),
       adminSafeRead('покупка сундука', () => redisGet(`purchase:${id}:chest`), null),
       adminSafeRead('покупка щита', () => redisGet(`purchase:${id}:shield`), null),
       adminSafeRead('покупка бустера', () => redisGet(`purchase:${id}:booster`), null),
+      adminSafeRead('оповещения', () => redisGet(`save_flag:${id}`), null),
     ]);
 
     const entitlements = {
@@ -2102,6 +2304,8 @@ app.get('/admin/api/player/:id', adminGuard, async (req, res) => {
       wallet,
       entitlements,
       purchases,
+      alerts: alertsFromRecord(parseRedisJson(fraudRaw)),
+      alertSummary: summarizeFraudAlerts(parseRedisJson(fraudRaw)),
       summary: summarizeSave(payload.data, { now }),
       now,
     });

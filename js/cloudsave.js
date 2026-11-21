@@ -548,6 +548,15 @@ function mergeOwnedProgress(local, cloud) {
   try {
     const out = Object.assign({}, cloud);
 
+    // ★ Граница Вспышки: облако уже на следующем уровне престижа.
+    //   Вспышка ЗАКОННО уменьшает systems/totalSystemsCreated/planets/fleet,
+    //   поэтому на устаревшем устройстве эти числа «больше» — и max()/
+    //   длина массива воскрешали бы уничтоженный прогресс (телефон показывал
+    //   старые данные и заново заливал их в облако).
+    const prestigeBoundary =
+      (Number(cloud.prestigeLevel) || 0) > (Number(local.prestigeLevel) || 0) ||
+      (Number(cloud.galaxies) || 0) > (Number(local.galaxies) || 0);
+
     // 1. Счётчики, которые не могут уменьшиться: берём максимум.
     //    Для флота это осознанный компромисс: потеря покупки при сверке
     //    гораздо хуже, чем «вернувшиеся» из облака корабли, погибшие
@@ -560,6 +569,7 @@ function mergeOwnedProgress(local, cloud) {
     ];
     for (let i = 0; i < maxFields.length; i++) {
       const f = maxFields[i];
+      if (prestigeBoundary) continue; // сброшенное Вспышкой берём из облака
       const lv = local[f];
       const cv = cloud[f];
       if (lv === undefined && cv === undefined) continue;
@@ -573,6 +583,7 @@ function mergeOwnedProgress(local, cloud) {
     const counterFields = ['fleet', 'storageLevels', 'techLevels'];
     for (let i = 0; i < counterFields.length; i++) {
       const f = counterFields[i];
+      if (prestigeBoundary && f === 'fleet') continue; // флот сброшен Вспышкой
       if (local[f] === undefined && cloud[f] === undefined) continue;
       out[f] = ownedCountersMax(local[f], cloud[f]);
     }
@@ -585,31 +596,39 @@ function mergeOwnedProgress(local, cloud) {
     if (local.boosters || cloud.boosters) {
       const lb = (local.boosters && typeof local.boosters === 'object') ? local.boosters : {};
       const cb = (cloud.boosters && typeof cloud.boosters === 'object') ? cloud.boosters : {};
-      const merged = Object.assign({}, cb, lb);
-      merged.incomeUntil = (typeof window !== 'undefined' && window.__serverWallet === true)
+      const merged = prestigeBoundary ? Object.assign({}, cb) : Object.assign({}, cb, lb);
+      merged.incomeUntil = prestigeBoundary
         ? ownedNum(cb.incomeUntil)
-        : ownedNumberMax(lb.incomeUntil, cb.incomeUntil);
+        : ((typeof window !== 'undefined' && window.__serverWallet === true)
+          ? ownedNum(cb.incomeUntil)
+          : ownedNumberMax(lb.incomeUntil, cb.incomeUntil));
       out.boosters = merged;
     }
 
     // 4. Достижения и трофеи — объединение, а не замена.
-    out.achievements = ownedArrayUnion(local.achievements, cloud.achievements,
-      function (v) { return v; });
-    out.trophyContracts = ownedArrayUnion(local.trophyContracts, cloud.trophyContracts,
-      function (c) { return (c && (c.id || (c.type + '|' + c.value + '|' + c.createdAt))) || ''; });
-    out.activeTrophyEffects = ownedArrayUnion(local.activeTrophyEffects, cloud.activeTrophyEffects,
-      function (e) { return (e && (e.type + '|' + e.value + '|' + e.expiresAt)) || ''; });
+    if (!prestigeBoundary) {
+      out.achievements = ownedArrayUnion(local.achievements, cloud.achievements,
+        function (v) { return v; });
+    }
+    if (!prestigeBoundary) {
+      out.trophyContracts = ownedArrayUnion(local.trophyContracts, cloud.trophyContracts,
+        function (c) { return (c && (c.id || (c.type + '|' + c.value + '|' + c.createdAt))) || ''; });
+      out.activeTrophyEffects = ownedArrayUnion(local.activeTrophyEffects, cloud.activeTrophyEffects,
+        function (e) { return (e && (e.type + '|' + e.value + '|' + e.expiresAt)) || ''; });
+    }
     if (local.unlockedAch || cloud.unlockedAch) {
       out.unlockedAch = Object.assign({}, cloud.unlockedAch || {}, local.unlockedAch || {});
     }
 
     // 5. Купленные системы/планеты не исчезают: если локально их больше,
     //    оставляем локальный набор.
-    if (Array.isArray(local.planets) && Array.isArray(cloud.planets) &&
+    if (!prestigeBoundary &&
+        Array.isArray(local.planets) && Array.isArray(cloud.planets) &&
         local.planets.length > cloud.planets.length) {
       out.planets = local.planets;
     }
-    if (Array.isArray(local.otherSystems) && Array.isArray(cloud.otherSystems) &&
+    if (!prestigeBoundary &&
+        Array.isArray(local.otherSystems) && Array.isArray(cloud.otherSystems) &&
         local.otherSystems.length > cloud.otherSystems.length) {
       out.otherSystems = local.otherSystems;
     }
@@ -626,7 +645,7 @@ function mergeOwnedProgress(local, cloud) {
     //    а устаревшее облако ещё система).
     const localStageRank = cloudStageRank(local.stage);
     const cloudStageRankNow = cloudStageRank(cloud.stage);
-    if (localStageRank > cloudStageRankNow) out.stage = local.stage;
+    if (!prestigeBoundary && localStageRank > cloudStageRankNow) out.stage = local.stage;
 
     return out;
   } catch (e) {
@@ -635,25 +654,10 @@ function mergeOwnedProgress(local, cloud) {
   }
 }
 
-// ★ Нерф откатов: при сверке кошелька сервер может прислать только часть
-// полей. Заменять ими весь сейв нельзя — иначе откатываются действия,
-// совершённые за время запроса (покупки, миссии, события, сборка планет).
-const SERVER_WALLET_FIELDS = ['dust', 'dustTotal', 'energy', 'civLevel', 'metalAmount'];
+// ★ Нерф откатов: сервер больше не присылает обязательный clamped-патч.
+// Если старый сервер всё же прислал clamped, клиент НЕ применяет его:
+// ресурсы и прогресс остаются локальными, а расхождение уходит в админку.
 
-function applyServerWalletPatch(patch) {
-  if (!patch || typeof patch !== 'object') return false;
-  if (typeof S === 'undefined' || !S) return false;
-
-  let changed = false;
-  for (let i = 0; i < SERVER_WALLET_FIELDS.length; i++) {
-    const field = SERVER_WALLET_FIELDS[i];
-    if (patch[field] === undefined || patch[field] === null) continue;
-    const value = Number(patch[field]);
-    if (!Number.isFinite(value)) continue;
-    if (Number(S[field]) !== value) { S[field] = value; changed = true; }
-  }
-  return changed;
-}
 
 // ★ Применение серверного сейва ВНУТРИ cloudSaveGame(). loadGame() может
 // вызвать checkAchievements() → saveGame(), и без этого флага мы бы
@@ -754,11 +758,15 @@ async function cloudSaveGame(options) {
     // ★ saveGame() сам вызовет autoSaveToCloud(true); защита от рекурсии —
     // проверка _cloudSaveInFlight в autoSaveToCloud().
     _cloudSaveInternal = true;
+    let localOk = true;
     try {
-      if (typeof saveGame === 'function') saveGame();
+      if (typeof saveGame === 'function') localOk = saveGame();
     } finally {
       _cloudSaveInternal = false;
     }
+    // ★ Если локальная запись упала (квота localStorage), не отправляем
+    //   старый снимок из localStorage как «текущий» и не снимаем dirty.
+    if (localOk === false) return { ok: false, error: 'local-save-failed' };
 
     // ★ В режиме кошелька сначала сообщаем серверу о «прочем» доходе.
     if (window.__serverWallet) {
@@ -785,12 +793,13 @@ async function cloudSaveGame(options) {
       if (conflict && conflict.authoritative) window.__serverWallet = true;
 
       const serverVersion = cloudVersionFrom(conflict);
-      setCloudVersion(serverVersion);
+      // ★ Версию двигаем только вместе с фактическим применением/ретраем.
+      //   Иначе pollCloudVersion навсегда пропустит это облако.
 
       // ★ Аудит «оплаченных возможностей» больше не откатывает прогресс:
-      // при споре берём только кошелёк, планеты/системы остаются у игрока.
+      // планеты/системы и кошелёк остаются у игрока. Просто досылаем сейв.
       if (conflict && conflict.reason === 'capability') {
-        applyServerWalletPatch(cloud);
+        setCloudVersion(serverVersion);
         scheduleCloudRetry(CLOUD_SAVE_MIN_INTERVAL_MS);
         return { ok: false, conflict: 'capability', version: serverVersion };
       }
@@ -800,6 +809,7 @@ async function cloudSaveGame(options) {
       // а берём серверную версию как базу и досылаем свой сейв.
       const localNow = readLocalSave();
       if (isValidCloudSave(cloud) && localProgressIsAhead(localNow, cloud)) {
+        setCloudVersion(serverVersion); // наша база для досылки
         scheduleCloudRetry(CLOUD_SAVE_MIN_INTERVAL_MS);
         return { ok: false, conflict: 'local-ahead', version: serverVersion };
       }
@@ -807,6 +817,7 @@ async function cloudSaveGame(options) {
       // Сервер главнее: принимаем его сейв и не перезаписываем чужой прогресс.
       if (isValidCloudSave(cloud)) {
         applyCloudSaveInternal(cloud);
+        setCloudVersion(serverVersion);
         clearCloudDirty(); // приняли серверную версию — локальные изменения больше не висят
         if (typeof toast === 'function') toast('☁️ Прогресс обновлён', 'Сейв новее с другого устройства');
         return { ok: false, conflict: 'cloud-newer', saved_at: conflict.saved_at, version: serverVersion };
@@ -864,26 +875,14 @@ async function cloudSaveGame(options) {
     const r = await response.json();
     if (r && r.authoritative) window.__serverWallet = true;
 
-    // ★ Сервер сверил баланс и что-то обрезал. Раньше здесь целиком
-    // применялся серверный снимок (applyCloudSaveInternal), то есть
-    // локальный сейв заменялся копией, отправленной ДО запроса: покупки,
-    // миссии и события, случившиеся за время запроса, откатывались.
-    // Теперь берём только валютные поля — прогресс остаётся живым.
-    let walletPatched = false;
-    if (r && r.clamped && r.data) {
-      walletPatched = applyServerWalletPatch(r.data);
-      if (typeof toast === 'function') {
-        toast('⚖️ Баланс сверен', 'Ресурсы сверены с сервером, прогресс сохранён');
-      }
+    // ★ Сервер сверяет баланс только для аудита и больше не откатывает
+    // ресурсы. Старый clamped-ответ игнорируем: покупки и прогресс живут.
+    if (r && r.clamped) {
+      console.warn('[CloudSave] сервер прислал clamped, но баланс не откатываем:', r.clamped.join(','));
     }
 
     if (r && typeof r.version === 'number') setCloudVersion(r.version);
     clearCloudDirty(); // сервер подтвердил локальный прогресс
-    // ★ После обрезки баланса локальный сейв надо переписать и дослать:
-    // сервер увидел только старое состояние, а прогресс остался у игрока.
-    if (walletPatched) {
-      try { if (typeof saveGame === 'function') saveGame(); } catch (e) { /* ignore */ }
-    }
     _cloudNetworkFailStreak = 0; // успешная запись — ретраи больше не нужны
     // Чистый сейв после сброса успешно записан — снова разрешаем синхронизацию.
     try { sessionStorage.removeItem(CLOUD_RESET_SKIP_KEY); } catch (e) { /* ignore */ }
@@ -908,12 +907,19 @@ async function cloudSaveGame(options) {
 // force=true — сохраняем немедленно (критичные действия: покупки, сборка планет).
 let _autoCloudLastAt = 0;
 let _autoCloudRetryTimer = null;
+let _autoCloudRetryAt = 0;
 
 function scheduleCloudRetry(delayMs) {
-  if (_autoCloudRetryTimer) return;
   const delay = Math.max(500, Math.floor(Number(delayMs) || CLOUD_SAVE_MIN_INTERVAL_MS));
+  const due = Date.now() + delay;
+  // ★ Более ранний запрос важнее: после Вспышки нельзя ждать 60-секундный
+  //   сетевой ретрай, поставленный раньше.
+  if (_autoCloudRetryTimer && _autoCloudRetryAt <= due) return;
+  if (_autoCloudRetryTimer) clearTimeout(_autoCloudRetryTimer);
+  _autoCloudRetryAt = due;
   _autoCloudRetryTimer = setTimeout(function() {
     _autoCloudRetryTimer = null;
+    _autoCloudRetryAt = 0;
     autoSaveToCloud(true);
   }, delay);
   // В Node-тестах таймер не должен держать процесс живым.
@@ -940,22 +946,29 @@ function scheduleNetworkRetry() {
   scheduleCloudRetry(delay);
 }
 
-function autoSaveToCloud(force, useKeepalive) {
+function autoSaveToCloud(force, useKeepalive, opts) {
   try {
     if (isResetInProgress()) return false;
     // Вне Telegram ничего не сохраняем — никаких 401 и «фантомных» сейвов.
     if (!isCloudAvailable()) return false;
+    // ★ До завершения первой синхронизации не пушим: иначе самый первый
+    //   saveGame() заливает устаревший локальный сейв поверх облачного
+    //   (и телефон потом показывает старые данные).
+    if (window.__cloudStartSettled === false) return false;
 
     // ★ Защита от рекурсии: cloudSaveGame() вызывает saveGame(), а saveGame()
     // снова зовёт autoSaveToCloud(true). Внутренний вызов не должен планировать
     // ретрай, иначе получится бесконечное сохранение раз в 12 секунд.
     if (_cloudSaveInFlight > 0) {
-      if (!_cloudSaveInternal && force) scheduleCloudRetry(1000);
+      // На закрытии страницы таймер уже не сработает — не планируем его.
+      if (!_cloudSaveInternal && force && !(opts && opts.immediate)) scheduleCloudRetry(1000);
       return false;
     }
 
     const now = Date.now();
-    const minGap = force ? CLOUD_SAVE_MIN_INTERVAL_MS : 20000;
+    const minGap = (opts && opts.immediate)
+      ? 0
+      : (force ? CLOUD_SAVE_MIN_INTERVAL_MS : 20000);
     if (now - _autoCloudLastAt < minGap) {
       // Действие важное, но сервер ещё в лимите — отправим последнее состояние позже.
       if (force) scheduleCloudRetry(minGap - (now - _autoCloudLastAt) + 100);
@@ -1159,6 +1172,28 @@ async function syncCloudOnStart() {
       if (!readLocalSave()) {
         clearCloudDirty();
       } else {
+        // ★ Прежде чем пушить локальный сейв, сверяем версию облака: если
+        //   на сервере уже новее (играли на другом устройстве), пушить старьё
+        //   нельзя — иначе устаревший телефон затрёт свежий сейв после Вспышки.
+        let cloudAhead = false;
+        try {
+          const peekRes = await cloudFetch('/api/load', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ initData: initData, peek: true }),
+          });
+          const peekJson = await peekRes.json();
+          // ★ Если локально уже сделана Вспышка (prestigeLevel/galaxies выше),
+          //   серверное «новее» — это пассивный тик старого сейва: свой прогресс
+          //   не выбрасываем, а досылаем.
+          const localNow = readLocalSave();
+          const localPrestigeAhead = !!(localNow && peekJson && peekJson.data &&
+            ((Number(localNow.prestigeLevel) || 0) > (Number(peekJson.data.prestigeLevel) || 0) ||
+             (Number(localNow.galaxies) || 0) > (Number(peekJson.data.galaxies) || 0)));
+          cloudAhead = !!(peekJson && peekJson.ok && peekJson.data &&
+            cloudVersionFrom(peekJson) > getCloudVersion() && !localPrestigeAhead);
+        } catch (peekErr) { /* сверка не обязательна */ }
+        if (!cloudAhead) {
         console.log('[Sync] Есть несохранённый локальный прогресс — сначала отправляем его в облако.');
         const pushed = await cloudSaveGame();
         if (pushed && pushed.ok) {
@@ -1194,6 +1229,7 @@ async function syncCloudOnStart() {
         showCloudNotice('__cloudPushErrorShown', '⚠️ Синхронизация',
           'Не удалось сохранить прогресс' + (pushed && pushed.status ? ' (' + pushed.status + ')' : '') + '. Попробуйте ещё раз.');
         return false;
+        }
       }
     }
 
@@ -1289,6 +1325,8 @@ async function syncCloudOnStart() {
       if (typeof updateUI === 'function') updateUI();
     }
 
+    // ★ Приняли серверную версию — старый локальный dirty больше не актуален.
+    clearCloudDirty();
     if (typeof toast === 'function') toast('☁️ Синхронизация', 'Прогресс загружен из облака');
     return true;
   } catch (e) {
@@ -1309,7 +1347,9 @@ function startCloudAutosave(intervalMs) {
   if (!isCloudAvailable()) return null;
   const period = intervalMs || CLOUD_AUTOSAVE_MS;
   cloudAutosaveTimer = setInterval(function() {
-    if (isCloudAvailable() && document.visibilityState === 'visible') cloudSaveGame();
+    // ★ Через autoSaveToCloud: он соблюдает интервал и не выводит
+    //   часовую квоту сервера (300 save/час) за счёт минутного таймера.
+    if (isCloudAvailable() && document.visibilityState === 'visible') autoSaveToCloud(false);
   }, period);
   return cloudAutosaveTimer;
 }
@@ -1884,16 +1924,37 @@ window.addEventListener('load', function() {
 });
 
 // ─── Автосохранение при сворачивании/закрытии ───
-document.addEventListener('visibilitychange', function() {
-  if (document.visibilityState === 'hidden') {
-    if (typeof saveGame === 'function') saveGame();
-    if (typeof autoSaveToCloud === 'function') autoSaveToCloud(true);
+// ★ Раньше здесь вызывался autoSaveToCloud(true), который режет отправку
+//   по 12.5-секундному debounce и НЕ ставит keepalive. В Telegram WebView
+//   обычный fetch при закрытии убивается — свежая Вспышка не уезжала в облако.
+let _lastHideFlushAt = 0;
+function flushCloudOnHide() {
+  try {
+    if (!isCloudAvailable()) return false;
+    if (isResetInProgress()) return false;
+    // До первой синхронизации не пушим устаревший локальный сейв.
+    if (window.__cloudStartSettled === false) return false;
+    if (_cloudSaveInFlight > 0) return false; // уже летит свежее состояние
+    if (Date.now() - _lastHideFlushAt < 1500) return false;
+    _lastHideFlushAt = Date.now();
+    // Локально пишем всегда: быстро и без сети.
+    if (typeof saveGame === 'function') saveGame({ skipCloud: true });
+    if (!isCloudDirty()) return false;
+    const p = cloudSaveGame({ keepalive: true });
+    if (p && typeof p.then === 'function') p.catch(function() { /* сеть */ });
+    _autoCloudLastAt = Date.now();
+    return true;
+  } catch (e) {
+    return false;
   }
+}
+window.flushCloudOnHide = flushCloudOnHide;
+
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'hidden') flushCloudOnHide();
 });
-window.addEventListener('beforeunload', function() {
-  if (typeof saveGame === 'function') saveGame();
-  if (typeof autoSaveToCloud === 'function') autoSaveToCloud(true, true);
-});
+window.addEventListener('pagehide', function() { flushCloudOnHide(); });
+window.addEventListener('beforeunload', function() { flushCloudOnHide(); });
 
 // ═══════════════════════════════════════════════════════════════
 //  ЖИВАЯ ПРОВЕРКА ОБЛАКА (второе устройство, раз в 30 секунд)
@@ -1916,6 +1977,12 @@ async function pollCloudVersion() {
   if (typeof S !== 'undefined' && S && S.activeMinigame) return false;
   // Своё сохранение ещё летит на сервер — его версия пока не подтверждена
   if (_cloudSaveInFlight > 0) return false;
+  // ★ Есть неподтверждённый локальный прогресс (например, только что
+  //   сделанная Вспышка ещё в отложке) — не затираем его облаком.
+  if (isCloudDirty()) {
+    autoSaveToCloud(true);
+    return false;
+  }
   // Не перебиваем уже открытое окно (эволюция, магазин и т.п.)
   try {
     const openModal = document.getElementById('modal');
@@ -1944,10 +2011,10 @@ async function pollCloudVersion() {
     console.log('[Sync] Обнаружено обновление с другого устройства! v' + serverVersion);
 
     if (json.authoritative === true) window.__serverWallet = true;
-    setCloudVersion(serverVersion);
-    applyCloudSaveAuthoritative(json.data);
+    const applied = applyCloudSaveAuthoritative(json.data);
+    if (applied) setCloudVersion(serverVersion);
     if (typeof toast === 'function') toast('☁️ Синхронизация', 'Прогресс обновлён с другого устройства');
-    return true;
+    return applied !== false;
   } catch (e) {
     return false;
   } finally {

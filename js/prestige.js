@@ -605,11 +605,16 @@ function performSupernova(level) {
   if (typeof acOnPrestige === 'function') acOnPrestige(systemsBefore, level);
 
   // 8. Запускаем анимацию
+  // ★ Пока Вспышка не применена (1.5 с), S.stage уже 'galaxy', но старые
+  //   systems/planets ещё в S. Сохранять в этом окне нельзя — иначе в облако
+  //   уйдёт «гибрид», который телефон примет за свежий сейв.
+  window.__prestigeInProgress = true;
   S.vis.prestigeAnim = { start: performance.now(), phase: 'pull' };
   S.stage = 'galaxy';
 
   // 9. Применяем данные через 1.5 сек
   setTimeout(() => {
+    window.__prestigeInProgress = false;
     if (S.vis && S.vis.prestigeAnim) S.vis.prestigeAnim.phase = 'explode';
     const savedAnim = S.vis.prestigeAnim; 
     
@@ -661,6 +666,9 @@ function performSupernova(level) {
     if (typeof logPrestige === 'function') logPrestige(S.galaxies, S.galaxyMultiplier);
     if (typeof playSFX === 'function') playSFX('prestige');
     saveGame();
+    // ★ Критичное состояние: пушим сразу, не дожидаясь 12.5-секундного
+    //   debounce (иначе закрытие мини-аппа после Вспышки теряло прогресс).
+    if (typeof autoSaveToCloud === 'function') autoSaveToCloud(true, false, { immediate: true });
     // Даём вспышке погаснуть и показываем итог броска.
     setTimeout(showPrestigeResult, 650);
   }, 1500);

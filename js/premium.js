@@ -566,7 +566,11 @@ async function buyIncomeBooster() {
     try {
       if (typeof cloudSaveGame === 'function') await cloudSaveGame();
       const r = await premiumApiPost('/api/buy-booster', { initData: initData, cost: cost });
-
+      // ★ Сервер поднял version при покупке: без обновления локальной версии
+      //   следующий /api/save получил бы 409 и облако откатило бы прогресс.
+      if (r && typeof r.version === 'number' && typeof setCloudVersion === 'function') {
+        setCloudVersion(r.version);
+      }
       if (r && r.authoritative && r.data) {
         S.metalAmount = Number(r.data.metalAmount) || 0;
         S.boosters = Object.assign({}, S.boosters || {}, { incomeUntil: Number(r.incomeUntil) || 0 });

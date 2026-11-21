@@ -222,6 +222,7 @@
       <div class="topbar-actions">
         <input id="playerSearch" placeholder="Поиск по ID или нику" style="width:220px;" oninput="renderPlayers()">
         <button class="btn-ghost" onclick="openStarsModal()">⭐ Транзакции</button>
+        <button class="btn-ghost" id="alertsBtn" onclick="openAlertsModal()">🚨 Оповещения <span id="alertsCount">0</span></button>
         <button class="btn-ghost" onclick="loadPlayers()">🔄 Обновить</button>
         <button class="btn-ghost" onclick="logout()">Выйти</button>
       </div>
@@ -281,6 +282,20 @@
       </div>
     </div>
   </div>
+  <!-- ═══ Оповещения античита ═══ -->
+  <div id="alertsModal" class="modal">
+    <div class="modal-inner">
+      <div class="modal-head">
+        <h2>🚨 Оповещения античита</h2>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-ghost btn-sm" onclick="loadAlerts()">⟳ Обновить</button>
+          <button class="btn-danger btn-sm" onclick="closeAlertsModal()">✕ Закрыть</button>
+        </div>
+      </div>
+      <div class="note" id="alertsSummary">Загрузка…</div>
+      <div id="alertsList" style="margin-top:12px;"></div>
+    </div>
+  </div>
 
   <div id="toasts"></div>
 
@@ -291,6 +306,7 @@
     const TOKEN_KEY = 'accretion_admin_token';
     let token = localStorage.getItem(TOKEN_KEY) || '';
     let players = [];
+    let fraudAlerts = [];
     let cur = null;              // { id, data, presence, wallet, entitlements, purchases, version, savedAt }
     let activeTab = 'overview';
     let patchAvailable = true;   // false → падаем обратно на /set
@@ -487,6 +503,7 @@
         document.getElementById('authBlock').style.display = 'none';
         document.getElementById('mainBlock').style.display = 'block';
         renderPlayers();
+        loadAlerts(true);
       } catch (e) {
         toast('Ошибка загрузки', e.message, true);
         if (e.message === 'Неверный токен') {
@@ -494,6 +511,83 @@
           document.getElementById('mainBlock').style.display = 'none';
         }
       }
+    }
+
+    // ─── Оповещения античита ───────────────────────────────────
+    function alertSeverityChip(severity) {
+      const s = String(severity || 'medium');
+      const cls = s === 'high' ? 'bad' : (s === 'low' ? 'good' : 'warn');
+      const label = s === 'high' ? 'высокий' : (s === 'low' ? 'низкий' : 'средний');
+      return '<span class="chip ' + cls + '">' + esc(label) + '</span>';
+    }
+
+    function renderAlerts() {
+      const list = document.getElementById('alertsList');
+      if (!list) return;
+      if (!fraudAlerts.length) {
+        list.innerHTML = '<div class="card"><div class="note">Оповещений нет: сервер не заметил подозрительного прогресса.</div></div>';
+        return;
+      }
+      list.innerHTML = fraudAlerts.map(function(a) {
+        const evidence = (a.evidence && Object.keys(a.evidence).length)
+          ? '<details style="margin-top:8px;"><summary style="cursor:pointer;">Доказательства и числа</summary>'
+            + '<pre style="white-space:pre-wrap; font-size:12px; margin:8px 0 0;">' + esc(JSON.stringify(a.evidence, null, 2)) + '</pre></details>'
+          : '';
+        const fields = Array.isArray(a.fields) && a.fields.length
+          ? '<div class="note"><b>Поля:</b> ' + esc(a.fields.map(function(f) {
+              return (f.label || f.field) + ': ' + fmt(num(f.client)) + ' (кошелёк ' + fmt(num(f.wallet)) + ')';
+            }).join(' · ')) + '</div>'
+          : '';
+        return '<div class="card" style="margin-bottom:10px;">'
+          + '<div class="chips" style="margin-bottom:8px;">'
+          + alertSeverityChip(a.severity)
+          + '<span class="chip">' + esc(fmtDate(a.at)) + '</span>'
+          + (num(a.count) > 1 ? '<span class="chip warn">повторов: ' + esc(fmt(num(a.count))) + '</span>' : '')
+          + '</div>'
+          + '<h3 style="margin:0 0 8px;">' + esc(a.title || a.code || 'Оповещение') + '</h3>'
+          + '<div class="note"><b>Игрок:</b> '
+          + '<button class="btn-ghost btn-sm" onclick="closeAlertsModal();openPlayer(\'' + esc(String(a.playerId || '')) + '\')">'
+          + esc(a.playerName || a.playerId || '—') + '</button>'
+          + ' · <span class="player-id">' + esc(a.playerId || '—') + '</span>'
+          + ' · систем: ' + esc(fmt(num(a.systems))) + '</div>'
+          + '<div class="note"><b>Причина:</b> ' + esc(a.reason || '—') + '</div>'
+          + '<div class="note"><b>Способ получения:</b> ' + esc(a.method || '—') + '</div>'
+          + fields + evidence
+          + '</div>';
+      }).join('');
+    }
+
+    async function loadAlerts(silent) {
+      if (!token) return;
+      try {
+        const res = await call('/admin/api/alerts');
+        const json = await readJson(res);
+        if (!res.ok || !json.ok) throw new Error(json.error || ('HTTP ' + res.status));
+        fraudAlerts = Array.isArray(json.alerts) ? json.alerts : [];
+        const badge = document.getElementById('alertsCount');
+        if (badge) badge.textContent = String(num(json.count) || fraudAlerts.length);
+        const modal = document.getElementById('alertsModal');
+        if (modal && modal.classList.contains('open')) renderAlerts();
+      } catch (e) {
+        if (!silent) toast('Ошибка оповещений', e.message, true);
+      }
+    }
+
+    function openAlertsModal() {
+      const modal = document.getElementById('alertsModal');
+      if (!modal) return;
+      modal.classList.add('open');
+      const summary = document.getElementById('alertsSummary');
+      if (summary) summary.textContent = 'Загрузка…';
+      loadAlerts().then(function() {
+        if (summary) summary.textContent = 'Всего оповещений: ' + fraudAlerts.length;
+        renderAlerts();
+      });
+    }
+
+    function closeAlertsModal() {
+      const modal = document.getElementById('alertsModal');
+      if (modal) modal.classList.remove('open');
     }
 
     function presenceBadge(p) {
@@ -530,6 +624,9 @@
           + '<td><span class="player-id">' + esc(p.id) + '</span>'
           +     '<span class="player-sub">' + esc(ago(p.savedAt)) + '</span></td>'
           + '<td><strong>' + esc(p.name || 'Безымянный') + '</strong>' + presenceBadge(p.presence)
+          + ((p.alertSummary && num(p.alertSummary.count) > 0)
+              ? ' <span class="chip bad" title="Есть серверные оповещения">🚨 ' + esc(fmt(num(p.alertSummary.count))) + '</span>'
+              : '')
           +     '<span class="player-sub">' + esc(p.systemName || '—') + '</span></td>'
           + '<td>' + esc(stageLabel(p.stage)) + '</td>'
           + '<td><button class="btn-warning btn-sm" onclick="openPlayer(\'' + esc(String(p.id)) + '\')">Управлять</button></td>'
@@ -550,6 +647,8 @@
           wallet: json.wallet || null,
           entitlements: json.entitlements || null,
           purchases: Array.isArray(json.purchases) ? json.purchases : [],
+          alerts: Array.isArray(json.alerts) ? json.alerts : [],
+          alertSummary: json.alertSummary || null,
           version: num(json.version),
           savedAt: num(json.savedAt)
         };
@@ -572,6 +671,8 @@
         cur.wallet = json.wallet || null;
         cur.entitlements = json.entitlements || null;
         cur.purchases = Array.isArray(json.purchases) ? json.purchases : [];
+        cur.alerts = Array.isArray(json.alerts) ? json.alerts : [];
+        cur.alertSummary = json.alertSummary || null;
         cur.version = num(json.version);
         cur.savedAt = num(json.savedAt);
         render();
@@ -796,7 +897,8 @@
       { id: 'prime',     title: '👑 Прайм' },
       { id: 'invasions', title: '⚔️ Вторжения' },
       { id: 'premium',   title: '⭐ Премиум' },
-      { id: 'misc',      title: '⚙️ Прочее' }
+      { id: 'misc',      title: '⚙️ Прочее' },
+      { id: 'alerts',    title: '🚨 Оповещения' }
     ];
 
     function render() {
@@ -1427,6 +1529,38 @@
           + '<div class="card danger-zone"><h3>Опасная зона</h3>'
           + '<p class="note" style="margin-top:0;">Сброс стирает облачный сейв и серверный кошелёк игрока. При следующем входе он начнёт новую игру.</p>'
           + '<button class="btn-danger" data-act="delete-player">🗑 Сбросить аккаунт</button>'
+          + '</div>';
+      },
+
+      alerts: function() {
+        const list = Array.isArray(cur.alerts) ? cur.alerts : [];
+        if (!list.length) {
+          return '<div class="card"><h3>🚨 Серверные оповещения</h3>'
+            + '<div class="note">Сервер не заметил подозрительного прогресса у этого игрока.</div></div>';
+        }
+        return '<div class="card"><h3>🚨 Серверные оповещения <span class="hint-badge">' + list.length + '</span></h3>'
+          + '<p class="note" style="margin-top:0;">Сервер не откатывает ресурсы и покупки. Здесь только причины и способы, которые стоит проверить вручную.</p>'
+          + list.map(function(a) {
+              const fields = Array.isArray(a.fields) && a.fields.length
+                ? '<div class="note"><b>Поля:</b> ' + esc(a.fields.map(function(f) {
+                    return (f.label || f.field) + ': ' + fmt(num(f.client)) + ' (кошелёк ' + fmt(num(f.wallet)) + ')';
+                  }).join(' · ')) + '</div>'
+                : '';
+              const evidence = (a.evidence && Object.keys(a.evidence).length)
+                ? '<details style="margin-top:8px;"><summary style="cursor:pointer;">Доказательства</summary>'
+                  + '<pre style="white-space:pre-wrap;font-size:12px;margin:8px 0 0;">' + esc(JSON.stringify(a.evidence, null, 2)) + '</pre></details>'
+                : '';
+              return '<div style="border-top:1px solid var(--line-soft);padding-top:10px;margin-top:10px;">'
+                + '<div class="chips" style="margin-bottom:6px;">'
+                + alertSeverityChip(a.severity)
+                + '<span class="chip">' + esc(fmtDate(a.at)) + '</span>'
+                + (num(a.count) > 1 ? '<span class="chip warn">повторов: ' + esc(fmt(num(a.count))) + '</span>' : '')
+                + '</div>'
+                + '<h3 style="margin:0 0 6px;">' + esc(a.title || a.code || 'Оповещение') + '</h3>'
+                + '<div class="note"><b>Причина:</b> ' + esc(a.reason || '—') + '</div>'
+                + '<div class="note"><b>Способ получения:</b> ' + esc(a.method || '—') + '</div>'
+                + fields + evidence + '</div>';
+            }).join('')
           + '</div>';
       }
     };

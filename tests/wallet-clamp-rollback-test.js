@@ -175,28 +175,28 @@ function makeDevice(server, opts) {
     const res = await dev.context.window.cloudSaveGame();
     server.onSave = null;
 
-    assert('Сейв принят, баланс сверен', res.ok === true && Array.isArray(res.clamped));
-    assert('Баланс приведён к серверному', dev.S.dust === 700, dev.S.dust);
+    assert('Сейв принят, старый clamped не ломает ответ', res.ok === true && Array.isArray(res.clamped));
+    assert('Баланс НЕ откатывается к серверному', dev.S.dust === 400, dev.S.dust);
     assert('Планета, купленная во время запроса, НЕ откатилась',
       dev.S.planets.length === 3, JSON.stringify(dev.S.planets));
     assert('Прочие поля прогресса не откатились', dev.S.totalSystemsCreated === 9);
-    assert('Clamped-патч не трогает флот',
+    assert('Старый clamped-патч не трогает флот',
       dev.S.fleet.interceptor === 4 && dev.S.fleet.cruiser === 2 && dev.S.fleet.dreadnought === 1,
       JSON.stringify(dev.S.fleet));
-    assert('Clamped-патч не трогает автоборону',
+    assert('Старый clamped-патч не трогает автоборону',
       dev.S.nightDefenseLevel === 3 && dev.S.nightDefenseExpiresAt === 987654321,
       dev.S.nightDefenseLevel + '/' + dev.S.nightDefenseExpiresAt);
-    assert('Clamped-патч не трогает бустер',
+    assert('Старый clamped-патч не трогает бустер',
       dev.S.boosters && dev.S.boosters.incomeUntil === 123456789,
       JSON.stringify(dev.S.boosters));
-    assert('Clamped-патч не трогает настройки',
+    assert('Старый clamped-патч не трогает настройки',
       dev.S.settings && dev.S.settings.sound === false && dev.S.settings.brightness === 0.5,
       JSON.stringify(dev.S.settings));
-    assert('Показан тост «Баланс сверен»',
-      dev.toasts.some((t) => String(t.title).indexOf('Баланс сверен') >= 0));
-    assert('Локальный сейв переписан (ресурсы серверные, прогресс свой)', (() => {
+    assert('Назойливый тост «Баланс сверен» больше не показывается',
+      !dev.toasts.some((t) => String(t.title).indexOf('Баланс сверен') >= 0));
+    assert('Локальный сейв сохраняет баланс игрока', (() => {
       const local = JSON.parse(dev.localStorage.getItem(SAVE_KEY));
-      return local.dust === 700 && local.planets.length === 3;
+      return local.dust === 400 && local.planets.length === 2;
     })());
   }
 
@@ -291,7 +291,7 @@ function makeDevice(server, opts) {
     assert('После большой закупки действие во время запроса сохранено',
       res.ok === true && dev.S.planets.length === 4, JSON.stringify(dev.S.planets.map((p) => p.id)));
     assert('Системы не откатились', dev.S.systems.length === 3);
-    assert('Баланс сверен с сервером', dev.S.dust === 120000);
+    assert('Баланс не откатывается после большой закупки', dev.S.dust === 100000, dev.S.dust);
   }
 
   console.log('========================================');
