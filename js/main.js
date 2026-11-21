@@ -233,33 +233,15 @@ let _galaxyRadiusCache = { key: '', value: 0 };
 function maxGalaxyRadius() {
   const total = Math.max(1, Number(S.totalSystemsCreated) || 1);
   const form = S.galaxyForm || 'spiral';
-  const cacheKey = total + '|' + form;
+  const cacheKey = total + '|' + form + '|' + galaxySeedValue();
   if (_galaxyRadiusCache.key === cacheKey) return _galaxyRadiusCache.value;
   let maxR = 0;
   for (let i = 0; i < total; i++) {
-    let bx = 0, by = 0;
-    if (form === 'ring') {
-      const angle = (i / total) * Math.PI * 2;
-      const dist = 90 + Math.min(8, Math.floor(i / 10)) * 60;
-      bx = Math.cos(angle) * dist; by = Math.sin(angle) * dist * 0.6;
-    } else if (form === 'elliptical') {
-      const angle = i * 2.399963;
-      const r = 45 + Math.sqrt(i) * 28;
-      bx = Math.cos(angle) * r * 1.5; by = Math.sin(angle) * r * 0.75;
-    } else if (form === 'irregular') {
-      const angle = i * 2.399963 + Math.sin(i * 3.7) * 0.9;
-      const r = 35 + ((i * 47) % 140) + Math.sin(i * 1.7) * 30;
-      bx = Math.cos(angle) * r * 1.3; by = Math.sin(angle) * r * 0.8;
-    } else {
-      const arm = Math.floor(i / 3), idx = i % 3;
-      const angle = arm * Math.PI / 2 + idx * 0.5;
-      const dist = 60 + arm * 80 + idx * 25;
-      bx = Math.cos(angle) * dist; by = Math.sin(angle) * dist * 0.5;
-    }
-    const r = Math.hypot(bx, by);
+    const base = galaxyLayoutBase(i, total);
+    const r = Math.hypot(base.x, base.y);
     if (r > maxR) maxR = r;
   }
-  _galaxyRadiusCache = { key: total + '|' + form, value: maxR };
+  _galaxyRadiusCache = { key: cacheKey, value: maxR };
   return maxR;
 }
 function galaxyFitZoom() {
@@ -659,29 +641,56 @@ function galaxyProjectWorld(bx, by) {
   };
 }
 
-// Базовые координаты системы в плоскости галактики (до камеры).
-function galaxyLayoutPos(i, total, t) {
+// ★ Сид раскладки: новый после каждой Вспышки — каждая галактика выглядит
+//   иначе, но внутри одной галактики звёзды не дрожат между кадрами.
+function galaxySeedValue() {
+  const seed = Math.floor(Number(S.galaxySeed));
+  return (isFinite(seed) && seed > 0) ? seed : 1;
+}
+// Детерминированный «случай» по (сид, индекс, соль), без Math.random().
+function galaxyLayoutRandom(i, salt) {
+  let h = (galaxySeedValue() ^ Math.imul((i | 0) + 1, 0x27d4eb2d) ^ Math.imul((salt | 0) + 1, 0x165667b1)) >>> 0;
+  h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) >>> 0;
+  h = Math.imul(h ^ (h >>> 12), 0x297a2d39) >>> 0;
+  return ((h ^ (h >>> 15)) >>> 0) / 4294967296;
+}
+// Базовые координаты системы в плоскости галактики (до камеры и времени).
+function galaxyLayoutBase(i, total) {
   const form = S.galaxyForm || 'spiral';
+  const seed = galaxySeedValue();
+  const count = Math.max(1, total);
+  // Общий поворот галактики — тоже случайный для каждой Вспышки.
+  const rot = ((seed % 1000) / 1000) * Math.PI * 2;
+  const jit = function(salt, amp) { return (galaxyLayoutRandom(i, salt) - 0.5) * amp; };
+  let bx = 0, by = 0;
   if (form === 'ring') {
-    const angle = (i / Math.max(1, total)) * Math.PI * 2 + t * 0.02;
-    const dist = 90 + Math.min(8, Math.floor(i / 10)) * 60;
-    return { x: Math.cos(angle) * dist, y: Math.sin(angle) * dist * 0.6 };
+    const angle = (i / count) * Math.PI * 2 + rot + jit(1, 0.12);
+    const dist = 90 + Math.min(8, Math.floor(i / 10)) * 60 + jit(2, 26);
+    bx = Math.cos(angle) * dist; by = Math.sin(angle) * dist * 0.6;
+  } else if (form === 'elliptical') {
+    const angle = i * 2.399963 + rot + jit(1, 0.35);
+    const r = 45 + Math.sqrt(i) * 28 + jit(2, 14);
+    bx = Math.cos(angle) * r * 1.5; by = Math.sin(angle) * r * 0.75;
+  } else if (form === 'irregular') {
+    const angle = i * 2.399963 + Math.sin(i * 3.7) * 0.9 + rot + jit(1, 0.5);
+    const r = 35 + ((i * 47) % 140) + Math.sin(i * 1.7) * 30 + jit(2, 55);
+    bx = Math.cos(angle) * r * 1.3; by = Math.sin(angle) * r * 0.8;
+  } else {
+    // Спиральная: число рукавов 2–5 тоже берётся из сида.
+    const arms = 2 + (seed % 4);
+    const arm = Math.floor(i / 3), idx = i % 3;
+    const angle = arm * (Math.PI * 2 / arms) + idx * 0.5 + rot + jit(1, 0.22);
+    const dist = 60 + arm * 80 + idx * 25 + jit(2, 18);
+    bx = Math.cos(angle) * dist; by = Math.sin(angle) * dist * 0.5;
   }
-  if (form === 'elliptical') {
-    const angle = i * 2.399963 + t * 0.01;
-    const r = 45 + Math.sqrt(i) * 28;
-    return { x: Math.cos(angle) * r * 1.5, y: Math.sin(angle) * r * 0.75 };
-  }
-  if (form === 'irregular') {
-    const angle = i * 2.399963 + Math.sin(i * 3.7) * 0.9 + t * 0.005;
-    const r = 35 + ((i * 47) % 140) + Math.sin(i * 1.7) * 30;
-    return { x: Math.cos(angle) * r * 1.3, y: Math.sin(angle) * r * 0.8 };
-  }
-  // Спиральная
-  const arm = Math.floor(i / 3), idx = i % 3;
-  const angle = arm * Math.PI / 2 + idx * 0.5 + t * 0.02;
-  const dist = 60 + arm * 80 + idx * 25;
-  return { x: Math.cos(angle) * dist, y: Math.sin(angle) * dist * 0.5 };
+  return { x: bx, y: by };
+}
+function galaxyLayoutPos(i, total, t) {
+  const base = galaxyLayoutBase(i, total);
+  const spin = (t || 0) * 0.01;
+  if (!spin) return base;
+  const cs = Math.cos(spin), sn = Math.sin(spin);
+  return { x: base.x * cs - base.y * sn, y: base.x * sn + base.y * cs };
 }
 
 function galaxySystemPos(i, total, time) {

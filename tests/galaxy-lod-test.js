@@ -170,15 +170,14 @@ async function testNoDoubleFlareAfter225() {
     Math.random = origRandom;
   }
 
-  assert('Вспышка@225: рубеж 150 закрыт обычной вспышкой',
-    S.prestigeCatchupMilestone === 150, String(S.prestigeCatchupMilestone));
-  assert('Вспышка@225: выжило 155 систем (≥ рубежа 150)',
+  assert('Вспышка@225: выжило 155 систем (≥ 150)',
     S.systems === 155, String(S.systems));
-  assert('Вспышка@225: догоняющей на 150 больше нет',
-    context.prestigeCatchupNeed() === 0 && context.checkPrestigeAvailability() === 0,
-    'need=' + context.prestigeCatchupNeed() + ' avail=' + context.checkPrestigeAvailability());
-  assert('Вспышка@225: следующий порог — 337, а не 150',
-    context.nextPrestigeRequirement() === 337, String(context.nextPrestigeRequirement()));
+  assert('Вспышка@225: догоняющих нет — следующая на 337',
+    context.checkPrestigeAvailability() === 0 && context.nextPrestigeRequirement() === 337,
+    'need=' + context.nextPrestigeRequirement() + ' avail=' + context.checkPrestigeAvailability());
+  assert('Вспышка@225: облик галактики сменился (форма + сид)',
+    S.galaxySeed > 0 && ['spiral', 'elliptical', 'irregular', 'ring'].indexOf(S.galaxyForm) !== -1,
+    S.galaxyForm + '/' + S.galaxySeed);
 }
 
 // ─── Регрессия: после Вспышки нельзя сразу следующую на остатках ───
@@ -238,6 +237,7 @@ async function testNoChainFlareAfterBigPrestige() {
   const prevGet = context.localStorage.getItem;
   let savedRaw = '';
   context.localStorage.setItem = (k, v) => { savedRaw = v; };
+  S.galaxySeed = 777123;
   S.prestigeCatchupMilestone = 900;
   S.prestigeCatchupCount = 2;
   S.prestigeRequirementFloor = 1200;
@@ -245,26 +245,51 @@ async function testNoChainFlareAfterBigPrestige() {
   context.localStorage.setItem = prevSet;
 
   const parsed = JSON.parse(savedRaw);
-  assert('Сейв: рубеж/счётчик/пол попадают в сейв',
-    parsed.prestigeCatchupMilestone === 900 &&
-    parsed.prestigeCatchupCount === 2 &&
-    parsed.prestigeRequirementFloor === 1200,
-    JSON.stringify({
-      m: parsed.prestigeCatchupMilestone,
-      c: parsed.prestigeCatchupCount,
-      f: parsed.prestigeRequirementFloor,
-    }));
+  assert('Сейв: сид галактики и пол попадают в сейв',
+    parsed.galaxySeed === 777123 && parsed.prestigeRequirementFloor === 1200,
+    JSON.stringify({ seed: parsed.galaxySeed, floor: parsed.prestigeRequirementFloor }));
+  assert('Сейв: поля догоняющих пишутся нулями',
+    parsed.prestigeCatchupMilestone === 0 && parsed.prestigeCatchupCount === 0,
+    JSON.stringify({ m: parsed.prestigeCatchupMilestone, c: parsed.prestigeCatchupCount }));
 
+  // Старый сейв с догоняющими: уровень приводится к лестнице.
+  parsed.prestigeLevel = 10;
+  parsed.prestigeCatchupCount = 2;
+  parsed.prestigeCatchupMilestone = 900;
   context.localStorage.getItem = () => JSON.stringify(parsed);
   vm.runInContext('loadGame()', context);
   context.localStorage.getItem = prevGet;
-  assert('Загрузка: рубеж догоняющей не сбрасывается',
-    S.prestigeCatchupMilestone === 900, String(S.prestigeCatchupMilestone));
+  assert('Загрузка: уровень очищен от догоняющих (10 − 2 = 8)',
+    S.prestigeLevel === 8, String(S.prestigeLevel));
+  assert('Загрузка: поля догоняющих обнулены',
+    S.prestigeCatchupCount === 0 && S.prestigeCatchupMilestone === 0);
   assert('Загрузка: требование-пол сохраняется',
     S.prestigeRequirementFloor === 1200, String(S.prestigeRequirementFloor));
+  assert('Загрузка: сид галактики сохраняется',
+    S.galaxySeed === 777123, String(S.galaxySeed));
+}
+// ─── Строгая лестница: одна Вспышка на ступень, без догоняющих ───
+function testStrictPrestigeLadder() {
+  const S = context.S;
+  S.stage = 'galaxy';
+  S.prestigeLevel = 15; S.galaxies = 16;
+  S.prestigeCatchupMilestone = 0; S.prestigeCatchupCount = 0;
+  S.prestigeRequirementFloor = 0;
+  S.systems = 1800; S.totalSystemsCreated = 1800;
+  assert('Лестница: 16-я Вспышка требует ~2К, а не 1800',
+    context.prestigeRequirementFor(15) === 4557 && context.nextPrestigeRequirement() === 4557,
+    String(context.nextPrestigeRequirement()));
+  assert('Лестница: на 1800 системах Вспышка недоступна',
+    context.checkPrestigeAvailability() === 0);
+  assert('Лестница: догоняющей Вспышки больше нет',
+    typeof context.prestigeCatchupNeed === 'undefined' && context.prestigeTierFor() === 15);
+  S.systems = 4557;
+  assert('Лестница: на пороге 4557 Вспышка доступна',
+    context.checkPrestigeAvailability() === 16);
 }
 
-testPrestigeRewards().then(testNoDoubleFlareAfter225).then(testNoChainFlareAfterBigPrestige).then(function() {
+
+testPrestigeRewards().then(testNoDoubleFlareAfter225).then(testNoChainFlareAfterBigPrestige).then(testStrictPrestigeLadder).then(function() {
   console.log('\n' + (failed === 0 ? '✅ Все тесты пройдены' : '❌ Провалов: ' + failed) + ' (' + passed + ' проверок)');
   process.exit(failed === 0 ? 0 : 1);
 }).catch(function(err) {

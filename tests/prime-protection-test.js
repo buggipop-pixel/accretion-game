@@ -492,11 +492,51 @@ function testInvasionCannotDamagePrime() {
   assert('Вторжение: офлайн-урон в Прайм-системе равен нулю', hit.dust === 0 && hit.energy === 0 && hit.civ === 0 && S.dust === dust);
 }
 
+// ★ Оплаченная сундуком премиум-система после Вспышки заменяет родную:
+//   имя, тип звезды/системы, планеты и Прайм-объект переходят в родную.
+async function testPremiumSystemBecomesHome() {
+  const g = createGame();
+  const S = g.S;
+  const prime = g.createPrimeSystem('blackHole');
+  const perfect = g.generatePerfectPrimeSystem(prime);
+  // Так же помечает систему оплаченный сундук (js/premium.js).
+  perfect.premium = true;
+  perfect.primeData = Object.assign({}, perfect.primeData, { premium: true });
+
+  S.stage = 'galaxy';
+  S.prestigeLevel = 0; S.galaxies = 1; S.galaxyMultiplier = 1;
+  S.systems = 2; S.totalSystemsCreated = 2;
+  S.primeSystem = null; S.activeSystemIdx = 0;
+  S.planets = planets();
+  S.systemName = 'Родная'; S.starType = 'K'; S.systemType = 'single';
+  S.otherSystems = [null, perfect];
+
+  const origRandom = Math.random;
+  Math.random = () => 0.5;
+  try {
+    g.performSupernova(1);
+    await wait(1800);
+  } finally {
+    Math.random = origRandom;
+  }
+
+  assert('Премиум: родная стала премиальной системой',
+    S.systemName === perfect.name && !!(S.primeSystem && S.primeSystem.premium),
+    S.systemName + ' / ' + JSON.stringify(S.primeSystem && S.primeSystem.objectKey));
+  assert('Премиум: планеты премиум-системы перенеслись в родную',
+    Array.isArray(S.planets) && S.planets.length === 8, String(S.planets.length));
+  assert('Премиум: звезда и тип системы взяты от премиум-системы',
+    S.starType === perfect.starType && S.systemType === perfect.systemType);
+  assert('Премиум: дубля среди Прайм-систем нет', countPrimes(S) === 0);
+  assert('Премиум: число систем сходится', S.systems === 1 + S.otherSystems.filter(Boolean).length, String(S.systems));
+}
+
 (async function run() {
   console.log('========================================');
   console.log('🧪 ТЕСТЫ ЗАЩИТЫ ПРАЙМ-СИСТЕМ');
   console.log('========================================');
   try {
+    await testPremiumSystemBecomesHome();
     await testPrestigeKeepsAllPrimes();
     await testPrestigeKeepsActiveHomePrime();
     await testPrestigeKeepsDuplicateChestPrimes();

@@ -162,6 +162,15 @@ function _systemRate(sys) {
 }
 window._systemRate = _systemRate;
 
+// ★ Премиальная (оплаченная сундуком) Прайм-система: после Вспышки
+//   занимает место родной. Метка живёт в primeData.premium, поэтому
+//   переживает слияние дублей и смену активной системы.
+function _isPremiumPrimeSystem(sys) {
+  if (!sys || typeof sys !== 'object') return false;
+  const data = sys.primeData || sys.primeSystem || null;
+  return !!(data && data.premium) || !!sys.premium;
+}
+
 // ─── Требования по системам для каждой сверхновой ───────────────
 // Лестница вспышек синхронизирована с макро-фазами: 10, 22, 35, 50…
 function prestigeRequirements() {
@@ -195,30 +204,11 @@ function prestigeRequirementFor(level) {
   return list[idx] || list[list.length - 1] || (PRESTIGE_CFG.firstRequirement || 5);
 }
 
-// ★ Макро-рубеж, на котором стоит игрок: 10 / 50 / 150, затем каждые 450.
-//   На этих рубежах Вспышка должна быть доступна даже тем, кто «пересидел»
-//   лестницу требований (старые сейвы с высоким prestigeLevel).
-function prestigeMilestoneFor(systems) {
-  const n = Math.max(0, Math.floor(Number(systems) || 0));
-  if (n >= 450) return Math.floor(n / 450) * 450;
-  if (n >= 150) return 150;
-  if (n >= 50) return 50;
-  if (n >= 10) return 10;
-  return 0;
-}
-
-// Догоняющее требование: рубеж, если обычное требование лестницы
-// для текущего уровня выше, чем системы. 0 — догоняющая не нужна.
-// Рубеж срабатывает один раз: после вспышки он запоминается
-// в S.prestigeCatchupMilestone и больше бесплатных вспышек не даёт.
-
-// Ступень лестницы: уровень вспышек минус догоняющие вспышки.
-// Догоняющая даёт уровень/множитель, но не сдвигает требование вперёд —
-// иначе после неё следующий порог прыгал бы через ступень.
+// ★ Строго: одна Вспышка — один уровень лестницы. Догоняющих Вспышек
+//   больше нет: порог всегда prestigeRequirementFor(prestigeLevel), и его
+//   видно в квестах. Уровень Вспышки равен ступени лестницы.
 function prestigeTierFor() {
-  const level = Math.max(0, Math.floor(Number(S.prestigeLevel) || 0));
-  const catchups = Math.min(level, Math.max(0, Math.floor(Number(S.prestigeCatchupCount) || 0)));
-  return Math.max(0, level - catchups);
+  return Math.max(0, Math.floor(Number(S.prestigeLevel) || 0));
 }
 // ★ Требование-пол: после Вспышки следующий порог не может быть ниже того,
 //   сколько систем было у игрока на её момент (плюс запас роста). Иначе на
@@ -240,25 +230,11 @@ function prestigeDestroyedTotal(systemsBefore, totalSystemsAfter) {
 }
 window.prestigeDestroyedTotal = prestigeDestroyedTotal;
 
-function prestigeCatchupNeed() {
-  const systems = Math.max(0, Number(S.systems) || 0);
-  const milestone = prestigeMilestoneFor(systems);
-  // Догоняющая только у крупных рубежей и только рядом с ними.
-  if (!milestone || milestone < 50) return 0;
-  if (systems > milestone * 1.2) return 0;
-  const used = Math.max(0, Number(S.prestigeCatchupMilestone) || 0);
-  if (used >= milestone) return 0;
-  // Требование-пол выше рубежа — рубеж уже пройден, а не «догоняется».
-  if (prestigeRequirementFloor() > milestone) return 0;
-  const base = prestigeRequirementFor(prestigeTierFor());
-  return base > systems ? milestone : 0;
-}
 
-// Требование, которое реально проверяет игра (с учётом догоняющей вспышки
-// и требования-пола после прошлой Вспышки).
+// Требование, которое реально проверяет игра (лестница + требование-пол
+// после прошлой Вспышки).
 function nextPrestigeRequirement() {
-  const catchup = prestigeCatchupNeed();
-  const base = catchup || prestigeRequirementFor(prestigeTierFor());
+  const base = prestigeRequirementFor(prestigeTierFor());
   return Math.max(base, prestigeRequirementFloor());
 }
 
@@ -299,7 +275,6 @@ function activateSupernova() {
     ? prestigeMultiplierFor(curLevel + 1)
     : curMult * (PRESTIGE_CFG.multiplierPerGalaxy || 1.3);
   const curForm = S.galaxyForm || 'spiral';
-  const nextForm = GALAXY_FORMS[(GALAXY_FORMS.indexOf(curForm) + 1) % GALAXY_FORMS.length];
 
   // Предпросмотр сохранения.
   // ★ Прайм-системы (в т.ч. ВСЕ системы из сундуков) сохраняются всегда
@@ -357,12 +332,8 @@ function activateSupernova() {
     ? '<div class="row-stat"><span>👑 Лучшая Прайм:</span><span>' + bestPrime.name +
       ' · ' + ((bestPrime.data && bestPrime.data.objectName) || bestPrime.data.objectKey || 'реликвия') + '</span></div>'
     : '';
-  const catchupNeed = (typeof prestigeCatchupNeed === 'function') ? prestigeCatchupNeed() : 0;
-  const catchupNote = catchupNeed
-    ? '<div class="row-stat"><span>⭐ Догоняющая:</span><span>на рубеже ' + catchupNeed + ' систем</span></div>'
-    : '';
   const tierNow = (typeof prestigeTierFor === 'function') ? prestigeTierFor() : (S.prestigeLevel || 0);
-  const nextTier = catchupNeed ? tierNow : (tierNow + 1);
+  const nextTier = tierNow + 1;
   const nextReq = (typeof prestigeRequirementFor === 'function')
     ? prestigeRequirementFor(nextTier) : 0;
   const nextReqPhase = (nextReq && typeof galaxyPhaseFor === 'function')
@@ -372,8 +343,7 @@ function activateSupernova() {
       <div class="row-stat"><span>Галактик:</span><span>${S.galaxies || 1} ➔ ${(S.galaxies || 1) + 1}</span></div>
       <div class="row-stat"><span>Множитель дохода:</span><span>×${curMult.toFixed(1)} ➔ ×${nextMult.toFixed(1)}</span></div>
       <div class="row-stat"><span>Следующая Вспышка:</span><span>${nextReq} систем${nextReqPhase ? ' · ' + nextReqPhase.title : ''}</span></div>
-      ${catchupNote}
-      <div class="row-stat"><span>Форма галактики:</span><span>${formNames[curForm]} ➔ ${formNames[nextForm]}</span></div>
+      <div class="row-stat"><span>Форма галактики:</span><span>${formNames[curForm]} ➔ случайная</span></div>
       <div class="row-stat"><span>Систем после:</span><span>${survivingMin}–${survivingMax} (родная + ${primeCount} прайм + ${keepRange.min}–${keepRange.max} обычных)</span></div>
       <div class="row-stat"><span>Потеряется:</span><span>${lostMin}–${lostMax} обычных</span></div>
       ${wormholeNote}
@@ -483,12 +453,39 @@ function performSupernova(level) {
     }
   }
 
+  // ★ Премиум-система идёт первой: дубль улучшит именно её, и она всё равно
+  //   станет родной после Вспышки.
+  for (let pi = 1; pi < primeSystems.length; pi++) {
+    if (_isPremiumPrimeSystem(primeSystems[pi])) {
+      primeSystems.unshift(primeSystems.splice(pi, 1)[0]);
+      break;
+    }
+  }
+
   // 2c. Дубли Прайм-объектов складываются в более редкий объект:
   //     две ЧД → Массивная ЧД → Сверхмассивная ЧД → Первичная ЧД;
   //     две Малые кротовые норы → Кротовая нора → Гигантская кротовая нора.
   //     Оплаченная система не сгорает — она переходит в улучшение.
   if (typeof mergeDuplicatePrimeSystems === 'function') {
     mergeDuplicatePrimeSystems(primeSystems);
+  }
+
+  // ★ Оплаченная премиум-система занимает место родной: её имя, тип звезды
+  //   и системы, планеты и Прайм-объект переходят в родную, а отдельной
+  //   записью она не сохраняется (иначе была бы дублем).
+  let premiumHome = null;
+  for (let pi = 0; pi < primeSystems.length; pi++) {
+    if (_isPremiumPrimeSystem(primeSystems[pi])) {
+      const src = primeSystems.splice(pi, 1)[0];
+      premiumHome = {
+        name: src.name || 'Родная',
+        starType: src.starType || 'G',
+        systemType: src.systemType || 'single',
+        planets: Array.isArray(src.planets) ? src.planets : [],
+        primeData: src.primeData || src.primeSystem || null
+      };
+      break;
+    }
   }
 
   // 2d. Лучшая Прайм-система — первой, чтобы попасть в otherSystems[1].
@@ -525,18 +522,7 @@ function performSupernova(level) {
   const oldCenterX = -oldPanX / oldZoom;
   const oldCenterY = -oldPanY / oldZoom;
 
-  // ★ Догоняющая вспышка: запоминаем рубеж, на котором она случилась,
-  //   чтобы он не давал бесконечные вспышки (см. prestigeCatchupNeed).
   const systemsNow = Math.max(0, Number(S.systems) || 0);
-  const milestoneNow = (typeof prestigeMilestoneFor === 'function') ? prestigeMilestoneFor(systemsNow) : 0;
-  const catchupMilestone = (typeof prestigeCatchupNeed === 'function') ? prestigeCatchupNeed() : 0;
-  const catchupCountNext = Math.max(0, Math.floor(Number(S.prestigeCatchupCount) || 0)) +
-    (catchupMilestone ? 1 : 0);
-  // ★ Любая вспышка закрывает все пройденные макро-рубежи, а не только тот,
-  //   у которого игрок стоит. Иначе вспышка на 225 систем оставляла рубеж 150
-  //   неотмеченным: если после неё выживало ≥150 систем, догоняющая Вспышка
-  //   на 150 становилась доступна сразу же (две вспышки почти подряд).
-  const markMilestone = Math.max(catchupMilestone || 0, milestoneNow || 0);
 
   // ★ Следующая Вспышка — только после реального роста империи.
   //   Пол = системы на момент вспышки × запас (1.2). При нормальной игре
@@ -554,7 +540,9 @@ function performSupernova(level) {
     galaxyMultiplier: (typeof prestigeMultiplierFor === 'function')
       ? prestigeMultiplierFor(level)
       : (S.galaxyMultiplier || 1) * (PRESTIGE_CFG.multiplierPerGalaxy || 1.3),
-    galaxyForm: GALAXY_FORMS[(GALAXY_FORMS.indexOf(S.galaxyForm || 'spiral') + 1) % GALAXY_FORMS.length],
+    galaxyForm: GALAXY_FORMS[Math.floor(Math.random() * GALAXY_FORMS.length)],
+    // ★ Новый сид раскладки: после Вспышки звёзды встают иначе.
+    galaxySeed: Math.floor(Math.random() * 1e9) + 1,
     achievements: S.achievements || [],
     singularities: (Number(S.singularities) || 0) + gainedSingularities,
     // ★ Космический след: координаты старого центра + 10 минут жизни.
@@ -591,8 +579,6 @@ function performSupernova(level) {
     shieldUntil: Math.max(0, Number(S.shieldUntil) || 0),
     techLevels: S.techLevels || { astro: 0, quantum: 0, cyber: 0, eng: 0 },
     prestigeLevel: level,
-    prestigeCatchupCount: catchupCountNext,
-    prestigeCatchupMilestone: Math.max(Number(S.prestigeCatchupMilestone) || 0, markMilestone || 0),
     prestigeRequirementFloor: requirementFloorNext,
     storageLevels: Object.assign({ dust: 1, energy: 1, civ: 1 }, S.storageLevels),
     storageProgress: Object.assign({ dust: 0, energy: 0, civ: 0 }, S.storageProgress),
@@ -602,6 +588,8 @@ function performSupernova(level) {
     //   Выжившие системы уже оплачены — их номер и есть новая нижняя граница.
     systemCostFloor: Math.max(0, kept.length),
     primeSystem: null,
+    // ★ Премиум-система (оплачена сундуком) занимает место родной.
+    premiumHome: premiumHome,
     primeCandidates: S.primeCandidates || [],
     seenLore: S.seenLore || [],
     seenMinigame: S.seenMinigame || {},
@@ -635,6 +623,15 @@ function performSupernova(level) {
     S.systemName  = 'Родная';
     S.activeSystemIdx = 0;
     S.systemIncomeBonus = 0;
+    // ★ Оплаченная премиум-система становится родной: имя, типы, планеты и Прайм.
+    if (keep.premiumHome) {
+      const ph = keep.premiumHome;
+      S.starType = ph.starType || S.starType;
+      S.systemType = ph.systemType || S.systemType;
+      S.planets = Array.isArray(ph.planets) ? ph.planets : [];
+      S.systemName = ph.name || S.systemName;
+      S.primeSystem = ph.primeData || null;
+    }
 
     S.otherSystems = [null];
     for (let i = 0; i < kept.length; i++) S.otherSystems.push(kept[i]);
@@ -801,8 +798,6 @@ function initPrestige() {
 window.prestigeRequirements = prestigeRequirements;
 window.prestigeRequirementFor = prestigeRequirementFor;
 window.checkPrestigeAvailability = checkPrestigeAvailability;
-window.prestigeMilestoneFor = prestigeMilestoneFor;
-window.prestigeCatchupNeed = prestigeCatchupNeed;
 window.nextPrestigeRequirement = nextPrestigeRequirement;
 window.prestigeTierFor = prestigeTierFor;
 window.activateSupernova = activateSupernova;

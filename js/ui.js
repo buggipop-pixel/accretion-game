@@ -728,15 +728,18 @@ function getQuests() {
       list.push({ title: '💥 Сделать Вспышку (Доступна)', cur: 1, max: 1 });
     } else if (prestigeNeed > 0) {
       list.push({
-        title: '💥 До следующей Вспышки (' + fmt(systems) + '/' + fmt(prestigeNeed) + ') · ' + ((S.prestigeLevel || 0) + 1) + '-я',
+        // ★ Счётчики живут в правой колонке (.q-progress), а не в заголовке:
+        //   иначе «(1800/2025)» дублировалось дважды в одной строке.
+        title: '💥 До следующей Вспышки · ' + ((S.prestigeLevel || 0) + 1) + '-я',
         cur: systems, max: prestigeNeed
       });
     }
 
     // ★ Квест макро-фазы в «штуках»: звёзды → созвездия → туманности → скопления.
     list.push({
-      title: '🌌 ' + phase.questTitle + ' · ' + fmt(phase.count) + '/' + fmt(phase.countMax) + ' ' + phase.countUnit,
-      cur: phase.count, max: phase.countMax
+      // ★ Как и у Вспышки, числа рисует правая колонка, единица — рядом с ними.
+      title: '🌌 ' + phase.questTitle,
+      cur: phase.count, max: phase.countMax, unit: phase.countUnit
     });
 
     if (systems < 2) {
@@ -1128,7 +1131,7 @@ function updateQuestPanel() {
       html += '<div class="quest-item">' +
         '<div class="quest-title' + (pct >= 100 ? ' quest-done' : '') + '">' +
           '<span>' + q.title + '</span>' +
-          '<span class="q-progress">' + fmt(q.cur) + ' / ' + fmt(q.max) + '</span>' +
+          '<span class="q-progress">' + questProgressText(q) + '</span>' +
         '</div>' +
         '<div class="quest-bar"><div style="width:' + pct + '%"></div></div>' +
       '</div>';
@@ -1150,7 +1153,7 @@ function updateQuestPanel() {
       if (bar) bar.style.width = pct + '%';
 
       const prog = items[i].querySelector('.q-progress');
-      if (prog) prog.textContent = fmt(q.cur) + ' / ' + fmt(q.max);
+      if (prog) prog.textContent = questProgressText(q);
 
       const titleRow = items[i].querySelector('.quest-title');
       if (titleRow) {
@@ -1160,6 +1163,12 @@ function updateQuestPanel() {
     }
   }
 }
+// ★ Счётчик квеста: числа + единица («0 / 3 скоплений»), без дубля в заголовке.
+function questProgressText(q) {
+  const text = fmt(q.cur) + ' / ' + fmt(q.max);
+  return q.unit ? text + ' ' + q.unit : text;
+}
+
 
 function triggerSupernovaFlash() {
   const flash = document.createElement('div');

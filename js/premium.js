@@ -429,6 +429,9 @@ function showChestResult(prime, opts) {
         bonus: nextObj.bonus, 
         absorbRadius: nextObj.absorbRadius 
       };
+      // ★ Оплаченный сундук: объект помечается премиальным и после Вспышки
+      //   становится родной системой (js/prestige.js).
+      if (!free) updatedData.premium = true;
       
       // Обновляем в зависимости от того, где нашли
       if (targetSysIdx === S.activeSystemIdx) {
@@ -449,6 +452,10 @@ function showChestResult(prime, opts) {
     const pay = Math.floor(sysCost * 0.5);
     if (pay > 0 && !free) S.dust = Math.max(0, (S.dust || 0) - pay);
     const newSys = generatePerfectPrimeSystem(prime);
+    if (!free && newSys) {
+      newSys.premium = true;
+      newSys.primeData = Object.assign({}, newSys.primeData, { premium: true });
+    }
     if (S.otherSystems.length === 0 || S.otherSystems[0] === undefined) S.otherSystems[0] = null;
     S.otherSystems.push(newSys);
     S.systems++;
@@ -468,6 +475,7 @@ function showChestResult(prime, opts) {
       <canvas id="chestCanvas" style="width:200px; height:200px; margin:0 auto;"></canvas>
       <div class="choice-name" style="color:#ffcc55; font-size:22px; margin-top:10px;" id="chestTitle">${isUpgrade ? 'Слияние!' : prime.objectName}</div>
       <div class="choice-desc" style="margin-top:4px;" id="chestDesc">${isUpgrade ? upgradeText : prime.name}</div>
+      ${(!free && !isUpgrade) ? '<div class="modal-sub" style="margin-top:6px; color:#7ee0a8;">После Вспышки эта система станет родной</div>' : ''}
     </div>
     <button class="stars-btn" onclick="document.getElementById('modal').classList.remove('show'); updateUI();">Отлично</button>
   `;

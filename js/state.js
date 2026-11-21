@@ -89,8 +89,12 @@ const S = {
   explosions: [],
   // ─── Престиж ───
   prestigeLevel: 0,
+  // ★ Устаревшие поля догоняющих Вспышек: всегда 0, нужны только для
+  //   чтения старых сейвов (миграция в loadGame).
   prestigeCatchupMilestone: 0,
   prestigeCatchupCount: 0,
+  // ★ Сид раскладки галактики: новый после каждой Вспышки.
+  galaxySeed: 1,
   // ★ Требование-пол после последней Вспышки: следующий престиж не может
   //   требовать меньше, чем империя была на момент Вспышки (с запасом).
   prestigeRequirementFloor: 0,
@@ -201,6 +205,8 @@ function resetStateValues() {
   S.invasions = []; S.lastInvasionCheck = 0;
   S.explosions = [];
   S.prestigeLevel = 0; S.galaxies = 1; S.galaxyForm = 'spiral';
+  S.galaxySeed = Math.floor(Math.random() * 1e9) + 1;
+  S.prestigeCatchupMilestone = 0; S.prestigeCatchupCount = 0;
   S.galaxyMultiplier = 1; S.achievements = [];
   S.galaxyZoomLevel = 4; S.galaxyFocus = null; S.galaxyManualLod = false; S.singularities = 0; S.cosmicTrail = null;
 
@@ -439,12 +445,12 @@ function saveGame() {
       
       // Престиж и ачивки
       prestigeLevel: S.prestigeLevel, galaxies: S.galaxies,
-      // ★ Догоняющая Вспышка и требование-пол обязаны переживать сейв/загрузку,
-      //   иначе после перезахода использованные рубежи снова становятся бесплатными.
-      prestigeCatchupMilestone: S.prestigeCatchupMilestone || 0,
-      prestigeCatchupCount: S.prestigeCatchupCount || 0,
+      // ★ Устаревшие поля догоняющих Вспышек: пишем 0 для совместимости.
+      prestigeCatchupMilestone: 0,
+      prestigeCatchupCount: 0,
       prestigeRequirementFloor: S.prestigeRequirementFloor || 0,
       galaxyForm: S.galaxyForm, galaxyMultiplier: S.galaxyMultiplier,
+      galaxySeed: S.galaxySeed || 1,
       achievements: S.achievements, unlockedAch: S.unlockedAch,
       galaxyZoomLevel: S.galaxyZoomLevel,
       singularities: S.singularities,
@@ -580,19 +586,15 @@ function loadGame() {
 
     // ─── 3. Престиж ───
     if (typeof S.prestigeLevel !== 'number') S.prestigeLevel = 0;
-    // ★ Макро-рубеж, на котором уже была догоняющая Вспышка (10/50/150/450…).
-    if (typeof S.prestigeCatchupMilestone !== 'number' || !isFinite(S.prestigeCatchupMilestone) || S.prestigeCatchupMilestone < 0) {
-      S.prestigeCatchupMilestone = 0;
-    } else {
-      S.prestigeCatchupMilestone = Math.floor(S.prestigeCatchupMilestone);
+    // ★ Догоняющих Вспышек больше нет: одна Вспышка — один уровень лестницы.
+    //   Старые сейвы, где уровень был надут догоняющими, приводим к лестнице:
+    //   вычитаем их из уровня и обнуляем поля (иначе порог прыгнул бы вперёд).
+    const _catchupsLegacy = Math.max(0, Math.floor(Number(S.prestigeCatchupCount) || 0));
+    if (_catchupsLegacy > 0) {
+      S.prestigeLevel = Math.max(0, Math.floor(Number(S.prestigeLevel) || 0) - _catchupsLegacy);
     }
-    // ★ Сколько догоняющих Вспышек уже было: они дают уровень,
-    //   но не сдвигают требование лестницы (см. prestigeTierFor).
-    if (typeof S.prestigeCatchupCount !== 'number' || !isFinite(S.prestigeCatchupCount) || S.prestigeCatchupCount < 0) {
-      S.prestigeCatchupCount = 0;
-    } else {
-      S.prestigeCatchupCount = Math.floor(S.prestigeCatchupCount);
-    }
+    S.prestigeCatchupCount = 0;
+    S.prestigeCatchupMilestone = 0;
     // ★ Требование-пол после Вспышки (0 — не задавалось, старые сейвы).
     if (typeof S.prestigeRequirementFloor !== 'number' || !isFinite(S.prestigeRequirementFloor) || S.prestigeRequirementFloor < 0) {
       S.prestigeRequirementFloor = 0;
@@ -601,6 +603,10 @@ function loadGame() {
     }
     if (typeof S.galaxies !== 'number') S.galaxies = 1;
     if (!S.galaxyForm) S.galaxyForm = 'spiral';
+    // ★ Сид раскладки: старые сейвы без него получают случайный однажды.
+    if (typeof S.galaxySeed !== 'number' || !isFinite(S.galaxySeed) || S.galaxySeed <= 0) {
+      S.galaxySeed = Math.floor(Math.random() * 1e9) + 1;
+    }
     if (typeof S.galaxyMultiplier !== 'number') S.galaxyMultiplier = 1;
     // ★ Кривая множителя престижа — единый источник истины.
     //   Старые сейвы приводим к ней в обе стороны: поднимаем сейвы со

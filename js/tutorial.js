@@ -203,7 +203,7 @@
       id: 'sys_fleet', ch: 'system', mode: 'action',
       when: function (s) { return s.stage === 'system' || s.stage === 'galaxy'; },
       title: '🚀 Построй флот',
-      sub: '⚙ Настройки → 🚀 Верфь. Купи первый перехватчик: корабли отбивают вторжения и несут потери.',
+      sub: '🚀 Верфь живёт в ⚙ Премиум магазине: купи первый перехватчик — корабли отбивают вторжения и несут потери.',
       target: '#settingsBtn',
       open: function () { if (typeof openShipyard === 'function') openShipyard(); },
       done: function (s) { return fleetTotal() > 0; }
@@ -212,7 +212,7 @@
       id: 'sys_defense', ch: 'system', mode: 'action',
       when: function (s) { return s.stage === 'system' || s.stage === 'galaxy'; },
       title: '🛡 Автоборона',
-      sub: '⚙ Настройки → 🛡 Активная оборона. Уровень 1+ даёт шанс отбить атаку ещё до высадки.',
+      sub: '🛡 Активная оборона включается в ⚙ Премиум магазине. Уровень 1+ даёт шанс отбить атаку ещё до высадки.',
       target: '#defenseChip',
       open: function () { if (typeof openNightMode === 'function') openNightMode(); },
       done: function (s) { return defenseLevel(s) >= 1; }
