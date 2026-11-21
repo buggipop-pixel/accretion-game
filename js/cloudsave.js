@@ -1279,7 +1279,27 @@ async function syncCloudOnStart() {
     const knownVersion = getCloudVersion();
     const serverVersion = cloudVersionFrom(json);
 
-    // ★ Миграционная защита: save долго падал с 400, локальный прогресс ушёл
+    // ★ Локальная Вспышка не может быть «старее» облака: prestigeLevel/galaxies
+    //   только растут. Если локально они выше — облако отстаёт (его version
+    //   мог поднять пассивный тик), и терять этот прогресс нельзя.
+    const localPrestigeNow = Number(localData && localData.prestigeLevel) || 0;
+    const cloudPrestigeNow = Number(cloudData.prestigeLevel) || 0;
+    const localGalaxiesNow = Number(localData && localData.galaxies) || 0;
+    const cloudGalaxiesNow = Number(cloudData.galaxies) || 0;
+    if (localData && (localPrestigeNow > cloudPrestigeNow || localGalaxiesNow > cloudGalaxiesNow)) {
+      console.log('[Sync] Локальная Вспышка новее облака — отправляем локальный прогресс.');
+      setCloudVersion(serverVersion); // база для CAS
+      const pushedLocal = await cloudSaveGame();
+      if (pushedLocal && pushedLocal.ok) {
+        if (typeof toast === 'function') toast('💾 Сохранено', 'Локальный прогресс новее облака и записан на сервер');
+        return true;
+      }
+      if (pushedLocal && pushedLocal.conflict === 'cloud-newer') return true;
+      if (pushedLocal && (pushedLocal.network === true || pushedLocal.status === 0)) scheduleNetworkRetry();
+      console.warn('[Sync] Локальный прогресс отправить не удалось — облако не применяем.');
+      return false;
+    }
+
     // вперёд, но версия сервера та же. Не откатываем игрока — отправляем локальный.
     if (serverVersion > 0 && serverVersion === knownVersion &&
         localData && localProgressIsAhead(localData, cloudData)) {
@@ -2011,6 +2031,19 @@ async function pollCloudVersion() {
     console.log('[Sync] Обнаружено обновление с другого устройства! v' + serverVersion);
 
     if (json.authoritative === true) window.__serverWallet = true;
+    // ★ То же на опросе: локальная Вспышка выше облачной — досылаем свой сейв,
+    //   а не откатываем игрока к более старой галактике.
+    const pollLocalPrestige = (typeof S !== 'undefined' && S) ? (Number(S.prestigeLevel) || 0) : 0;
+    const pollCloudPrestige = Number(json.data.prestigeLevel) || 0;
+    const pollLocalGalaxies = (typeof S !== 'undefined' && S) ? (Number(S.galaxies) || 0) : 0;
+    const pollCloudGalaxies = Number(json.data.galaxies) || 0;
+    if (pollLocalPrestige > pollCloudPrestige || pollLocalGalaxies > pollCloudGalaxies) {
+      console.log('[Sync] Опрос: локальная Вспышка новее — досылаем локальный сейв.');
+      setCloudVersion(serverVersion);
+      autoSaveToCloud(true);
+      return false;
+    }
+
     const applied = applyCloudSaveAuthoritative(json.data);
     if (applied) setCloudVersion(serverVersion);
     if (typeof toast === 'function') toast('☁️ Синхронизация', 'Прогресс обновлён с другого устройства');

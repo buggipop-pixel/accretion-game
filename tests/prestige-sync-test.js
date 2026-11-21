@@ -256,6 +256,57 @@ function settle() {
   assert('Закрытие: запрос с keepalive',
     !!(saveReq && saveReq.init && saveReq.init.keepalive === true),
     JSON.stringify(saveReq && saveReq.init && saveReq.init.keepalive));
+  // 7. Холодный старт: в облаке старая галактика, но version выше (пассивный тик).
+  //    Локальная Вспышка выше — прогресс не откатывается, а досылается.
+  const staleServer = makeServer();
+  staleServer.data = {
+    stage: 'galaxy', lastTick: 1700000000000, dust: 100,
+    prestigeLevel: 15, galaxies: 16, systems: 1064, totalSystemsCreated: 1064,
+    planets: [], otherSystems: [{}],
+  };
+  staleServer.version = 7;
+  const LocalNewer = makeDevice(staleServer, {
+    knownVersion: 6,
+    initialSave: {
+      stage: 'galaxy', lastTick: 1700000000000, dust: 200,
+      prestigeLevel: 16, galaxies: 17, systems: 1612, totalSystemsCreated: 1612,
+      planets: [{}], otherSystems: [{}, {}],
+    },
+  });
+  const localNewerSync = await LocalNewer.context.window.syncCloudOnStart();
+  assert('Локальная Вспышка новее: облако не применено',
+    LocalNewer.S.prestigeLevel === 16 && LocalNewer.S.galaxies === 17,
+    LocalNewer.S.prestigeLevel + '/' + LocalNewer.S.galaxies);
+  assert('Локальная Вспышка новее: сейв дослан на сервер',
+    staleServer.data.prestigeLevel === 16 && staleServer.data.galaxies === 17,
+    staleServer.data.prestigeLevel + '/' + staleServer.data.galaxies);
+  assert('Локальная Вспышка новее: синхронизация успешна', localNewerSync === true);
+
+  // 8. Опрос: облако «новее» по версии, но локальная галактика выше — не откатываем.
+  const pollServer = makeServer();
+  pollServer.data = {
+    stage: 'galaxy', lastTick: 1700000000000, dust: 100,
+    prestigeLevel: 15, galaxies: 16, systems: 1064, totalSystemsCreated: 1064,
+    planets: [], otherSystems: [{}],
+  };
+  pollServer.version = 9;
+  const PollDevice = makeDevice(pollServer, {
+    knownVersion: 8,
+    initialSave: {
+      stage: 'galaxy', lastTick: 1700000000000, dust: 200,
+      prestigeLevel: 16, galaxies: 17, systems: 1612, totalSystemsCreated: 1612,
+      planets: [{}], otherSystems: [{}, {}],
+    },
+  });
+  const pollResult = await PollDevice.context.window.pollCloudVersion();
+  await settle();
+  assert('Опрос: старая галактика не применена',
+    PollDevice.S.prestigeLevel === 16 && PollDevice.S.galaxies === 17,
+    PollDevice.S.prestigeLevel + '/' + PollDevice.S.galaxies);
+  assert('Опрос: локальный прогресс дослан',
+    pollServer.data.prestigeLevel === 16 && pollServer.writes >= 1,
+    pollServer.data.prestigeLevel + ' writes=' + pollServer.writes);
+  assert('Опрос: результат не «применено»', pollResult === false, String(pollResult));
 
   console.log('========================================');
   console.log(process.exitCode === 1 ? '❌ Есть падения' : '✅ Все проверки пройдены');
