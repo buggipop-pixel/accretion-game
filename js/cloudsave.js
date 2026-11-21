@@ -1235,11 +1235,26 @@ async function syncCloudOnStart() {
 
     console.log('[Sync] initData получен, длина:', initData.length);
     console.log('[Sync] Запрос облачного сейва...');
-    const res = await cloudFetch('/api/load', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData: initData }),
-    });
+    // ★ До 3 попыток: Render на free tier просыпается/отвечает медленно,
+    //   мобильная сеть даёт короткие обрывы. Раньше один сбой сразу
+    //   показывал «Сервер Render недоступен».
+    let res = null;
+    let lastLoadErr = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        res = await cloudFetch('/api/load', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ initData: initData }),
+        });
+        break;
+      } catch (loadErr) {
+        lastLoadErr = loadErr;
+        console.warn('[Sync] Загрузка не удалась (попытка ' + attempt + '/3):', loadErr);
+        if (attempt < 3) await new Promise(function (r) { setTimeout(r, attempt * 2000); });
+      }
+    }
+    if (!res) throw lastLoadErr || new Error('load failed');
 
     if (res.status === 401) {
       console.warn('[Sync] Сервер отклонил initData (401). Играем локально.');
@@ -1335,7 +1350,9 @@ async function syncCloudOnStart() {
     const localSnapshot = (typeof S !== 'undefined' && S && typeof S === 'object')
       ? S : localData;
     const mergedCloud = mergeOwnedProgress(localSnapshot, cloudData);
-    localStorage.setItem(getSaveKey(), JSON.stringify(mergedCloud));
+    // ★ Не роняем всю синхронизацию из-за квоты localStorage:
+    //   writeLocalSave() внутри с try/catch.
+    writeLocalSave(mergedCloud);
 
     if (typeof applyCloudSaveToRuntime === 'function') {
       applyCloudSaveToRuntime(mergedCloud);
@@ -1350,8 +1367,12 @@ async function syncCloudOnStart() {
     if (typeof toast === 'function') toast('☁️ Синхронизация', 'Прогресс загружен из облака');
     return true;
   } catch (e) {
-    console.warn('[CloudSave] Ошибка сети при загрузке:', e);
-    showCloudNotice('__cloudServerErrorShown', '⚠️ Ошибка', 'Сервер Render недоступен');
+    // ★ Показываем реальную причину, а не всегда «Render недоступен»:
+    //   так сразу видно, сеть это, таймаут или ошибка в коде.
+    const reason = (e && (e.message || e.name)) ? String(e.message || e.name) : 'unknown';
+    console.warn('[CloudSave] Ошибка синхронизации:', e);
+    showCloudNotice('__cloudServerErrorShown', '⚠️ Ошибка синхронизации',
+      'Сервер не ответил: ' + reason + '. Проверьте VPN и перезапустите игру.');
   } finally {
     syncCloudOnStart._running = false;
   }
