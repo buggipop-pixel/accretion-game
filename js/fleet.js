@@ -207,6 +207,21 @@ function fleetScreenPos(time) {
   return home;
 }
 
+// ★ Экранный радиус флагмана. На дальнем зуме большой галактики честный
+//   масштаб давал r ≈ 0.03 px — от флота оставался только бейдж «×N».
+//   Держим минимальный экранный размер, чтобы корабль был виден всегда.
+const FLEET_MIN_DRAW_RADIUS = 5;
+function fleetDrawRadius(total, z, stage) {
+  const baseR = Number(FLEET_CFG.flagshipBaseRadius) || 10;
+  const perShip = Number(FLEET_CFG.flagshipRadiusPerShip) || 0.15;
+  const maxR = Number(FLEET_CFG.flagshipMaxRadius) || 22;
+  const ships = Math.max(0, Number(total) || 0);
+  const scale = (stage === 'galaxy' ? 0.75 : 1) * (Number(z) || 1);
+  const raw = (baseR + Math.min(maxR - baseR, ships * perShip)) * scale;
+  return Math.max(FLEET_MIN_DRAW_RADIUS, raw);
+}
+window.fleetDrawRadius = fleetDrawRadius;
+
 function drawFleet(ctx, time) {
   // ★ Флагман виден всегда, пока в Верфи есть корабли: флот не надо
   //   активировать, он постоянно на службе.
@@ -219,11 +234,7 @@ function drawFleet(ctx, time) {
 
   const z = S.zoom || 1;
   const total = (typeof fleetShipTotal === 'function') ? fleetShipTotal() : 0;
-  const baseR = Number(FLEET_CFG.flagshipBaseRadius) || 10;
-  const perShip = Number(FLEET_CFG.flagshipRadiusPerShip) || 0.15;
-  const maxR = Number(FLEET_CFG.flagshipMaxRadius) || 22;
-  const scale = (S.stage === 'galaxy' ? 0.75 : 1) * z;
-  const r = (baseR + Math.min(maxR - baseR, total * perShip)) * scale;
+  const r = fleetDrawRadius(total, z, S.stage);
   const len = r * 3.6;
   const wid = r * 1.55;
   const tt = (typeof time === 'number' && isFinite(time)) ? time : 0;

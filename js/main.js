@@ -189,17 +189,27 @@ document.addEventListener('gesturechange', function(e) { e.preventDefault(); }, 
 // ─── Resize ─────────────────────────────────────────────────────
 function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, 2);
-  let realW = canvas.clientWidth, realH = canvas.clientHeight;
-  if (!realW || realW < 10) realW = window.innerWidth;
-  if (!realH || realH < 10) realH = window.innerHeight;
+  // ★ Меряем контейнер (#app), а не сам canvas. Раньше ниже выставлялись
+  //   инлайн width/height в px, поэтому canvas.clientWidth «залипал» на
+  //   старом размере: после разворота на весь экран игра рисовалась в
+  //   левой колонке шириной старого окна, а справа оставалась чернота.
+  const host = canvas.parentElement;
+  let realW = host ? host.clientWidth : 0;
+  let realH = host ? host.clientHeight : 0;
+  if (!realW || realW < 10) realW = window.innerWidth || 360;
+  if (!realH || realH < 10) realH = window.innerHeight || 640;
 
-  if (realW === W && realH === H && canvas.width > 0) return;
+  const bufW = Math.floor(realW * dpr);
+  const bufH = Math.floor(realH * dpr);
+  if (realW === W && realH === H && canvas.width === bufW && canvas.height === bufH) return;
 
   W = realW; H = realH;
-  canvas.width = Math.floor(W * dpr);
-  canvas.height = Math.floor(H * dpr);
-  canvas.style.width = W + 'px';
-  canvas.style.height = H + 'px';
+  canvas.width = bufW;
+  canvas.height = bufH;
+  // ★ CSS-размер задаёт style.css (#sky: width/height 100%). Инлайн-пиксели
+  //   здесь и были причиной бага: канвас больше не мог вырасти вместе с #app.
+  canvas.style.width = '';
+  canvas.style.height = '';
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   cx = W / 2; cy = H / 2;
   window.CANVAS_CX = cx; window.CANVAS_CY = cy;
@@ -211,6 +221,21 @@ function resize() {
   cachedBgGradient.addColorStop(1, '#02010a');
 }
 window.addEventListener('resize', resize);
+
+// ★ Следим за самим контейнером: fullscreen и Telegram меняют max-width #app
+//   без события resize окна, и canvas должен пересобраться в любом случае.
+if (typeof ResizeObserver === 'function' && canvas.parentElement) {
+  let _resizeRafPending = false;
+  const _canvasHostObserver = new ResizeObserver(function() {
+    if (_resizeRafPending) return;
+    _resizeRafPending = true;
+    requestAnimationFrame(function() {
+      _resizeRafPending = false;
+      resize();
+    });
+  });
+  _canvasHostObserver.observe(canvas.parentElement);
+}
 
 let orientationTimeout = null;
 window.addEventListener('orientationchange', function() {

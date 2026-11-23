@@ -477,6 +477,12 @@ try {
   assert('Полный экран: SDK Telegram загружается по верному пути', /@twa-dev\/sdk@8\.0\.2\/dist\/telegram-web-apps\.js/.test(html) && !/telegram-web-app\.js/.test(html));
   assert('Полный экран: кнопка подключена в ui.js', /getElementById\('fullscreenBtn'\)/.test(uiCode));
   assert('Полный экран: в main.js есть нативный Fullscreen API', /_nativeFullscreen/.test(mainCode) && /requestFullscreen\(/.test(mainCode));
+  const resizeStart = mainCode.indexOf('function resize()');
+  const resizeEnd = mainCode.indexOf("window.addEventListener('resize', resize)", resizeStart);
+  const resizeSrc = resizeStart >= 0 && resizeEnd > resizeStart ? mainCode.slice(resizeStart, resizeEnd) : '';
+  assert('Полный экран: canvas меряется по контейнеру, а не по своему стилю', /const host = canvas\.parentElement/.test(resizeSrc) && /host\.clientWidth/.test(resizeSrc) && !/let realW = canvas\.clientWidth/.test(resizeSrc));
+  assert('Полный экран: canvas не фиксирует CSS-размер в px', !/canvas\.style\.width\s*=\s*W/.test(resizeSrc) && /canvas\.style\.width\s*=\s*''/.test(resizeSrc));
+  assert('Полный экран: ResizeObserver пересобирает canvas при смене max-width', /ResizeObserver/.test(mainCode) && /observe\(canvas\.parentElement\)/.test(mainCode));
 } catch (e) {
   console.error('   fullscreen: ' + e.message);
   assert('Полный экран: кнопка ⛶ есть в верхнем HUD', false);

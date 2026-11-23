@@ -964,3 +964,16 @@
 - `tests/audio-test.js`, `tests/cloud-sync-test.js`, `tests/wallet-clamp-rollback-test.js`, `tests/daily-reward-test.js`, `tests/defense-levels-test.js`, `tests/game-core-test.js`, новые `tests/metal-vault-test.js` и `tests/prestige-protection-test.js`.
 
 **Проверка:** полный `test:all` — все наборы зелёные; визуально в браузере: экран «Хранилище металла», тап по металлам, звук «Выкл» переживает перезагрузку. Известный предсуществующий провал `tests/tutorial-test.js` (4 проверки глав VI–IX) воспроизводится на чистом HEAD и к этой сессии не относится.
+
+## Сессия: полный экран на компьютере и видимость флота
+
+**Задача:** (1) после разворота Telegram Desktop на весь экран поле игры оставалось колонкой старого размера — справа чернота; (2) на дальнем зуме большой галактики «пропал флот» — оставался только бейдж «×N».
+
+**Что сделано:**
+- `js/main.js` — `resize()` больше не меряет сам canvas: у `#sky` выставлялись инлайн `width/height` в px, из-за чего `canvas.clientWidth` навсегда залипал на размере до fullscreen. Теперь размер берётся из контейнера `#app`, буфер пересчитывается по `devicePixelRatio`, а CSS-размер остаётся `100%` из `style.css`. Добавлен `ResizeObserver` на `#app`: canvas пересобирается и при смене `max-width` (fullscreen/Telegram), даже без события `resize` окна.
+- `js/fleet.js` — `fleetDrawRadius()` с минимальным экранным радиусом 5 px: на дальнем зуме честный масштаб давал r ≈ 0.03 px. Теперь флагман виден в любой фазе и на любом зуме; логика боя и перелёта не тронута.
+- `index.html` + `js/config.js` — бамп версий `main.js`, `fleet.js`, `config.js` до `20261123a` и `GAME_BUILD = 2026-11-23`, чтобы Telegram WebView не держал старый код.
+- `tests/smoke-test.js` — 3 регресс-проверки: canvas меряется по контейнеру, не фиксирует CSS-размер в px, `ResizeObserver` подключён.
+- `tests/fleet-visual-test.js` — регресс на глубокий зум: радиус ≥ 4.5 px и `drawFleet` реально рисует.
+
+**Проверка:** полный `npm run test:all` — exit 0; в браузере canvas следует за `#app` (1280 → 420 → 1280), инлайн-размер пустой; при `S.zoom = 0.004` флагман с бейджем «×7» виден.

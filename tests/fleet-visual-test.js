@@ -193,6 +193,27 @@ function testFleetTravelAndCombat() {
   assert('Отрисовка флота: drawFleet не падает', true);
 }
 
+// ★ Регресс: на дальнем зуме большой галактики честный масштаб давал
+//   радиус меньше пикселя — от флота оставался только бейдж «×N».
+function testFleetVisibleOnDeepZoom() {
+  const g = createGame();
+  const S = prepare(g);
+  S.stage = 'galaxy';
+  S.zoom = 0.004;
+  S.totalSystemsCreated = 900;
+  S.fleet = { interceptor: 5, cruiser: 0, dreadnought: 0 };
+  S.fleetActive = true;
+
+  const r = g.fleetDrawRadius(5, 0.004, 'galaxy');
+  assert('Флот: на дальнем зуме корабль не схлопывается в точку', r >= 4.5 && r <= 40);
+
+  const ctx = makeCtx();
+  let arcs = 0;
+  ctx.arc = function () { arcs++; };
+  g.drawFleet(ctx, 30);
+  assert('Флот: рисуется в галактике на дальнем зуме', arcs > 0);
+}
+
 function testFleetDeactivatesWithDefense() {
   const g = createGame();
   const S = prepare(g);
@@ -355,6 +376,7 @@ function testFleetShotVisuals() {
   console.log('========================================');
   try {
     testFleetTravelAndCombat();
+    testFleetVisibleOnDeepZoom();
     testFleetShotVisuals();
     testFleetDeactivatesWithDefense();
     testShipCosts();
