@@ -97,10 +97,13 @@ try { console.log('[CloudSave] API base:', CLOUD_API); } catch (e) { /* ignore *
 
 // Автосинхронизация при старте и автосохранение в облако
 const CLOUD_AUTOSYNC = true;
-const CLOUD_AUTOSAVE_MS = 60 * 1000;
+// ★ Квота Upstash: каждый save = чтение старого сейва + запись нового
+//   (десятки-сотни КБ). На free-тарифе (10 GB трафика) частый автосейв
+//   выжигает лимит за неделю, поэтому интервал поднят до 2 минут.
+const CLOUD_AUTOSAVE_MS = 2 * 60 * 1000;
 // Сервер принимает не чаще 1 save / 5 c и не больше 300 в час.
-// 12.5 c — максимум 288 сохранений в час, поэтому 429 не появляется.
-const CLOUD_SAVE_MIN_INTERVAL_MS = 12500;
+// 25 c — максимум 144 сохранения в час, поэтому 429 не появляется.
+const CLOUD_SAVE_MIN_INTERVAL_MS = 25000;
 const CLOUD_SYNC_FLAG = 'accretion_cloud_synced';
 const CLOUD_RESET_FLAG = 'accretion_reset_pending';
 const CLOUD_VER_KEY = 'accretion_cloud_version';
@@ -2167,9 +2170,15 @@ async function syncLiveWorldOnReturn() {
 }
 window.syncLiveWorldOnReturn = syncLiveWorldOnReturn;
 
+// ★ 30-секундный poll читал ПОЛНЫЙ сейв из Upstash каждые полминуты —
+//   это главный пожиратель трафика (сотни МБ в сутки на игрока).
+//   Синхронизация с другого устройства остаётся, но раз в 3 минуты.
 setInterval(function() {
+  // ★ Свёрнутая вкладка не опрашивает сервер вовсе: при возврате
+  //   poll всё равно сработает по visibilitychange.
+  if (document.visibilityState !== 'visible') return;
   pollCloudVersion().catch(function() { /* сеть недоступна */ });
-}, 30000);
+}, 180000);
 
 // Вернулись в игру (переключили вкладку / свернули-развернули Telegram) —
 // сразу проверяем, не поиграли ли на другом устройстве.

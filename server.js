@@ -32,6 +32,9 @@ import {
 import { capabilityAudit, remainingCapabilityBudget, chestCapabilityValue } from './lib/capability.js';
 import { applyAdminWallet, adminCapabilityBonus, adminEntitlementPlan } from './lib/admin-trust.js';
 import { summarizeSave } from './lib/admin-summary.js';
+// ★ Сжатие облачных сейвов: JSON жмётся в 5–15 раз, и трафик Upstash
+//   (главный лимит free-тарифа) падает во столько же раз.
+import { isSaveKey, encodeSaveValue, decodeSaveValue } from './lib/save-codec.js';
 import { createFraudAlert, mergeFraudAlerts, alertsFromRecord, summarizeFraudAlerts } from './lib/fraud-alerts.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -51,9 +54,21 @@ const {
   PORT = 10000,
 } = process.env;
 
-if (!BOT_TOKEN || !UPSTASH_REDIS_REST_URL || !UPSTASH_REDIS_REST_TOKEN) {
+// ★ Нормализуем креды Upstash один раз: пробел/перевод строки при вставке в
+//   Render и лишний слэш в конце URL дают невнятные 401/403/404 от REST API.
+const REDIS_URL = String(UPSTASH_REDIS_REST_URL || '').trim().replace(/\/+$/, '');
+const REDIS_TOKEN = String(UPSTASH_REDIS_REST_TOKEN || '').trim();
+const REDIS_HOST = (() => {
+  try { return new URL(REDIS_URL).host; } catch (e) { return '(некорректный UPSTASH_REDIS_REST_URL)'; }
+})();
+
+if (!BOT_TOKEN || !REDIS_URL || !REDIS_TOKEN) {
   console.error('[FATAL] Не хватает переменных окружения');
   process.exit(1);
+}
+console.log('[redis] хост:', REDIS_HOST);
+if (REDIS_URL !== String(UPSTASH_REDIS_REST_URL || '') || REDIS_TOKEN !== String(UPSTASH_REDIS_REST_TOKEN || '')) {
+  console.warn('[redis] креды Upstash содержали пробелы/слэш в конце — нормализованы');
 }
 if (!WEBHOOK_SECRET) {
   console.warn('[WARN] WEBHOOK_SECRET не задан — вебхук оплаты будет отклонять все запросы (fail-closed)');
@@ -186,19 +201,30 @@ function playKeyboard(chatType) {
 // ─── Upstash Redis (REST) ───────────────────────────────────────
 // ★ Запись через командный API (POST-тело), а не через URL-путь /set/{key}/{value}:
 //   сейвы в сотни КБ/МБ (тысячи систем) не влезают в URL и молча терялись.
-async function redisSet(key, value) {
+// ★ Сейвы пишем сжатыми (lib/save-codec.js): JSON галактики жмётся в
+//   5–15 раз. Остальные ключи (кошелёк, присутствие, флаги) идут как есть —
+//   они маленькие, сжатие им ничего не даёт.
+function redisSetRaw(key, value) {
   // Один ретрай: сеть до Upstash иногда сбрасывает соединение (ECONNRESET).
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      await redisCommand('SET', key, value);
-      return true;
-    } catch (e) {
-      if (attempt === 0) { console.warn('[redisSet] повтор после ошибки:', e.message); continue; }
-      console.warn('[redisSet] ошибка записи:', e.message);
-      return false;
+  return (async function() {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await redisCommand('SET', key, value);
+        return true;
+      } catch (e) {
+        if (attempt === 0) { console.warn('[redisSet] повтор после ошибки:', e.message); continue; }
+        console.warn('[redisSet] ошибка записи:', e.message);
+        return false;
+      }
     }
-  }
-  return false;
+    return false;
+  })();
+}
+
+async function redisSet(key, value) {
+  if (!isSaveKey(key)) return redisSetRaw(key, value);
+  const stored = await encodeSaveValue(value);
+  return redisSetRaw(key, stored);
 }
 
 // ★ Атомарная запись с проверкой версии (CAS через Lua EVAL):
@@ -222,13 +248,26 @@ async function redisSetIfVersion(key, newValue, expectedVersion) {
     'return {1, tostring(curVersion + 1)}',
   ].join('\n');
 
+  // ★ Сейвы пишем сжатым конвертом: версия остаётся верхним полем,
+  //   поэтому Lua-скрипт выше читает её без распаковки.
+  const stored = isSaveKey(key) ? await encodeSaveValue(newValue) : newValue;
+
   try {
-    const r = await redisCommand('EVAL', script, '1', key, String(expectedVersion), newValue);
+    const r = await redisCommand('EVAL', script, '1', key, String(expectedVersion), stored);
     const arr = Array.isArray(r) ? r : [r];
     if (Number(arr[0]) === 1) {
       return { ok: true, conflict: false, failed: false, version: Number(arr[1]) || 0, currentRaw: null };
     }
-    return { ok: false, conflict: true, failed: false, version: Number(arr[1]) || 0, currentRaw: arr[2] || null };
+    // Конфликт: отдаём актуальный сейв в исходном (разжатом) виде.
+    let currentRaw = arr[2] || null;
+    if (isSaveKey(key) && currentRaw) {
+      try {
+        currentRaw = await decodeSaveValue(currentRaw);
+      } catch (e) {
+        console.warn('[redisSetIfVersion] текущий сейв повреждён:', e.message);
+      }
+    }
+    return { ok: false, conflict: true, failed: false, version: Number(arr[1]) || 0, currentRaw };
   } catch (e) {
     // EVAL может быть недоступен в старых окружениях — неатомарный откат:
     // перечитываем версию и пишем, только если она не изменилась.
@@ -239,7 +278,7 @@ async function redisSetIfVersion(key, newValue, expectedVersion) {
       if (curVer !== expectedVersion) {
         return { ok: false, conflict: true, failed: false, version: curVer, currentRaw: JSON.stringify(current) };
       }
-      const saved = await redisSet(key, newValue);
+      const saved = await redisSetRaw(key, stored);
       return { ok: saved, conflict: false, failed: !saved, version: expectedVersion + 1, currentRaw: null };
     } catch (e2) {
       console.warn('[redisSetIfVersion] откат не удался:', e2.message);
@@ -404,11 +443,38 @@ function trimNotifyText(raw, maxLen) {
   return cut + '…';
 }
 
+// ★ Upstash объясняет отказ в теле ответа (неверный токен, read-only токен,
+//   лимит команд). Раньше тело терялось и в админке всплывало только
+//   «Upstash HTTP 403» без причины — читаем ответ и прикладываем к ошибке.
+async function upstashErrorDetail(r) {
+  try {
+    const raw = await r.text();
+    const text = raw.slice(0, 300).replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.error) return String(parsed.error).slice(0, 300);
+    } catch (e) { /* не JSON — отдаём как есть */ }
+    return text;
+  } catch (e) {
+    return '';
+  }
+}
+
+// Человеческая подсказка к статусу: 401 — токен, 403 — права токена.
+function upstashHttpError(status, detail) {
+  let hint = '';
+  if (status === 401) hint = ' — токен неверный или отозван';
+  else if (status === 403) hint = ' — токен принят, но команда запрещена: обычно в env стоит Read-Only токен вместо основного';
+  return new Error(`Upstash HTTP ${status}${detail ? ': ' + detail : ''}${hint}`);
+}
+
 async function redisGet(key) {
-  const url = `${UPSTASH_REDIS_REST_URL}/get/${encodeURIComponent(key)}`;
-  const r = await fetch(url, { headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` } });
+  const url = `${REDIS_URL}/get/${encodeURIComponent(key)}`;
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${REDIS_TOKEN}` } });
   if (!r.ok) {
-    console.warn(`[redis] GET ${key} → HTTP ${r.status}`);
+    const detail = await upstashErrorDetail(r);
+    console.warn(`[redis] GET ${key} → ${upstashHttpError(r.status, detail).message}`);
     return null;
   }
   const data = await r.json();
@@ -420,17 +486,27 @@ async function redisGet(key) {
   if (result != null && typeof result !== 'string') {
     console.log(`[redis] GET ${key} вернул ${typeof result} — отдаю как есть`);
   }
+  // ★ Сейвы лежат сжатыми: разворачиваем прозрачно для всех читателей.
+  if (isSaveKey(key) && typeof result === 'string' && result.length > 0) {
+    try {
+      return await decodeSaveValue(result);
+    } catch (e) {
+      console.warn(`[redis] GET ${key} → ${e.message}`);
+      return null;
+    }
+  }
   return result;
 }
 
 // Удаление ключа (админке нужно сносить сейв и кошелёк игрока).
 // Upstash REST: одиночную команду можно отправить путём /del/{key}.
 async function redisDel(key) {
-  const url = `${UPSTASH_REDIS_REST_URL}/del/${encodeURIComponent(key)}`;
+  const url = `${REDIS_URL}/del/${encodeURIComponent(key)}`;
   try {
-    const r = await fetch(url, { headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` } });
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${REDIS_TOKEN}` } });
     if (!r.ok) {
-      console.warn(`[redis] DEL ${key} → HTTP ${r.status}`);
+      const detail = await upstashErrorDetail(r);
+      console.warn(`[redis] DEL ${key} → ${upstashHttpError(r.status, detail).message}`);
       return false;
     }
     const data = await r.json().catch(function() { return null; });
@@ -470,19 +546,34 @@ function accountResetResponse(res) {
 
 // Произвольная команда через REST (нужна для SCAN в админке).
 async function redisCommand(...args) {
-  const r = await fetch(UPSTASH_REDIS_REST_URL, {
+  const r = await fetch(REDIS_URL, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}`,
+      Authorization: `Bearer ${REDIS_TOKEN}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(args),
   });
-  if (!r.ok) throw new Error(`Upstash HTTP ${r.status}`);
+  if (!r.ok) throw upstashHttpError(r.status, await upstashErrorDetail(r));
   const data = await r.json();
   if (data && data.error) throw new Error(data.error);
   return data ? data.result : null;
 }
+
+// ★ Пинг на старте: отказ Upstash (401/403) сразу виден в логах Render, а не
+//   только когда упадут админка и облачные сохранения.
+async function probeUpstash() {
+  try {
+    const pong = await redisCommand('PING');
+    console.log('[redis] PING →', pong);
+    return true;
+  } catch (e) {
+    console.error('[redis] PING не прошёл:', e.message);
+    return false;
+  }
+}
+
+probeUpstash();
 
 async function redisScanAll(match, maxKeys = 500) {
   // ★ Set вместо includes: на большом количестве ключей O(n²) заметно
@@ -2034,6 +2125,35 @@ function makeAdminInvasionShips(count) {
   return ships;
 }
 
+// GET /admin/api/redis-health — почему Upstash отказывает (401/403/лимит).
+// Пишем пробный ключ: видно, что именно сломано — токен или права на запись.
+app.get('/admin/api/redis-health', adminGuard, async (req, res) => {
+  const out = { ok: false, host: REDIS_HOST, ping: null, write: null, read: null, error: null };
+  try {
+    out.ping = await redisCommand('PING');
+  } catch (e) {
+    out.error = e.message;
+    return res.status(503).json(out);
+  }
+  try {
+    const probeKey = `admin_probe:${Date.now()}`;
+    await redisCommand('SET', probeKey, '1', 'EX', '60');
+    out.write = 'ok';
+    await redisCommand('DEL', probeKey);
+  } catch (e) {
+    out.error = e.message;
+    return res.status(503).json(out);
+  }
+  try {
+    await redisGet('admin_probe:missing');
+    out.read = 'ok';
+  } catch (e) {
+    out.read = e.message;
+  }
+  out.ok = true;
+  res.json(out);
+});
+
 app.get('/admin/api/players', adminGuard, async (req, res) => {
   console.log(`[admin] GET /admin/api/players — ip=${req.ip} ua="${req.get('user-agent') || ''}"`);
   try {
@@ -2966,9 +3086,22 @@ function interactiveEventNotice(cfg) {
 //      инстанс засыпает, и без внешнего пинга cron не работает;
 //   3) один раз при старте (после пробуждения запросом).
 //
+// ★ КВОТА UPSTASH. Бесплатный тариф Upstash — 500k команд и 10 GB
+//   трафика в месяц, а один проход читает полноценные сейвы ВСЕХ
+//   игроков (десятки-сотни КБ каждый). Внутренний */10 и внешний */5
+//   вместе давали до 18 проходов в час и выжигали трафик за неделю.
+//   Теперь проход не чаще раза в 15 минут; всё это время cron/Worker
+//   лишь будят Render. PUSH_SCAN_MIN_INTERVAL_MS=0 — сканер выключен.
+const PUSH_SCAN_MIN_INTERVAL_MS = (() => {
+  const raw = process.env.PUSH_SCAN_MIN_INTERVAL_MS;
+  if (raw === undefined || raw === '') return 15 * 60 * 1000;
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.max(0, n) : 15 * 60 * 1000;
+})();
+let _lastPushScanAt = 0;
+//
 // ★ Распределённая блокировка: проходы из cron и Worker не должны
 //   накладываться и дублировать пуши.
-
 const PUSH_SCAN_LOCK_KEY = 'push_scan:lock';
 const PUSH_SCAN_LOCK_TTL_SEC = 600; // ★ проход может длиться >4 мин
 const PUSH_STATE_PREFIX = 'push_state:';
@@ -3030,9 +3163,16 @@ function computeStorageCaps(data) {
  * Один проход по сейвам. Возвращает статистику (для /internal/push-scan).
  * Никогда не бросает наружу: сбой одного игрока не рвёт весь проход.
  */
-async function runPushScan(source) {
+async function runPushScan(source, opts) {
   const startedAt = Date.now();
   if (!gameCore) return { ok: false, skipped: 'no-game-core' };
+  // ★ Троттлинг бюджета Upstash: cron и Worker будят Render, но тяжёлый
+  //   обход сейвов выполняется не чаще PUSH_SCAN_MIN_INTERVAL_MS.
+  if (PUSH_SCAN_MIN_INTERVAL_MS <= 0) return { ok: false, skipped: 'disabled' };
+  const sinceLast = startedAt - _lastPushScanAt;
+  if (!(opts && opts.force) && _lastPushScanAt > 0 && sinceLast < PUSH_SCAN_MIN_INTERVAL_MS) {
+    return { ok: false, skipped: 'throttle', nextInMs: PUSH_SCAN_MIN_INTERVAL_MS - sinceLast };
+  }
   if (_pushScanBusy) return { ok: false, skipped: 'busy' };
   _pushScanBusy = true;
   const locked = await acquirePushScanLock();
@@ -3040,6 +3180,7 @@ async function runPushScan(source) {
     _pushScanBusy = false;
     return { ok: false, skipped: 'locked' };
   }
+  _lastPushScanAt = startedAt;
 
   const stats = {
     ok: true, source: source || 'cron',
@@ -3272,7 +3413,9 @@ app.post('/internal/push-scan', (req, res) => {
   // Отвечаем сразу: холодный старт Render не должен держать Worker
   // в ожидании, а проход продолжается в фоне.
   res.status(202).json({ ok: true, started: true });
-  runPushScan('worker').catch((e) => console.error('[push-scan] worker:', e.message));
+  // ?force=1 — ручной прогон в обход троттлинга (отладка/админ).
+  const force = String(req.query.force || '') === '1';
+  runPushScan('worker', { force }).catch((e) => console.error('[push-scan] worker:', e.message));
 });
 
 // ─── Стартовый проход ──────────────────────────────────────────

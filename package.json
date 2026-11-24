@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node server.js",
-    "test": "node tests/smoke-test.js",
+    "test": "node tests/save-codec-test.js && node tests/smoke-test.js",
     "test:tutorial": "node tests/tutorial-test.js",
     "test:cloud": "node tests/cloud-sync-test.js",
     "test:prestige-sync": "node tests/prestige-sync-test.js",
@@ -34,6 +34,7 @@
     "test:invasion-hit": "node tests/invasion-hit-test.js",
     "test:admin": "node tests/admin-trust-test.js",
     "test:admin-summary": "node tests/admin-summary-test.js",
+    "test:save-codec": "node tests/save-codec-test.js",
     "test:push": "node tests/push-presence-test.js",
     "test:attack-notices": "node tests/attack-notices-test.js",
     "test:push-notices": "node tests/push-notices-test.js",

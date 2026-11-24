@@ -47,6 +47,11 @@ curl -X POST https://accretion-game.onrender.com/internal/push-scan \
 # 202 {"ok":true,"started":true}
 ```
 
+★ Cron `*/5` остаётся, чтобы будить Render, но сам обход сейвов сервер
+выполняет не чаще раза в 15 минут (`PUSH_SCAN_MIN_INTERVAL_MS`): каждый
+проход читает все сейвы и тратит трафик Upstash. Для ручного прогона в
+обход троттлинга — `?force=1`.
+
 Без `PUSH_CRON_SECRET` эндпоинт отвечает `503` (fail-closed), без
 правильного заголовка — `403`. Запуск защищён распределённой блокировкой
 `push_scan:lock`, поэтому cron и Worker не дублируют пуши.
