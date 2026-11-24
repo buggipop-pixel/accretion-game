@@ -2248,7 +2248,9 @@ try {
 loopFrame(now);
 // ★ Heartbeat офлайн-времени: пока цикл жив, время «идёт».
 //   Сохранение и автосейв не двигают lastTick, иначе ночь терялась бы.
-S.lastTick = Date.now();
+// ★ Пока живой тик за отсутствие в полёте, lastTick не двигаем:
+//   иначе автосейв/сервер сочтут, что игрок всё это время был в игре.
+if (!_awaySyncPending) S.lastTick = Date.now();
 } catch (e) {
 if (!window.__loopErrorAt || performance.now() - window.__loopErrorAt > 3000) {
 window.__loopErrorAt = performance.now();
@@ -2638,28 +2640,66 @@ function showOfflineReport(offline) {
 window.showOfflineReport = showOfflineReport;
 
 let _awayCatchUpBusy = false;
+let _awaySyncPending = false;   // живой тик сервера в полёте
+let _awayAnchorTick = 0;        // S.lastTick на момент ухода
+let _awayReturnAt = 0;          // момент возврата (граница локального досчёта)
 // ★ Досчитывает пропущенное время при возврате в открытую вкладку,
 //   пробуждении ПК или сворачивании Telegram. Вызывается из loopFrame
 //   и из событий visible/focus/pageshow.
 function catchUpAwayProgress() {
-  if (!window.__gameStarted || _awayCatchUpBusy) return null;
-  // ★ Живой мир: при доступном облаке прогресс и события считает сервер.
-  //   Локальный досчёт «отсутствия» и отчёт об офлайн-прогрессе не нужны.
-  if (typeof isCloudAvailable === 'function' && isCloudAvailable()) return null;
+  if (!window.__gameStarted || _awayCatchUpBusy || _awaySyncPending) return null;
   const now = Date.now();
   const last = Number(S.lastTick) || now;
   // ★ Тот же порог, что у applyOfflineProgress: не теряем 30–60 с.
   if (now - last < 30 * 1000) return null;
+
+  // ★ Живой мир: прогресс и события считает сервер, но только по запросу.
+  //   Обычный poll (peek) время не двигает, поэтому после отсутствия просим
+  //   живой тик — иначе свёрнутая игра «на паузе»: локальный RAF остановлен,
+  //   а сервер без запроса это время не проживает.
+  //   Если сервер недоступен (настоящий офлайн) — считаем локально.
+  if (typeof isCloudAvailable === 'function' && isCloudAvailable() &&
+      typeof syncLiveWorldOnReturn === 'function') {
+    _awaySyncPending = true;
+    _awayAnchorTick = last;
+    _awayReturnAt = now;
+    Promise.resolve(syncLiveWorldOnReturn()).then(function (result) {
+      _awaySyncPending = false;
+      if (!result || result.ok !== true) {
+        S.lastTick = _awayAnchorTick;
+        applyAwayProgressLocal(_awayAnchorTick, _awayReturnAt);
+      }
+    }).catch(function () {
+      _awaySyncPending = false;
+      S.lastTick = _awayAnchorTick;
+      applyAwayProgressLocal(_awayAnchorTick, _awayReturnAt);
+    });
+    return null;
+  }
+
+  return applyAwayProgressLocal(last, now);
+}
+
+// Локальный офлайн-досчёт: вне Telegram и как fallback, если сервер
+// не ответил. fromTick фиксируем до heartbeat игрового цикла.
+function applyAwayProgressLocal(fromTick, toTick) {
+  if (!window.__gameStarted || _awayCatchUpBusy) return null;
+  const now = Date.now();
+  const from = (typeof fromTick === 'number' && isFinite(fromTick)) ? fromTick : (Number(S.lastTick) || now);
+  const to = (typeof toTick === 'number' && isFinite(toTick)) ? toTick : now;
+  if (now - from < 30 * 1000) return null;
   _awayCatchUpBusy = true;
   let out = null;
   try {
-    out = (typeof applyOfflineProgress === 'function') ? applyOfflineProgress() : null;
+    out = (typeof applyOfflineProgress === 'function') ? applyOfflineProgress(from, to) : null;
   } catch (e) {
     console.warn('away catch-up failed', e);
-    S.lastTick = now;
   } finally {
     _awayCatchUpBusy = false;
   }
+  // ★ После сетевого таймаута lastTick не должен остаться в прошлом,
+  //   иначе следующий кадр снова запустит досчёт.
+  S.lastTick = now;
   if (out) {
     if (typeof showOfflineReport === 'function') showOfflineReport(out);
     if (typeof updateUI === 'function') updateUI();

@@ -2091,6 +2091,82 @@ async function pollCloudVersion() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  ЖИВОЙ ТИК ПРИ ВОЗВРАЩЕНИИ В ИГРУ
+//  Свёрнутый мини-апп / вкладка не тикает локально, а обычный poll
+//  (/api/load с peek:true) только читает версию и НЕ двигает мир.
+//  Поэтому после отсутствия просим сервер прожить это время (load без
+//  peek) и применяем свежий сейв. Если сервер недоступен (настоящий
+//  офлайн) — возвращаем offline:true, и main.js досчитывает локально.
+// ═══════════════════════════════════════════════════════════════
+let _liveReturnBusy = false;
+
+async function syncLiveWorldOnReturn() {
+  if (_liveReturnBusy) return { ok: false, busy: true };
+  if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+    return { ok: false, hidden: true };
+  }
+  if (isResetInProgress()) return { ok: false, skipped: true };
+  if (!isCloudAvailable()) return { ok: false, offline: true };
+  if (typeof S !== 'undefined' && S && S.activeMinigame) return { ok: false, skipped: true };
+  if (_cloudSaveInFlight > 0) return { ok: false, busy: true };
+  // ★ Неподтверждённый локальный прогресс не затираем: сначала отправим его.
+  if (isCloudDirty()) {
+    autoSaveToCloud(true);
+    return { ok: false, dirty: true };
+  }
+  const initData = getTgInitData();
+  if (!initData) return { ok: false, offline: true };
+  // Открытые модалки (эволюция, магазин) не перебиваем.
+  try {
+    const openModal = document.getElementById('modal');
+    if (openModal && openModal.classList.contains('show')) return { ok: false, skipped: true };
+  } catch (e) { /* DOM недоступен */ }
+
+  _liveReturnBusy = true;
+  let returnTimer = null;
+  try {
+    // ★ Свой короткий таймаут: в настоящем офлайне игрок не должен
+    //   ждать стандартные 20 с на каждый адрес API, пока включится fallback.
+    const reqOpts = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // Без peek: сервер должен тикнуть мир и сохранить результат.
+      body: JSON.stringify({ initData: initData }),
+    };
+    if (typeof AbortController === 'function') {
+      const ctrl = new AbortController();
+      reqOpts.signal = ctrl.signal;
+      returnTimer = setTimeout(function () {
+        try { ctrl.abort(); } catch (e) { /* ignore */ }
+      }, 6000);
+    }
+    const res = await cloudFetch('/api/load', reqOpts);
+    const json = await res.json().catch(function () { return null; });
+    if (!res.ok || !json || !json.ok) return { ok: false, server: true, status: res.status };
+    if (json.reset) return { ok: false, skipped: true };
+    if (!isValidCloudSave(json.data)) return { ok: false, server: true };
+
+    const serverVersion = cloudVersionFrom(json);
+    if (serverVersion <= getCloudVersion()) {
+      // Сервер не двигался — время уже учтено на этом устройстве.
+      return { ok: true, applied: false, version: serverVersion };
+    }
+
+    if (json.authoritative === true) window.__serverWallet = true;
+    const applied = applyCloudSaveAuthoritative(json.data);
+    if (applied) setCloudVersion(serverVersion);
+    return { ok: true, applied: !!applied, version: serverVersion };
+  } catch (e) {
+    console.warn('[Sync] живой тик при возврате не удался:', (e && e.message) || e);
+    return { ok: false, offline: true };
+  } finally {
+    if (returnTimer) clearTimeout(returnTimer);
+    _liveReturnBusy = false;
+  }
+}
+window.syncLiveWorldOnReturn = syncLiveWorldOnReturn;
+
 setInterval(function() {
   pollCloudVersion().catch(function() { /* сеть недоступна */ });
 }, 30000);

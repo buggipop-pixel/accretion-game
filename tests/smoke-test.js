@@ -488,6 +488,23 @@ try {
   assert('Полный экран: кнопка ⛶ есть в верхнем HUD', false);
 }
 
+// Тест 9: возврат из свёрнутого состояния не ставит игру на паузу
+try {
+  const mainCodeAway = fs.readFileSync(path.join(__dirname, '..', 'js/main.js'), 'utf8');
+  const cloudCodeAway = fs.readFileSync(path.join(__dirname, '..', 'js/cloudsave.js'), 'utf8');
+  assert('Офлайн-возврат: cloudsave просит живой тик мира без peek',
+    /async function syncLiveWorldOnReturn/.test(cloudCodeAway) &&
+    /body: JSON\.stringify\(\{ initData: initData \}\)/.test(cloudCodeAway));
+  assert('Офлайн-возврат: main.js вызывает живой тик и локальный fallback',
+    /syncLiveWorldOnReturn\(\)/.test(mainCodeAway) &&
+    /applyAwayProgressLocal\(_awayAnchorTick, _awayReturnAt\)/.test(mainCodeAway));
+  assert('Офлайн-возврат: heartbeat не съедает время в полёте',
+    /if \(!_awaySyncPending\) S\.lastTick = Date\.now\(\)/.test(mainCodeAway));
+} catch (e) {
+  console.error('   away-catchup: ' + e.message);
+  assert('Офлайн-возврат: cloudsave просит живой тик мира без peek', false);
+}
+
 console.log('========================================');
 console.log(`ИТОГО: Пройдено ${passed}, Провалено ${failed}`);
 if (failed > 0) process.exit(1); // Возвращаем ошибку, если есть провалы

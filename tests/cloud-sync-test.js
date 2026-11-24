@@ -83,8 +83,9 @@ function makeDevice(server, opts) {
   // Имитация жёсткого лимита Chrome/Telegram WebView на keepalive-тело.
   const keepaliveBodyLimit = typeof cfg.keepaliveBodyLimit === 'number'
     ? cfg.keepaliveBodyLimit : null;
-
   const fetchMock = async (url, init) => {
+    // ★ Имитация «настоящего офлайна»: ни один адрес API не отвечает.
+    if (cfg.networkDown) throw new TypeError('network down');
     const rawBody = init && init.body ? String(init.body) : '';
     if (keepaliveBodyLimit !== null && init && init.keepalive === true &&
         rawBody.length > keepaliveBodyLimit) {
@@ -626,6 +627,39 @@ function settle() {
   assert('Без серверного кошелька локальный бустер сохраняется',
     honestMerged.boosters && honestMerged.boosters.incomeUntil === 900000,
     JSON.stringify(honestMerged.boosters));
+
+  // ── 14. ☁️ Возврат в игру: просим у сервера живой тик (без peek) ──
+  // Симптом: свернул игру — прогресс «на паузе». Обычный poll (peek)
+  // только читает версию и НЕ двигает мир; нужен /api/load без peek.
+  const returnServer = makeServer();
+  returnServer.data = { stage: 'system', lastTick: 1700000000000, dust: 900 };
+  returnServer.saved_at = 1700000000000;
+  returnServer.version = 7;
+  const ReturnDev = makeDevice(returnServer, {
+    knownVersion: 6,
+    initialSave: { stage: 'system', lastTick: 1699990000000, dust: 100 },
+  });
+  const liveRes = await ReturnDev.context.window.syncLiveWorldOnReturn();
+  const liveReqs = returnServer.requests.filter((r) => r.url.endsWith('/api/load'));
+  const liveReq = liveReqs[liveReqs.length - 1];
+  assert('Возврат: запрошен живой тик без peek',
+    !!(liveReq && liveReq.body && liveReq.body.peek !== true),
+    liveReq ? JSON.stringify(liveReq.body) : 'нет запроса');
+  assert('Возврат: серверный сейв применён',
+    liveRes.ok === true && ReturnDev.S.dust === 900 && ReturnDev.S.lastTick > 0,
+    JSON.stringify(liveRes) + ' dust=' + ReturnDev.S.dust);
+  assert('Возврат: версия сервера сохранена',
+    ReturnDev.localStorage.getItem('accretion_cloud_version') === '7');
+
+  // 14б. Сервер недоступен (настоящий офлайн) — сигнал для локального досчёта
+  const Offline = makeDevice(makeServer(), {
+    networkDown: true,
+    initialSave: { stage: 'system', lastTick: 1699990000000, dust: 42 },
+  });
+  const offlineRes = await Offline.context.window.syncLiveWorldOnReturn();
+  assert('Возврат: сеть недоступна → offline для локального досчёта',
+    offlineRes.ok === false && offlineRes.offline === true,
+    JSON.stringify(offlineRes));
 
   console.log('========================================');
   console.log(process.exitCode === 1 ? '❌ Есть падения' : '✅ Все проверки пройдены');
