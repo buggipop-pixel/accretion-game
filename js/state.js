@@ -495,11 +495,12 @@ function saveGame(opts) {
         localStorage.removeItem('accretion_local_backup');
         localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
         retried = true;
+        console.warn('[Save] локальная запись: освободили резервную копию, сейв записан');
       } catch (e2) { /* места всё равно нет */ }
     }
     if (!retried) {
       ok = false;
-      console.warn('save error', e);
+      console.error('[Save] локальный сейв НЕ записан (квота localStorage):', e);
     }
   }
 

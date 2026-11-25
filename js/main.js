@@ -2547,12 +2547,25 @@ function finishCloudStart(applied) {
   //   ведёт сервер, поэтому локальные отчёты «Отсутствие: N ч» / «Офлайн-прогресс»
   //   не показываем и не отправляем — их присылает сервер.
   const cloudApplied = (window.__cloudSaveAppliedOnStart === true) || applied === true;
+  // ★ Именно «сервер прислал и мы применили его сейв». Если true — отчёты об
+  //   отсутствии присылает сервер (он тикнул мир). Если false — локальный
+  //   досчёт уже посчитал доход и мог отложить отчёт о вторжениях.
+  const cloudDataApplied = window.__cloudSaveAppliedOnStart === true;
   const cloudLive = (typeof isCloudAvailable === 'function' && isCloudAvailable());
   const hadDeferred = !!window.__deferredOfflineResult || window.__deferOfflineNotify === true;
   // ★ Синхронизация завершилась (успешно или нет) — разрешаем случайные события.
   window.__cloudStartSettled = true;
+  // ★ Вся информация о сейве — в диагностический лог (Настройки → Логи).
+  console.log('[Save] старт: sync=' + (applied === true ? 'ok' : 'нет') +
+    ', облако_применено=' + cloudDataApplied + ', telegram=' + cloudLive);
+  if (typeof window.logSaveState === 'function') window.logSaveState('boot');
   if (cloudApplied || cloudLive) {
-    window.__deferOfflineNotify = cloudLive;
+    // ★ Сервер недоступен/не ответил: отложенный отчёт о вторжениях показать
+    //   некому, иначе он молча терялся на всю сессию.
+    window.__deferOfflineNotify = cloudDataApplied;
+    if (!cloudDataApplied && typeof window.__flushDeferredOfflineNotify === 'function') {
+      window.__flushDeferredOfflineNotify();
+    }
     window.__deferredOfflineResult = null;
     window.__deferredOfflineReport = null;
     if (cloudApplied && typeof autoSaveToCloud === 'function') {

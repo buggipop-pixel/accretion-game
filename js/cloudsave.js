@@ -146,6 +146,7 @@ function isCloudDirty() {
   try { return localStorage.getItem(CLOUD_DIRTY_KEY) === '1'; } catch (e) { return false; }
 }
 
+
 // ─── Вспомогательные функции ────────────────────────────────────
 function getSaveKey() {
   try {
@@ -775,8 +776,9 @@ async function cloudSaveGame(options) {
       _cloudSaveInternal = false;
     }
     // ★ Если локальная запись упала (квота localStorage), не отправляем
-    //   старый снимок из localStorage как «текущий» и не снимаем dirty.
-    if (localOk === false) return { ok: false, error: 'local-save-failed' };
+    //   старый снимок из localStorage как «текущий»: ниже возьмём живой
+    //   снимок S (window.__lastSaveSnapshot), чтобы прогресс не потерялся
+    //   совсем — ни локально, ни в облаке.
 
     // ★ В режиме кошелька сначала сообщаем серверу о «прочем» доходе.
     if (window.__serverWallet) {
@@ -784,11 +786,16 @@ async function cloudSaveGame(options) {
     }
 
     let saveData = readLocalSave();
-    // ★ Если локальная запись упала (квота), шлём живой снимок S,
-    //   а не старый сейв из localStorage.
+    // ★ Если локальная запись упала (квота), шлём живой снимок S, а не
+    //   старый сейв из localStorage: облако остаётся единственной копией.
     if (localOk === false) {
       const live = (typeof window !== 'undefined' && window.__lastSaveSnapshot) || null;
-      if (live && typeof live === 'object') saveData = live;
+      if (live && typeof live === 'object') {
+        saveData = live;
+        console.warn('[CloudSave] локальный сейв не записался — отправляем живой снимок S');
+      } else {
+        return { ok: false, error: 'local-save-failed' };
+      }
     }
     if (!saveData) return { ok: false, error: 'no-save' };
 
@@ -815,6 +822,7 @@ async function cloudSaveGame(options) {
       // ★ Аудит «оплаченных возможностей» больше не откатывает прогресс:
       // планеты/системы и кошелёк остаются у игрока. Просто досылаем сейв.
       if (conflict && conflict.reason === 'capability') {
+        console.warn('[Save] 409: capability — досылаем свой сейв v' + serverVersion);
         setCloudVersion(serverVersion);
         scheduleCloudRetry(CLOUD_SAVE_MIN_INTERVAL_MS);
         return { ok: false, conflict: 'capability', version: serverVersion };
@@ -825,6 +833,7 @@ async function cloudSaveGame(options) {
       // а берём серверную версию как базу и досылаем свой сейв.
       const localNow = readLocalSave();
       if (isValidCloudSave(cloud) && localProgressIsAhead(localNow, cloud)) {
+        console.warn('[Save] 409: локальный сейв впереди облака — досылаем (база v' + serverVersion + ')');
         setCloudVersion(serverVersion); // наша база для досылки
         scheduleCloudRetry(CLOUD_SAVE_MIN_INTERVAL_MS);
         return { ok: false, conflict: 'local-ahead', version: serverVersion };
@@ -835,10 +844,11 @@ async function cloudSaveGame(options) {
         applyCloudSaveInternal(cloud);
         setCloudVersion(serverVersion);
         clearCloudDirty(); // приняли серверную версию — локальные изменения больше не висят
-        if (typeof toast === 'function') toast('☁️ Прогресс обновлён', 'Сейв новее с другого устройства');
+        console.warn('[Save] 409: облако новее — применено v' + serverVersion);
         return { ok: false, conflict: 'cloud-newer', saved_at: conflict.saved_at, version: serverVersion };
       }
 
+      console.warn('[Save] 409: конфликт не разрешён (v' + serverVersion + ')');
       return { ok: false, conflict: 'unresolved', version: serverVersion };
     }
 
@@ -902,6 +912,8 @@ async function cloudSaveGame(options) {
     _cloudNetworkFailStreak = 0; // успешная запись — ретраи больше не нужны
     // Чистый сейв после сброса успешно записан — снова разрешаем синхронизацию.
     try { sessionStorage.removeItem(CLOUD_RESET_SKIP_KEY); } catch (e) { /* ignore */ }
+    console.log('[Save] облако: сохранено v' + ((r && r.version) || '?') +
+      ', bytes=' + bodyBytes + ', keepalive=' + keepalive);
     return { ok: true, saved_at: r && r.saved_at, clamped: r && r.clamped };
   } catch (e) {
     const isNetwork = !e || typeof e.status !== 'number';
@@ -1006,11 +1018,6 @@ function autoSaveToCloud(force, useKeepalive, opts) {
         } else if (res.status === 0 || res.network === true) {
           // Сеть / отказ keepalive: прогресс остаётся локально, повторим.
           scheduleNetworkRetry();
-          // ★ Третий подряд сетевой сбой — игрок должен узнать, что прогресс
-          // пока не уходит в облако (иначе он молча играет «в офлайне»).
-          if (_cloudNetworkFailStreak === 3 && typeof toast === 'function') {
-            toast('☁️ Облако недоступно', 'Прогресс сохраняется только на этом устройстве. Проверьте сеть или VPN.');
-          }
         }
       }).catch(function() { /* сеть недоступна */ });
     }
@@ -1172,15 +1179,7 @@ async function syncCloudOnStart() {
     }
 
     if (!initData) {
-      if (launchedFromTelegram) {
-        console.warn('[Sync] Все еще нет initData. Возможно, скрипт Telegram не загрузился (блокировка РКН).');
-        showCloudNotice('__cloudTgErrorShown', '⚠️ Ошибка сети',
-          'Не удалось получить данные от Telegram. Проверьте VPN.');
-      } else {
-        console.warn('[Sync] Игра запущена вне Telegram. Облачная синхронизация отключена.');
-        showCloudNotice('__cloudBrowserWarned', '⚠️ Внимание',
-          'Вы играете в браузере. Прогресс не будет синхронизирован!');
-      }
+      console.warn('[Sync] Нет initData — синхронизация пропущена. Играем локально.');
       return false;
     }
 
@@ -1216,7 +1215,7 @@ async function syncCloudOnStart() {
         const pushed = await cloudSaveGame();
         if (pushed && pushed.ok) {
           _cloudPushFailStreak = 0;
-          if (typeof toast === 'function') toast('💾 Сохранено', 'Локальный прогресс отправлен в облако');
+          console.log('[Save] локальный прогресс отправлен в облако');
           return true;
         }
         if (pushed && pushed.conflict === 'cloud-newer') return true;
@@ -1231,21 +1230,12 @@ async function syncCloudOnStart() {
           _cloudPushFailStreak = (_cloudPushFailStreak || 0) + 1;
           console.warn('[Sync] сохранение отложено (попытка ' + _cloudPushFailStreak + ', статус ' + (pushed.status || 0) + ').');
           scheduleNetworkRetry();
-          if (_cloudPushFailStreak >= 3) {
-            // Сбой повторяется — сообщаем и подсказываем, где взять логи.
-            showCloudNotice('__cloudPushPersistShown', '⚠️ Синхронизация',
-              'Не удаётся сохранить прогресс (код ' + (pushed.status || 'сеть') + '). Прогресс остаётся на устройстве. Настройки → 📄 Логи.');
-          }
           return false;
         }
         if (pushed && pushed.status === 401) {
-          // Может протухнуть initData при очень долгой сессии — просим перезапуск.
-          showCloudNotice('__cloudAuthErrorShown', '⛔ Ошибка входа',
-            'Telegram отклонил данные. Перезапустите мини-приложение.');
+          // Может протухнуть initData при очень долгой сессии — просто играем локально.
           return false;
         }
-        showCloudNotice('__cloudPushErrorShown', '⚠️ Синхронизация',
-          'Не удалось сохранить прогресс' + (pushed && pushed.status ? ' (' + pushed.status + ')' : '') + '. Попробуйте ещё раз.');
         return false;
         }
       }
@@ -1276,8 +1266,6 @@ async function syncCloudOnStart() {
 
     if (res.status === 401) {
       console.warn('[Sync] Сервер отклонил initData (401). Играем локально.');
-      showCloudNotice('__cloudAuthErrorShown', '⛔ Ошибка входа',
-        'Telegram отклонил данные. Перезапустите мини-приложение.');
       return false;
     }
 
@@ -1324,7 +1312,6 @@ async function syncCloudOnStart() {
       setCloudVersion(serverVersion); // база для CAS
       const pushedLocal = await cloudSaveGame();
       if (pushedLocal && pushedLocal.ok) {
-        if (typeof toast === 'function') toast('💾 Сохранено', 'Локальный прогресс новее облака и записан на сервер');
         return true;
       }
       if (pushedLocal && pushedLocal.conflict === 'cloud-newer') return true;
@@ -1339,7 +1326,6 @@ async function syncCloudOnStart() {
       console.log('[Sync] Локальный прогресс выше облачного при той же версии — сохраняем локальный.');
       const pushed = await cloudSaveGame();
       if (pushed && pushed.ok) {
-        if (typeof toast === 'function') toast('💾 Сохранено', 'Локальный прогресс выше облачного и записан на сервер');
         return true;
       }
       if (pushed && pushed.conflict === 'cloud-newer') return true;
@@ -1382,15 +1368,14 @@ async function syncCloudOnStart() {
 
     // ★ Приняли серверную версию — старый локальный dirty больше не актуален.
     clearCloudDirty();
-    if (typeof toast === 'function') toast('☁️ Синхронизация', 'Прогресс загружен из облака');
+    console.log('[Save] облако применено при старте v' + (Number(json.version) || 0));
+    if (typeof window.logSaveState === 'function') window.logSaveState('boot-cloud');
     return true;
   } catch (e) {
-    // ★ Показываем реальную причину, а не всегда «Render недоступен»:
-    //   так сразу видно, сеть это, таймаут или ошибка в коде.
-    const reason = (e && (e.message || e.name)) ? String(e.message || e.name) : 'unknown';
+    // ★ Ошибка остаётся только в консоли/логах: игрок не должен знать,
+    //   что облако временно недоступно — игра продолжается на устройстве.
     console.warn('[CloudSave] Ошибка синхронизации:', e);
-    showCloudNotice('__cloudServerErrorShown', '⚠️ Ошибка синхронизации',
-      'Сервер не ответил: ' + reason + '. Проверьте VPN и перезапустите игру.');
+    if (typeof window.logSaveState === 'function') window.logSaveState('sync-error');
   } finally {
     syncCloudOnStart._running = false;
   }
@@ -1998,7 +1983,12 @@ function flushCloudOnHide() {
     _lastHideFlushAt = Date.now();
     // Локально пишем всегда: быстро и без сети.
     if (typeof saveGame === 'function') saveGame({ skipCloud: true });
-    if (!isCloudDirty()) return false;
+    if (!isCloudDirty()) {
+      console.debug('[Save] закрытие: локальный сейв записан, отправлять в облако нечего');
+      return false;
+    }
+    console.log('[Save] закрытие: keepalive-пуш в облако');
+    if (typeof window.logSaveState === 'function') window.logSaveState('hide');
     const p = cloudSaveGame({ keepalive: true });
     if (p && typeof p.then === 'function') p.catch(function() { /* сеть */ });
     _autoCloudLastAt = Date.now();
@@ -2084,8 +2074,10 @@ async function pollCloudVersion() {
     }
 
     const applied = applyCloudSaveAuthoritative(json.data);
-    if (applied) setCloudVersion(serverVersion);
-    if (typeof toast === 'function') toast('☁️ Синхронизация', 'Прогресс обновлён с другого устройства');
+    if (applied) {
+      setCloudVersion(serverVersion);
+      console.log('[Save] опрос: применено обновление с другого устройства v' + serverVersion);
+    }
     return applied !== false;
   } catch (e) {
     return false;

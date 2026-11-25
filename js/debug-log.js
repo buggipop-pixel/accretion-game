@@ -148,6 +148,32 @@
     ]);
   } catch (e) { /* ignore */ }
 
+  // ── 5б. Снимок состояния сейва ──────────────────────────────
+  // Вызывается из cloudsave/main в ключевые моменты (старт, закрытие,
+  // ошибка), чтобы в логе было видно, какая копия и где лежит.
+  function logSaveState(tag) {
+    const parts = [];
+    try {
+      const key = (typeof getSaveKey === 'function') ? getSaveKey() : 'accretion_v17';
+      let raw = null;
+      try { raw = localStorage.getItem(key); } catch (e) { /* ignore */ }
+      parts.push('local_bytes=' + (raw ? raw.length : 0));
+      if (typeof S !== 'undefined' && S) {
+        parts.push('stage=' + String(S.stage || '?'));
+        parts.push('dust=' + Math.floor(Number(S.dust) || 0));
+        parts.push('systems=' + (Number(S.totalSystemsCreated) || 0));
+        parts.push('lastTick_age=' + Math.max(0, Math.round((Date.now() - (Number(S.lastTick) || 0)) / 1000)) + 's');
+      }
+      parts.push('dirty=' + ((typeof isCloudDirty === 'function') ? isCloudDirty() : '?'));
+      parts.push('cloud_ver=' + ((typeof getCloudVersion === 'function') ? getCloudVersion() : '?'));
+      parts.push('telegram=' + ((typeof isCloudAvailable === 'function') ? isCloudAvailable() : '?'));
+      parts.push('backup=' + ((typeof getLocalBackupInfo === 'function' && getLocalBackupInfo()) ? 'yes' : 'no'));
+    } catch (e) {
+      parts.push('snapshot_error=' + ((e && e.message) || e));
+    }
+    push('save', [[String(tag || 'state')].concat(parts).join(' ')]);
+  }
+
   // ── 6. Публичный API ─────────────────────────────────────────
   function getCombinedLog() {
     persist();
@@ -205,5 +231,6 @@
   window.copyGameLog = copyLog;
   window.downloadGameLog = downloadLog;
   window.openDebugLog = openDebugLog;
-  window.__debugLog = { push: push, persist: persist, get: getCombinedLog };
+  window.logSaveState = logSaveState;
+  window.__debugLog = { push: push, persist: persist, get: getCombinedLog, saveState: logSaveState };
 })();

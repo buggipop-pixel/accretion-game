@@ -235,8 +235,8 @@ function settle() {
   assert('Браузер: локальный сейв не перетёрт облаком', Browser.S.dust === 42);
   assert('Браузер: ни одного запроса к серверу',
     browserServer.requests.length === 0);
-  assert('Браузер: показано предупреждение',
-    Browser.toasts.some((t) => String(t.message).indexOf('браузере') >= 0));
+  assert('Браузер: игроку НЕ сообщают про облако/локальный сейв',
+    Browser.toasts.length === 0);
 
   const brAuto = Browser.context.window.autoSaveToCloud(true);
   Browser.context.saveGame();
@@ -245,8 +245,8 @@ function settle() {
   assert('Браузер: saveGame() не создаёт фантомных сейвов',
     browserServer.requests.length === 0);
 
-  assert('Браузер: предупреждение показано один раз',
-    Browser.toasts.filter((t) => String(t.message).indexOf('браузере') >= 0).length === 1);
+  assert('Браузер: никаких повторных уведомлений о синхронизации',
+    Browser.toasts.length === 0);
 
   // 6в. initData появляется с задержкой — sync должен дождаться
   const delayedServer = makeServer();
@@ -293,8 +293,8 @@ function settle() {
   const brSdkSync = await BrowserSdk.context.window.syncCloudOnStart();
   assert('Браузер с загруженным SDK: облако не тронуто',
     brSdkSync === false && BrowserSdk.S.dust === 42 && browserSdkServer.requests.length === 0);
-  assert('Браузер с загруженным SDK: тост про браузер, а не VPN',
-    BrowserSdk.toasts.some((t) => String(t.message).indexOf('браузере') >= 0));
+  assert('Браузер с загруженным SDK: ни тоста про VPN, ни про браузер',
+    BrowserSdk.toasts.length === 0);
 
   // 6б. ★ После сброса два вызова syncCloudOnStart не должны вернуть старый сейв
   const resetServer = makeServer();
@@ -360,6 +360,18 @@ function settle() {
     rateRes.ok === false && rateRes.status === 429 && rateRes.retryAfter > 0);
   assert('save 429: dirty-флаг не сброшен',
     Rate.localStorage.getItem('accretion_cloud_dirty') === '1');
+
+  // 6е2б. ★ Переполненный localStorage: в облако уходит живой снимок S
+  const quotaServer = makeServer();
+  const Quota = makeDevice(quotaServer, {
+    initialSave: { stage: 'star', lastTick: 1, dust: 5 },
+  });
+  // Имитация квоты: локальная запись возвращает false.
+  vm.runInContext('function saveGame() { return false; }', Quota.context, { filename: 'quota-bridge.js' });
+  Quota.context.window.__lastSaveSnapshot = { stage: 'galaxy', lastTick: 2, dust: 31337 };
+  const quotaRes = await Quota.context.window.cloudSaveGame();
+  assert('квота: прогресс ушёл в облако из живого снимка',
+    quotaRes.ok === true && quotaServer.data && quotaServer.data.dust === 31337);
 
   // 6е3. ★ Троттлинг: два действия подряд не могут дать два save за секунду
   const throttleServer = makeServer();
